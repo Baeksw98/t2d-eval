@@ -47,19 +47,26 @@ AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별
 3. 저장소 **Settings → Pages → Build and deployment**: Source = *Deploy from a branch*, Branch = `main` / `/ (root)` → Save
 4. 1–2분 뒤 `https://<계정명>.github.io/t2d-eval/` 에서 접속 확인
 
-### 2-3. asclep.org 하위 도메인 연결 (예: `t2d-eval.asclep.org`)
+### 2-3. 도메인 연결: `eval.asclep.org` (Cloudflare)
 
-1. asclep.org 도메인을 관리하는 DNS 콘솔(가비아, Cloudflare, Route 53 등)에 레코드 추가
+asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonard/yolanda.ns.cloudflare.com`).
 
-   | 유형 | 이름(호스트) | 값 |
-   |---|---|---|
-   | CNAME | `t2d-eval` | `<GitHub 계정명 또는 조직명>.github.io` |
+1. https://dash.cloudflare.com 로그인 → 도메인 목록에서 **asclep.org** 선택
+2. 왼쪽 메뉴 **DNS → Records** → **Add record**
+3. 아래처럼 입력 후 **Save**
 
-2. GitHub 저장소 **Settings → Pages → Custom domain** 에 `t2d-eval.asclep.org` 입력 → Save
-3. DNS 확인이 끝나면(수 분~수 시간) **Enforce HTTPS** 체크
-4. 최종 주소: `https://t2d-eval.asclep.org`
+   | 항목 | 값 |
+   |---|---|
+   | Type | `CNAME` |
+   | Name | `eval` |
+   | Target | `<GitHub 계정 또는 조직명>.github.io` |
+   | Proxy status | **DNS only (회색 구름)** ← 주황색이면 GitHub이 HTTPS 인증서를 발급하지 못합니다 |
+   | TTL | Auto |
 
-> 하위 도메인 이름은 자유롭게 바꿀 수 있습니다 (`eval`, `t2d` 등). DNS 레코드 이름과 Custom domain 값만 맞추면 됩니다.
+4. GitHub 저장소 **Settings → Pages → Custom domain** 에 `eval.asclep.org` 가 들어가 있는지 확인 (저장소의 `CNAME` 파일로 자동 설정됨) → DNS check 통과 후 **Enforce HTTPS** 체크
+5. 최종 주소: `https://eval.asclep.org`
+
+> 하위 도메인을 바꾸려면 Cloudflare 레코드 이름, 저장소의 `CNAME` 파일, Pages의 Custom domain 세 곳을 같은 값으로 맞추면 됩니다.
 
 ---
 
@@ -67,8 +74,8 @@ AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별
 
 | 용도 | 주소 |
 |---|---|
-| 실제 평가 | `https://t2d-eval.asclep.org/` |
-| 시험 응답 (분석에서 자동 제외) | `https://t2d-eval.asclep.org/?test=1` |
+| 실제 평가 | `https://eval.asclep.org/` |
+| 시험 응답 (분석에서 자동 제외) | `https://eval.asclep.org/?test=1` |
 | 기기에 저장된 진행 상황 초기화 | `…/?reset=1` |
 
 - 평가자가 창을 닫아도 **같은 기기·브라우저**에서 다시 열면 이어서 진행됩니다.
