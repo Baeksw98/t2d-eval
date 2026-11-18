@@ -2,9 +2,12 @@
 
 AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별로 **"임상 결정에 유의미한 참고가 되는지"**를 5점 척도로 평가하는 웹 설문입니다. 모바일·데스크톱 모두 지원합니다.
 
-- 평가 대상: 가상 환자 2명(P051, P011) × AI 2종(DeepSeek-V4.1-Flash, GPT-6.1 Sol) = **AI 답변 4건**
+- 평가 대상: 가상 환자 2명(P051, P011) × AI 2종(DeepSeek-V4.1-Flash, GPT-6.1 Sol) = AI 답변 4건을 **Type A / Type B 로 2건씩** 나눔
+  - Type A: P051·DeepSeek + P011·GPT / Type B: P011·DeepSeek + P051·GPT (각 Type 에 두 환자·두 모델이 한 번씩)
+  - 평가자가 시작 화면에서 Type 을 고름 (링크에 `?type=A` / `?type=B` 를 붙이면 미리 선택). 완료 후 같은 정보로 다른 Type 이어서 평가 가능
+- 평가자 정보: 성명 + 직군(인턴 / 레지던트 → 년차 R1–R3 / 전문의 → 주 분야). 직군·항목은 `config.js` 의 `EVALUATOR_ROLES` 에서 추가·수정
 - 블라인드: 평가자에게 모델명을 보여주지 않음
-- 제시 순서: 4×4 Latin square(`config.js`의 `SEQUENCES`). 서버가 응답이 들어온 세션 수가 가장 적은 순서부터 배정
+- 제시 순서: Type 안에서 두 순서를 서버가 균형 배정 (응답이 들어온 세션 수가 적은 순서부터)
 - 케이스 흐름: 환자 정보 → Phase 1 평가 → 선호 조합 1개 선택 → (선택 조합 기준) Phase 2·3·4·5 평가 → 자유 의견(선택)
 - 마지막: 전체 의견(선택) → 제출
 - 문항 문구: 논문 Delphi 확정 문구 ("…에 유의미한 참고가 된다"), 1 전혀 그렇지 않다 ~ 5 매우 그렇다
@@ -38,6 +41,8 @@ AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별
 7. `config.js` 의 `ENDPOINT: ''` 따옴표 안에 URL을 붙여넣기
 
 > 코드를 수정한 뒤에는 **배포 → 배포 관리 → 편집(연필) → 버전: 새 버전 → 배포** 로 갱신해야 같은 URL에 반영됩니다.
+> 액세스 권한은 반드시 **모든 사용자(Anyone)** 여야 합니다. "Google 계정이 있는 모든 사용자"나 "asclep.org 내 사용자"로 두면 평가자 브라우저가 Google 로그인으로 막혀 응답이 저장되지 않습니다.
+> 이 옵션이 보이지 않으면 Google Workspace 관리 콘솔에서 Drive 외부 공유가 막혀 있는 경우입니다(관리자에게 외부 공유 허용 요청 또는 개인 Gmail 계정으로 시트·스크립트 생성).
 
 ### 2-2. 사이트 호스팅: GitHub Pages
 
@@ -75,6 +80,8 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 | 용도 | 주소 |
 |---|---|
 | 실제 평가 | `https://eval.asclep.org/` |
+| Type A 로 바로 안내 | `https://eval.asclep.org/?type=A` |
+| Type B 로 바로 안내 | `https://eval.asclep.org/?type=B` |
 | 시험 응답 (분석에서 자동 제외) | `https://eval.asclep.org/?test=1` |
 | 기기에 저장된 진행 상황 초기화 | `…/?reset=1` |
 
@@ -91,9 +98,9 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 
 | 시트 | 1행 단위 | 주요 컬럼 |
 |---|---|---|
-| **Responses** | 평가자 × AI 답변(케이스) | 성명, 년차, 제시 순서, 환자, 모델, `P1_Referral`, `ComboChoice`(1–3), `ComboIsAIFirst`, `P2`–`P5` 점수, 케이스 의견, 단계별 소요 시간(초), 첫 응답까지 시간(TTFR), 점수 변경 횟수, 스크롤 도달률(%), 단계 재방문 수, 환자 정보 열람 횟수·시간 |
+| **Responses** | 평가자 × AI 답변(케이스) | 성명, 직군(`EvaluatorRole`), 직군 상세(`EvaluatorDetail`, 예: 레지던트 · R2 / 전문의 · 내분비대사내과), `Eval_year`·`Eval_specialty`, `StudyType`(A/B), 제시 순서, 환자, 모델, `P1_Referral`, `ComboChoice`(1–3), `ComboIsAIFirst`, `P2`–`P5` 점수, 케이스 의견, 단계별 소요 시간(초), 첫 응답까지 시간(TTFR), 점수 변경 횟수, 스크롤 도달률(%), 단계 재방문 수, 환자 정보 열람 횟수·시간 |
 | **PhaseLong** | 평가자 × 케이스 × Phase | 점수, 4점 이상 여부(`Acceptable_4plus`), 체류 시간(`VisibleSec`, `ActiveOnlySec`), 첫 응답까지 시간, 변경 횟수 — CVI·혼합모형 분석용 long format |
-| **Sessions** | 평가자 1명 | 상태(started/in_progress/completed), 시작·종료 시각, **총 평가 시간(분)**, 비활성(idle)·백그라운드(hidden) 시간, 재접속 횟수, 전체 의견, 기기 종류·화면 크기·브라우저 |
+| **Sessions** | 평가 세션 1건 (Type 1개) | 직군·Type, 이어서 평가한 경우 이전 세션(`LinkedSessionId`), 상태(started/in_progress/completed), 시작·종료 시각, **총 평가 시간(분)**, 비활성(idle)·백그라운드(hidden) 시간, 재접속 횟수, 전체 의견, 기기 종류·화면 크기·브라우저 |
 | **RawJSON** | 수신 요청 1건 | 원문 JSON, 서버 처리 시간(ms), 오류 메시지 (감사 추적용) |
 | **Summary** | — | 메뉴 **📊 임상 수용성 평가 → 요약 통계 갱신** 실행 시 생성 |
 
@@ -110,6 +117,8 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 1. 모델 × Phase: n, 평균, SD, 중앙값, 1–5점 분포, **I-CVI(4점 이상 비율)**, 모델별 **S-CVI/Ave**
 2. 답변별 선호 조합 분포와 **AI 1순위 조합 선택률**
 3. 모델별 케이스 소요 시간(중앙값·평균)과 단계별 평균 체류 시간
+4. 평가자 구성 (직군 · 세부 · Type 별 인원)
+5. 직군별 Phase I-CVI
 
 ---
 

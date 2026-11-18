@@ -164,6 +164,7 @@ p { margin: 0; }
 
 .field { display: grid; gap: 6px; }
 .field + .field { margin-top: 14px; }
+#roleFields > .field, #roleFields + .field { margin-top: 14px; }
 .field label, .field .label { font-weight: 700; font-size: 14.5px; color: var(--navy); }
 .field .req { color: var(--orange-ink); margin-left: 2px; }
 .input {

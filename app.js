@@ -4,7 +4,7 @@
 
   var CFG = window.T2D_CONFIG;
   var DATA = window.T2D_DATA;
-  var STORE_KEY = 't2d-ca:' + CFG.STUDY_ID + ':v1';
+  var STORE_KEY = 't2d-ca:' + CFG.STUDY_ID + ':v2';
   var IDLE_MS = 180000;          // 3분 이상 조작이 없으면 idle 로 분류
   var START_TIMEOUT_MS = 15000;  // 순서 배정 요청 대기 한도 (Apps Script 첫 호출 지연 고려)
   var POST_TIMEOUT_MS = 30000;
@@ -67,8 +67,14 @@
     vignette: '환자 정보', p1: 'Phase 1', combo: '조합 선택', p2: 'Phase 2', p3: 'Phase 3',
     p4: 'Phase 4', p5: 'Phase 5', comment: '의견'
   };
-  var N_CASES = CFG.SEQUENCES[0].length;
-  var TOTAL_STEPS = N_CASES * STEPS.length;
+  var ROLES = CFG.EVALUATOR_ROLES;
+  var TYPES = CFG.STUDY_TYPES;
+  function roleById(id) { for (var i = 0; i < ROLES.length; i++) if (ROLES[i].id === id) return ROLES[i]; return null; }
+  function typeById(id) { for (var i = 0; i < TYPES.length; i++) if (TYPES[i].id === id) return TYPES[i]; return null; }
+  var URL_TYPE = typeById(String(params.get('type') || '').toUpperCase()) ? String(params.get('type')).toUpperCase() : '';
+  function nCases() { return (S && S.order) ? S.order.length : 2; }
+  function totalSteps() { return nCases() * STEPS.length; }
+  function typeSeqs() { var t = S && typeById(S.study_type); return t ? t.sequences : TYPES[0].sequences; }
 
   // ---------------------------------------------------------------------------
   // DOM
@@ -149,7 +155,7 @@
     };
   }
 
-  function newState(name, year) {
+  function newState(evaluator, studyType, linkedSession) {
     return {
       v: 1,
       study_id: CFG.STUDY_ID,
@@ -157,7 +163,9 @@
       data_version: DATA.data_version,
       session_id: uuid(),
       is_test: URL_TEST || !CFG.ENDPOINT,
-      evaluator: { name: name, year: year },
+      evaluator: evaluator,
+      study_type: studyType,
+      linked_session_id: linkedSession || null,
       created_at: nowIso(),
       started_at: null, finished_at: null,
       screen: 'intro',
@@ -238,7 +246,40 @@
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 400); }
 
   // Intro draft (before a session exists)
-  var draft = { name: '', year: '', consent: false, introBucket: emptyBucket() };
+  function emptyDraft() {
+    return { name: '', role: '', fields: {}, other: {}, type: URL_TYPE, consent: false, linked: null, done_types: [], introBucket: emptyBucket() };
+  }
+  var draft = emptyDraft();
+
+  // 평가자 정보 → 저장용 객체 (직군·추가 항목은 config.EVALUATOR_ROLES 기준)
+  function buildEvaluator() {
+    var role = roleById(draft.role);
+    var fields = {}, parts = [role.label];
+    role.fields.forEach(function (f) {
+      var v = String(draft.fields[f.id] || '').trim();
+      if (f.other && v === f.other) v = '기타: ' + String(draft.other[f.id] || '').trim();
+      fields[f.id] = v;
+      if (v) parts.push(v);
+    });
+    return {
+      name: draft.name.trim(), role: role.id, role_label: role.label, fields: fields,
+      detail: parts.join(' · '),
+      year: fields.year || ''   // 이전 버전 시트의 ResidentYear 컬럼 호환
+    };
+  }
+  function draftError() {
+    if (!draft.name.trim()) return '성명을 입력해 주세요.';
+    var role = roleById(draft.role);
+    if (!role) return '직군(인턴·레지던트·전문의)을 선택해 주세요.';
+    for (var i = 0; i < role.fields.length; i++) {
+      var f = role.fields[i], v = String(draft.fields[f.id] || '').trim();
+      if (f.required && !v) return f.label + '을(를) 선택해 주세요.';
+      if (f.other && v === f.other && !String(draft.other[f.id] || '').trim()) return f.label + '을(를) 직접 입력해 주세요.';
+    }
+    if (!typeById(draft.type)) return '평가 유형(Type)을 선택해 주세요.';
+    if (!draft.consent) return '안내 사항 확인에 체크해 주세요.';
+    return '';
+  }
 
   var S = load();
   if (S) lastRev = S.rev || 0;
@@ -341,9 +382,9 @@
       action: action, msg_id: uuid(), client_time: nowIso(),
       study_id: S.study_id, app_version: S.app_version, data_version: S.data_version,
       session_id: S.session_id, is_test: S.is_test,
-      evaluator: S.evaluator,
+      evaluator: S.evaluator, study_type: S.study_type, linked_session_id: S.linked_session_id,
       sequence_index: S.seq_index, seq_source: S.seq_source, order: S.order,
-      n_sequences: CFG.SEQUENCES.length
+      n_sequences: typeSeqs().length
     };
   }
 
@@ -460,13 +501,12 @@
   var starting = false;
   function startSession() {
     if (starting) return;
-    var name = draft.name.trim();
-    if (!name) { toast('성명을 입력해 주세요.'); $('evName') && $('evName').focus(); return; }
-    if (!draft.year) { toast('레지던트 년차를 선택해 주세요.'); return; }
-    if (!draft.consent) { toast('안내 사항 확인에 체크해 주세요.'); return; }
+    var err = draftError();
+    if (err) { toast(err); if (!draft.name.trim() && $('evName')) $('evName').focus(); return; }
     tick();
     starting = true;
-    S = newState(name, draft.year);
+    S = newState(buildEvaluator(), draft.type, draft.linked);
+    S.done_types = draft.done_types || [];
     S.metrics.intro = draft.introBucket;
     S.metrics.active_ms += draft.introBucket.active_ms;
     S.metrics.idle_ms += draft.introBucket.idle_ms;
@@ -478,7 +518,7 @@
     var finish = function (seq, source) {
       S.seq_index = seq;
       S.seq_source = source;
-      S.order = CFG.SEQUENCES[seq].slice();
+      S.order = typeSeqs()[seq].slice();
       S.cases = initCases(S.order);
       S.screen = 'case'; S.caseIdx = 0; S.stepIdx = 0;
       starting = false;
@@ -490,25 +530,25 @@
       enterStep();
     };
 
-    if (!CFG.ENDPOINT) { finish(randInt(CFG.SEQUENCES.length), 'local'); return; }
+    if (!CFG.ENDPOINT) { finish(randInt(typeSeqs().length), 'local'); return; }
 
     var p = basePayload('start');
     p.device = S.device;
     var settled = false;
     var to = setTimeout(function () {
       if (settled || unloading) return; settled = true;
-      finish(randInt(CFG.SEQUENCES.length), 'local');
+      finish(randInt(typeSeqs().length), 'local');
     }, START_TIMEOUT_MS);
     postJSON(p, START_TIMEOUT_MS).then(function (j) {
       if (settled) return; settled = true; clearTimeout(to);
       var seq = Number(j.seq_index);
-      if (!(seq >= 0 && seq < CFG.SEQUENCES.length)) seq = randInt(CFG.SEQUENCES.length);
+      if (!(seq >= 0 && seq < typeSeqs().length)) seq = randInt(typeSeqs().length);
       S.net.status = 'ok'; S.net.last_ok = nowIso();
       finish(seq, 'server');
     }).catch(function (e) {
       if (settled || unloading) return; settled = true; clearTimeout(to);
       S.net.last_error = String(e && e.message || e);
-      finish(randInt(CFG.SEQUENCES.length), 'local');
+      finish(randInt(typeSeqs().length), 'local');
     });
   }
 
@@ -540,7 +580,7 @@
       p.case = buildCaseRecord(S.caseIdx);
       p.device = S.device;
       p.session = sessionSummary();
-      if (S.caseIdx < N_CASES - 1) {
+      if (S.caseIdx < nCases() - 1) {
         S.caseIdx += 1; S.stepIdx = 0;
         enqueue(p);
         enterStep();
@@ -795,7 +835,7 @@
   function caseHeadHTML(title, sub) {
     var c = curCase(), out = DATA.outputs[c.key], p = DATA.patients[out.patient];
     return '<div class="case-head">' +
-      '<span class="pill navy">케이스 ' + (S.caseIdx + 1) + ' / ' + N_CASES + '</span>' +
+      '<span class="pill navy">케이스 ' + (S.caseIdx + 1) + ' / ' + nCases() + '</span>' +
       '<span class="pill">환자 ' + esc(out.patient) + ' · ' + esc(p.demographics.replace(/\s*\(.*\)$/, '')) + '</span>' +
       '</div>' +
       '<h1 style="font-size:21px;color:var(--navy);margin-top:10px">' + esc(title) + '</h1>' +
@@ -819,12 +859,43 @@
   // ---------------------------------------------------------------------------
   // Screens
   // ---------------------------------------------------------------------------
-  function renderIntro() {
-    var years = CFG.RESIDENT_YEARS.map(function (y) {
-      var tab = (draft.year === y || (!draft.year && y === CFG.RESIDENT_YEARS[0])) ? 0 : -1;
-      return '<button type="button" role="radio" tabindex="' + tab + '" data-year="' + esc(y) + '" aria-checked="' + (draft.year === y) + '">' + esc(y) + '</button>';
+  function segHTML(attr, items, current) {
+    return items.map(function (it, k) {
+      var on = current === it.value;
+      var tab = (on || (!current && k === 0)) ? 0 : -1;
+      return '<button type="button" role="radio" tabindex="' + tab + '" ' + attr + '="' + esc(it.value) + '" aria-checked="' + on + '">' + esc(it.label) + '</button>';
     }).join('');
+  }
+  function roleFieldsHTML() {
+    var role = roleById(draft.role);
+    if (!role || !role.fields.length) return '';
+    return role.fields.map(function (f) {
+      var cur = draft.fields[f.id] || '';
+      var lab = '<span class="label" id="lbl_' + esc(f.id) + '">' + esc(f.label) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
+      if (f.type === 'choice') {
+        return '<div class="field">' + lab + '<div class="seg" role="radiogroup" aria-labelledby="lbl_' + esc(f.id) + '" data-field="' + esc(f.id) + '" style="grid-template-columns:repeat(' + f.options.length + ',1fr)">' +
+          segHTML('data-value', f.options.map(function (o) { return { value: o, label: o }; }), cur) + '</div></div>';
+      }
+      if (f.type === 'select') {
+        var opts = '<option value="">' + esc(f.placeholder || '선택하세요') + '</option>' +
+          (f.groups || [{ label: '', options: f.options || [] }]).map(function (g) {
+            var o = g.options.map(function (x) { return '<option' + (cur === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+            return g.label ? '<optgroup label="' + esc(g.label) + '">' + o + '</optgroup>' : o;
+          }).join('') +
+          (f.other ? '<option' + (cur === f.other ? ' selected' : '') + '>' + esc(f.other) + '</option>' : '');
+        return '<div class="field">' + lab.replace('<span class="label"', '<label class="label" for="fld_' + esc(f.id) + '"').replace(/<\/span>$/, '</label>') +
+          '<select class="input" id="fld_' + esc(f.id) + '" data-field="' + esc(f.id) + '">' + opts + '</select>' +
+          (f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="직접 입력" value="' + esc(draft.other[f.id] || '') + '">' : '') +
+          '</div>';
+      }
+      return '<div class="field">' + lab + '<input class="input" type="text" maxlength="60" data-field="' + esc(f.id) + '" value="' + esc(cur) + '"></div>';
+    }).join('');
+  }
+
+  function renderIntro() {
     var legend = SCALE.map(function (s) { return '<div><b>' + s.v + '</b>' + esc(s.label) + '</div>'; }).join('');
+    var roles = segHTML('data-role', ROLES.map(function (r) { return { value: r.id, label: r.label }; }), draft.role);
+    var types = segHTML('data-type', TYPES.map(function (t) { return { value: t.id, label: t.label }; }), draft.type);
     elMain.innerHTML =
       '<section class="card hero">' +
         '<span class="eyebrow">AI 기반 T2D 임상 의사결정 지원 시스템</span>' +
@@ -834,9 +905,11 @@
         '각 단계의 답변이 실제 임상 결정에 유의미한 참고가 되는지 평가해 주십시오.</p>' +
       '</section>' +
 
+      (draft.linked ? '<p class="notice info">이전 평가에 이어 <b>' + esc((typeById(draft.type) || {}).label || '') + '</b>를 평가합니다. 아래 평가자 정보를 확인하고 시작해 주세요.</p>' : '') +
+
       '<section class="card">' +
         '<h2 class="section-title">평가 방법</h2>' +
-        '<p>가상 환자 2명에 대한 AI 답변 <b>4건</b>을 차례로 평가합니다. 답변을 만든 AI 시스템의 이름은 공개하지 않으며, 제시 순서는 평가자마다 다릅니다.</p>' +
+        '<p>선택한 평가 유형(Type)에 따라 가상 환자 2명에 대한 AI 답변 <b>2건</b>을 차례로 평가합니다. 답변을 만든 AI 시스템의 이름은 공개하지 않으며, 제시 순서는 평가자마다 다릅니다.</p>' +
         '<ol class="flow" style="margin-top:12px">' +
           '<li><span><b>환자 정보 확인</b> — 병력, 복용약, 12개월 검사 추이를 먼저 읽습니다.</span></li>' +
           '<li><span><b>Phase 1 평가</b> — 환자 분류 및 의뢰 권고를 읽고 1–5점으로 평가합니다.</span></li>' +
@@ -862,36 +935,67 @@
         '<h2 class="section-title">평가자 정보</h2>' +
         '<div class="field"><label for="evName">성명<span class="req">*</span></label>' +
           '<input class="input" id="evName" type="text" autocomplete="name" maxlength="40" placeholder="예: 홍길동" value="' + esc(draft.name) + '"></div>' +
-        '<div class="field"><span class="label" id="yearLabel">레지던트 년차<span class="req">*</span></span>' +
-          '<div class="seg" role="radiogroup" aria-labelledby="yearLabel" id="yearSeg">' + years + '</div></div>' +
+        '<div class="field"><span class="label" id="roleLabel">직군<span class="req">*</span></span>' +
+          '<div class="seg" role="radiogroup" aria-labelledby="roleLabel" id="roleSeg" style="grid-template-columns:repeat(' + ROLES.length + ',1fr)">' + roles + '</div></div>' +
+        '<div id="roleFields">' + roleFieldsHTML() + '</div>' +
+        '<div class="field"><span class="label" id="typeLabel">평가 유형<span class="req">*</span></span>' +
+          '<p class="small muted" style="margin:0">연구진이 안내한 Type을 선택해 주세요. 각 Type은 AI 답변 2건입니다.</p>' +
+          '<div class="seg" role="radiogroup" aria-labelledby="typeLabel" id="typeSeg" style="grid-template-columns:repeat(' + TYPES.length + ',1fr)">' + types + '</div></div>' +
         '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
-          '<span>본 평가의 목적을 이해했으며, 응답(성명·년차·평가 점수·의견)과 응답 과정 정보(단계별 소요 시간, 기기 종류)가 연구 목적으로 수집되는 데 동의합니다.</span></label></div>' +
+          '<span>본 평가의 목적을 이해했으며, 응답(성명·직군·평가 점수·의견)과 응답 과정 정보(단계별 소요 시간, 기기 종류)가 연구 목적으로 수집되는 데 동의합니다.</span></label></div>' +
         '<button type="button" class="btn btn-accent btn-block" id="startBtn" style="margin-top:18px">' + (starting ? '평가 준비 중…' : '평가 시작') + '</button>' +
       '</section>';
 
-    $('evName').addEventListener('input', function (e) { draft.name = e.target.value; });
-    $('evConsent').addEventListener('change', function (e) { draft.consent = e.target.checked; });
-    var seg = $('yearSeg');
-    var pickYear = function (b) {
-      draft.year = b.getAttribute('data-year');
+    var card = $('evaluatorCard');
+    var pickSeg = function (b) {
+      var seg = b.parentNode;
       Array.prototype.forEach.call(seg.querySelectorAll('button'), function (x) {
         x.setAttribute('aria-checked', String(x === b));
         x.setAttribute('tabindex', x === b ? '0' : '-1');
       });
+      if (b.hasAttribute('data-role')) {
+        var r = b.getAttribute('data-role');
+        if (draft.role !== r) { draft.role = r; draft.fields = {}; draft.other = {}; $('roleFields').innerHTML = roleFieldsHTML(); }
+      } else if (b.hasAttribute('data-type')) {
+        draft.type = b.getAttribute('data-type');
+      } else if (seg.hasAttribute('data-field')) {
+        draft.fields[seg.getAttribute('data-field')] = b.getAttribute('data-value');
+      }
     };
-    seg.addEventListener('click', function (e) {
-      var b = e.target.closest('button[data-year]');
-      if (b) pickYear(b);
+    card.addEventListener('click', function (e) {
+      var b = e.target.closest('.seg button[role="radio"]');
+      if (b) pickSeg(b);
     });
-    seg.addEventListener('keydown', function (e) {
+    card.addEventListener('keydown', function (e) {
+      var b = e.target.closest('.seg button[role="radio"]');
+      if (!b) return;
       var d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0;
       if (!d) return;
       e.preventDefault();
-      var all = Array.prototype.slice.call(seg.querySelectorAll('button'));
-      var i = all.indexOf(document.activeElement);
-      var nb = all[(Math.max(i, 0) + d + all.length) % all.length];
-      pickYear(nb); nb.focus();
+      var all = Array.prototype.slice.call(b.parentNode.querySelectorAll('button'));
+      var nb = all[(all.indexOf(b) + d + all.length) % all.length];
+      pickSeg(nb); nb.focus();
     });
+    card.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.tagName === 'SELECT' && t.hasAttribute('data-field')) {
+        var id = t.getAttribute('data-field');
+        draft.fields[id] = t.value;
+        var f = (roleById(draft.role).fields.filter(function (x) { return x.id === id; })[0]) || {};
+        var hasOther = !!card.querySelector('[data-other="' + id + '"]');
+        if (f.other && (t.value === f.other) !== hasOther) {
+          $('roleFields').innerHTML = roleFieldsHTML();
+          var oi = card.querySelector('[data-other="' + id + '"]'); if (oi) oi.focus();
+        }
+      }
+    });
+    card.addEventListener('input', function (e) {
+      var t = e.target;
+      if (t.hasAttribute('data-other')) draft.other[t.getAttribute('data-other')] = t.value;
+      else if (t.tagName === 'INPUT' && t.type === 'text' && t.hasAttribute('data-field')) draft.fields[t.getAttribute('data-field')] = t.value;
+    });
+    $('evName').addEventListener('input', function (e) { draft.name = e.target.value; });
+    $('evConsent').addEventListener('change', function (e) { draft.consent = e.target.checked; });
     $('startBtn').addEventListener('click', startSession);
     elDock.innerHTML = '';
   }
@@ -1051,7 +1155,7 @@
         '</div>' +
         nav('선택 완료 →', c.combo != null);
     } else if (st === 'comment') {
-      var last = S.caseIdx === N_CASES - 1;
+      var last = S.caseIdx === nCases() - 1;
       html += '<div class="dock-kicker"><span>케이스 ' + (S.caseIdx + 1) + ' 마무리</span></div>' +
         '<p class="dock-msg">' + (last ? '마지막 케이스입니다. 다음 화면에서 전체 의견을 남기고 제출합니다.' : '다음 케이스로 넘어가면 이 케이스의 응답이 저장됩니다.') + '</p>' +
         nav(last ? '케이스 평가 완료 →' : '저장하고 다음 케이스 →', true, true);
@@ -1116,7 +1220,7 @@
   function downloadJSON() {
     var payload = {
       study_id: S.study_id, app_version: S.app_version, data_version: S.data_version,
-      session_id: S.session_id, is_test: S.is_test, evaluator: S.evaluator,
+      session_id: S.session_id, is_test: S.is_test, evaluator: S.evaluator, study_type: S.study_type,
       sequence_index: S.seq_index, seq_source: S.seq_source, order: S.order,
       session: sessionSummary(), overall_comment: S.overall_comment, device: S.device,
       cases: S.cases.map(function (_, i) { return buildCaseRecord(i); })
@@ -1145,12 +1249,14 @@
       status = '<p class="status-line pending"><span class="dot"></span>응답을 전송하고 있습니다…</p>';
     }
     var showRetry = CFG.ENDPOINT && S.outbox.length && (S.net.status === 'fail' || !flushing);
+    var doneTypes = (S.done_types || []).concat([S.study_type]);
+    var otherTypes = TYPES.filter(function (t) { return doneTypes.indexOf(t.id) < 0; });
     elMain.innerHTML =
       '<section class="card hero"><span class="eyebrow">완료</span><h1>평가해 주셔서 감사합니다</h1>' +
-        '<p class="desc">' + esc(S.evaluator.name) + ' 선생님 (' + esc(S.evaluator.year) + ')의 응답이 기록되었습니다.</p></section>' +
+        '<p class="desc">' + esc(S.evaluator.name) + ' 선생님 (' + esc(S.evaluator.detail || '') + ') · ' + esc((typeById(S.study_type) || {}).label || '') + ' 응답이 기록되었습니다.</p></section>' +
       '<section class="card">' + status +
         '<div class="stat-row" style="margin-top:14px">' +
-          '<div class="stat"><b>' + sum.cases_completed + ' / ' + N_CASES + '</b><span>평가한 AI 답변</span></div>' +
+          '<div class="stat"><b>' + sum.cases_completed + ' / ' + nCases() + '</b><span>평가한 AI 답변</span></div>' +
           '<div class="stat"><b>' + fmtMin(sum.total_active_ms + sum.total_idle_ms) + '</b><span>총 평가 시간</span></div>' +
         '</div>' +
         '<div class="btn-row" style="margin-top:16px">' +
@@ -1158,22 +1264,43 @@
           ((!CFG.ENDPOINT || showRetry) ? '<button type="button" class="btn btn-ghost" id="dlBtn">응답 파일 내려받기</button>' : '') +
         '</div>' +
       '</section>' +
+      (otherTypes.length ? '<section class="card"><h2 class="section-title">다른 유형도 평가하기</h2>' +
+        '<p class="small muted">같은 평가자 정보로 다른 Type의 AI 답변 2건을 이어서 평가할 수 있습니다.</p><div class="btn-row" style="margin-top:10px">' +
+        otherTypes.map(function (t) { return '<button type="button" class="btn btn-primary" data-next-type="' + esc(t.id) + '">' + esc(t.label) + ' 평가하기</button>'; }).join('') +
+        '</div></section>' : '') +
       '<section class="card"><p class="small muted">이 기기에서 다른 평가자가 이어서 평가하려면 아래 버튼을 눌러 새로 시작하세요.</p>' +
         '<button type="button" class="btn btn-ghost" id="newBtn" style="margin-top:10px">새 평가 시작</button></section>';
     elDock.innerHTML = '';
     if ($('retryBtn')) $('retryBtn').addEventListener('click', function () { flush(); });
     if ($('dlBtn')) $('dlBtn').addEventListener('click', downloadJSON);
-    $('newBtn').addEventListener('click', function () {
+    var restart = function (prefill) {
       if (S.outbox.length && CFG.ENDPOINT) {
         if (!window.confirm('아직 전송되지 않은 응답이 있습니다. 새로 시작하면 이 기기에 보관된 응답이 삭제됩니다. 계속하시겠습니까?')) return;
-      } else if (!window.confirm('새 평가를 시작하시겠습니까?')) return;
+      } else if (!prefill && !window.confirm('새 평가를 시작하시겠습니까?')) return;
+      var prev = S;
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
       S = null;
       flushing = false;
       lastRev = 0;
-      draft = { name: '', year: '', consent: false, introBucket: emptyBucket() };
+      draft = emptyDraft();
+      if (prefill) {
+        draft.name = prev.evaluator.name; draft.role = prev.evaluator.role;
+        var role = roleById(prev.evaluator.role);
+        (role ? role.fields : []).forEach(function (f) {
+          var v = prev.evaluator.fields[f.id] || '';
+          if (f.other && v.indexOf('기타: ') === 0) { draft.fields[f.id] = f.other; draft.other[f.id] = v.slice(4); }
+          else draft.fields[f.id] = v;
+        });
+        draft.type = prefill; draft.consent = true; draft.linked = prev.session_id;
+        draft.done_types = (prev.done_types || []).concat([prev.study_type]);
+      }
       T.last = performance.now();
-      render(); window.scrollTo(0, 0);
+      render();
+      if (prefill && $('evaluatorCard')) $('evaluatorCard').scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
+    };
+    $('newBtn').addEventListener('click', function () { restart(null); });
+    Array.prototype.forEach.call(elMain.querySelectorAll('[data-next-type]'), function (b) {
+      b.addEventListener('click', function () { restart(b.getAttribute('data-next-type')); });
     });
   }
 
@@ -1181,8 +1308,8 @@
     var label = '', pct = 0, showPatient = false;
     if (staleTab) { label = ''; }
     else if (S && S.screen === 'case') {
-      label = '케이스 ' + (S.caseIdx + 1) + '/' + N_CASES + ' · ' + STEP_LABEL[curStep()];
-      pct = (S.caseIdx * STEPS.length + S.stepIdx) / TOTAL_STEPS * 100;
+      label = '케이스 ' + (S.caseIdx + 1) + '/' + nCases() + ' · ' + STEP_LABEL[curStep()];
+      pct = (S.caseIdx * STEPS.length + S.stepIdx) / totalSteps() * 100;
       showPatient = S.stepIdx > 0;
     } else if (S && S.screen === 'final') { label = '제출 전'; pct = 100; }
     else if (S && S.screen === 'done') { label = '완료'; pct = 100; }

@@ -12,6 +12,9 @@ const path = require('path');
   const outDir = process.argv[3] || 'shots';
   const kind = process.argv[4] || 'mobile';
   const evName = process.argv[5] || '테스트평가자';
+  // evaluator profile: argv[6] = resident|specialist|intern (default resident), argv[7] = type A|B (default A)
+  const role = process.argv[6] || 'resident';
+  const studyType = process.argv[7] || 'A';
   fs.mkdirSync(outDir, { recursive: true });
   const browser = await chromium.launch();
   const ctxOpts = kind === 'mobile' ? { ...devices['iPhone 13'] } : { viewport: { width: 1366, height: 860 }, deviceScaleFactor: 1 };
@@ -34,13 +37,21 @@ const path = require('path');
   await page.waitForSelector('#evName');
   await snap('intro_top');
   await page.fill('#evName', evName);
-  await page.click('#yearSeg button[data-year="R2"]');
+  await page.click(`#roleSeg button[data-role="${role}"]`);
+  if (role === 'resident') await page.click('#roleFields .seg button[data-value="R2"]');
+  if (role === 'specialist') {
+    await page.selectOption('#fld_specialty', '기타 (직접 입력)');
+    await page.fill('[data-other="specialty"]', '=임상약리학');
+  }
+  await page.click(`#typeSeg button[data-type="${studyType}"]`);
+  await page.waitForTimeout(100);   // headless click-after-scroll race; a person is never this fast
   await page.check('#evConsent');
   await snap('intro_filled', true);
   await page.click('#startBtn');
   await page.waitForFunction(() => window.__T2D_APP__ && window.__T2D_APP__.state() && window.__T2D_APP__.state().screen === 'case');
 
-  for (let ci = 0; ci < 4; ci++) {
+  const nCases = await page.evaluate(() => window.__T2D_APP__.state().order.length);
+  for (let ci = 0; ci < nCases; ci++) {
     // vignette
     await page.waitForSelector('.pt-head');
     await page.waitForTimeout(150);

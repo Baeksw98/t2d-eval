@@ -23,7 +23,7 @@
 // CONFIG
 // ============================================================
 var SPREADSHEET_ID = '';            // 비워 두면 이 스크립트가 연결된(컨테이너) 스프레드시트를 사용
-var BACKEND_VERSION = '2026-11-18.ca-backend-v2';
+var BACKEND_VERSION = '2026-11-19.ca-backend-v3';
 var EXPECTED_STUDY_ID = 'T2D-CA-2026';
 
 var SHEET = {
@@ -52,8 +52,8 @@ var STEP_COL = {
 // ============================================================
 function respHeaders_() {
   var h = [
-    'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'ResidentYear',
-    'SequenceIndex', 'SeqSource', 'CaseOrder', 'CaseKey', 'PatientId', 'Model', 'ModelName',
+    'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
+    'StudyType', 'SequenceIndex', 'SeqSource', 'CaseOrder', 'CaseKey', 'PatientId', 'Model', 'ModelName',
     'P1_Referral', 'ComboChoice', 'ComboName', 'ComboIsAIFirst',
     'P2_SharedDecision', 'P3_Pharmacotherapy', 'P4_FollowUp', 'P5_Education',
     'CaseComment', 'CaseStartedAt', 'CaseCompletedAt',
@@ -70,15 +70,16 @@ function respHeaders_() {
 }
 
 function longHeaders_() {
-  return ['ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'ResidentYear', 'SequenceIndex',
+  return ['ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
+    'StudyType', 'SequenceIndex',
     'CaseOrder', 'CaseKey', 'PatientId', 'Model', 'ComboChoice', 'Phase', 'PhaseLabel', 'Score', 'Acceptable_4plus',
     'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Changes', 'ScrollPct', 'Visits'];
 }
 
 function sessHeaders_() {
   return [
-    'FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'ResidentYear',
-    'SequenceIndex', 'SeqSource', 'Order', 'Status', 'CasesCompleted',
+    'FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
+    'StudyType', 'SequenceIndex', 'SeqSource', 'Order', 'Status', 'CasesCompleted', 'LinkedSessionId',
     'StartedAt', 'FinishedAt', 'TotalActiveMin', 'TotalIdleMin', 'TotalHiddenMin', 'TotalWallMin',
     'IntroSec', 'FinalSec', 'Resumes', 'OverallComment',
     'FormFactor', 'ViewportW', 'ViewportH', 'ScreenW', 'ScreenH', 'DPR', 'TouchPoints', 'CoarsePointer',
@@ -167,7 +168,7 @@ function handleStart_(ss, db, p) {
     if (cur !== '' && cur !== null) seq = Number(cur);
   }
   if (seq === undefined || isNaN(seq)) {
-    seq = p.is_test ? Math.floor(Math.random() * n) : nextBalancedSeq_(t, n);
+    seq = p.is_test ? Math.floor(Math.random() * n) : nextBalancedSeq_(t, n, p.study_type || '');
   }
   p.sequence_index = seq;
   upsertSession_(ss, db, p, 'started');
@@ -179,16 +180,18 @@ function handleStart_(ss, db, p) {
  * 최근 2시간 이내 시작한 세션(started, 진행 중일 가능성)을 순서별로 세어 가장 적은 순서를 배정.
  * 동률이면 순환 카운터 순서를 따른다. → 중도 이탈자가 Latin square 균형을 깨지 않음.
  */
-function nextBalancedSeq_(t, n) {
+function nextBalancedSeq_(t, n, studyType) {
   var props = PropertiesService.getScriptProperties();
-  var counter = Number(props.getProperty('SEQ_COUNTER') || '0');
-  props.setProperty('SEQ_COUNTER', String(counter + 1));
+  var key = 'SEQ_COUNTER' + (studyType ? '_' + studyType : '');
+  var counter = Number(props.getProperty(key) || '0');
+  props.setProperty(key, String(counter + 1));
   var counts = [];
   for (var i = 0; i < n; i++) counts.push(0);
   var now = Date.now();
   t.rows.forEach(function (r) {
     var test = isTrue_(r[t.map.IsTest - 1]);
     if (test) return;
+    if (t.map.StudyType && String(r[t.map.StudyType - 1]) !== String(studyType)) return;   // 같은 Type 안에서만 균형
     var raw = r[t.map.SequenceIndex - 1];
     var seq = Number(raw);
     if (raw === '' || isNaN(seq) || seq < 0 || seq >= n) return;
@@ -221,7 +224,6 @@ function upsertSession_(ss, db, p, status) {
     SessionId: p.session_id,
     IsTest: !!p.is_test,
     EvaluatorName: (p.evaluator && p.evaluator.name) || '',
-    ResidentYear: (p.evaluator && p.evaluator.year) || '',
     Status: status,
     AppVersion: p.app_version || '',
     DataVersion: p.data_version || '',
@@ -230,6 +232,7 @@ function upsertSession_(ss, db, p, status) {
   if (p.sequence_index !== null && p.sequence_index !== undefined) row.SequenceIndex = p.sequence_index;
   if (p.seq_source) row.SeqSource = p.seq_source;
   if (p.order && p.order.length) row.Order = p.order.join(' > ');
+  if (p.linked_session_id) row.LinkedSessionId = p.linked_session_id;
   if (idx < 0) row.FirstSeenAt = new Date();
   if (p.session && !stale) {
     var prevCases = idx >= 0 ? Number(tGet_(t, idx, 'CasesCompleted')) || 0 : 0;
@@ -250,6 +253,7 @@ function upsertSession_(ss, db, p, status) {
     row.ScreenW = d.sw; row.ScreenH = d.sh; row.DPR = d.dpr; row.TouchPoints = d.touch;
     row.CoarsePointer = d.coarse; row.Language = d.lang; row.TimeZone = d.tz; row.UserAgent = d.ua;
   }
+  Object.assign(row, evalCols_(p));
   tWrite_(t, idx, row);
 }
 
@@ -267,7 +271,6 @@ function writeCase_(ss, db, p, c, fromFinish) {
     SessionId: p.session_id,
     IsTest: !!p.is_test,
     EvaluatorName: (p.evaluator && p.evaluator.name) || '',
-    ResidentYear: (p.evaluator && p.evaluator.year) || '',
     SequenceIndex: nz_(p.sequence_index),
     SeqSource: p.seq_source || '',
     CaseOrder: c.case_index,
@@ -308,6 +311,7 @@ function writeCase_(ss, db, p, c, fromFinish) {
       row['Changes_' + STEP_COL[s]] = st.changes || 0;
     }
   });
+  Object.assign(row, evalCols_(p));
   tWrite_(t, idx, row);
 
   // Long format (Phase 단위)
@@ -317,7 +321,7 @@ function writeCase_(ss, db, p, c, fromFinish) {
     var score = r[k];
     var lrow = {
       ServerUpdatedAt: new Date(), SessionId: p.session_id, IsTest: !!p.is_test,
-      EvaluatorName: (p.evaluator && p.evaluator.name) || '', ResidentYear: (p.evaluator && p.evaluator.year) || '',
+      EvaluatorName: (p.evaluator && p.evaluator.name) || '',
       SequenceIndex: nz_(p.sequence_index), CaseOrder: c.case_index, CaseKey: c.case_key, PatientId: c.patient_id,
       Model: c.model, ComboChoice: nz_(c.combo_choice), Phase: k.toUpperCase(), PhaseLabel: PHASE_LABEL[k],
       Score: nz_(score), Acceptable_4plus: (score === null || score === undefined) ? '' : (score >= 4 ? 1 : 0),
@@ -326,6 +330,7 @@ function writeCase_(ss, db, p, c, fromFinish) {
       TTFRSec: (st.ttfr_ms === null || st.ttfr_ms === undefined) ? '' : sec_(st.ttfr_ms),
       Changes: st.changes || 0, ScrollPct: st.scroll_max === undefined ? '' : st.scroll_max, Visits: st.visits || 0
     };
+    Object.assign(lrow, evalCols_(p));
     tWrite_(lt, tFind_(lt, { SessionId: p.session_id, CaseKey: c.case_key, Phase: k.toUpperCase() }), lrow);
   });
 }
@@ -409,7 +414,29 @@ function tGet_(t, idx, name) {
 }
 
 /** idx >= 0 이면 해당 행의 지정 컬럼만 갱신, 아니면 새 행 추가(메모리). */
+/** 평가자 정보 컬럼: 직군·세부 항목(config.EVALUATOR_ROLES 의 fields)은 Eval_<id> 컬럼으로 자동 추가 */
+function evalCols_(p) {
+  var ev = p.evaluator || {};
+  var o = {
+    EvaluatorName: ev.name || '', EvaluatorRole: ev.role_label || ev.role || '', EvaluatorDetail: ev.detail || '',
+    ResidentYear: ev.year || '', StudyType: p.study_type || ''
+  };
+  var f = ev.fields || {};
+  Object.keys(f).forEach(function (k) { if (/^[A-Za-z0-9_]{1,40}$/.test(k)) o['Eval_' + k] = f[k]; });
+  return o;
+}
+
+function tAddCol_(t, name) {
+  var col = t.width + 1;
+  t.sh.getRange(1, col).setValue(name);
+  t.sh.getRange(1, col).setFontWeight('bold').setBackground('#e3edf5');
+  t.map[name] = col;
+  t.width = col;
+  t.rows.forEach(function (r) { while (r.length < col) r.push(''); });
+}
+
 function tWrite_(t, idx, rowObj) {
+  Object.keys(rowObj).forEach(function (k) { if (!t.map[k] && /^Eval_/.test(k)) tAddCol_(t, k); });
   var vals;
   if (idx >= 0) {
     vals = t.rows[idx];
@@ -475,10 +502,17 @@ function nz_(v) { return (v === null || v === undefined) ? '' : v; }
 /** 최초 1회 실행: 권한 승인 + 시트/헤더 생성 */
 function setup() {
   var ss = ss_();
-  sheet_(ss, SHEET.RESP, respHeaders_());
-  sheet_(ss, SHEET.LONG, longHeaders_());
-  sheet_(ss, SHEET.SESS, sessHeaders_());
-  sheet_(ss, SHEET.RAW, rawHeaders_());
+  // 응답이 아직 없는 시트(헤더만 있음)는 최신 컬럼 순서로 헤더를 다시 쓴다. 응답이 있으면 건드리지 않고 누락 컬럼만 뒤에 추가.
+  [[SHEET.RESP, respHeaders_()], [SHEET.LONG, longHeaders_()], [SHEET.SESS, sessHeaders_()], [SHEET.RAW, rawHeaders_()]].forEach(function (x) {
+    var sh = ss.getSheetByName(x[0]);
+    if (sh && sh.getLastRow() <= 1) {
+      sh.clear();
+      sh.getRange(1, 1, 1, x[1].length).setValues([x[1]]).setFontWeight('bold').setBackground('#e3edf5');
+      sh.setFrozenRows(1);
+    } else {
+      sheet_(ss, x[0], x[1]);
+    }
+  });
   var def = ss.getSheetByName('Sheet1') || ss.getSheetByName('시트1');
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(def);
   Logger.log('✅ 시트 준비 완료: ' + ss.getUrl());
@@ -495,7 +529,8 @@ function onOpen() {
 }
 
 function showCounter() {
-  var c = PropertiesService.getScriptProperties().getProperty('SEQ_COUNTER') || '0';
+  var all = PropertiesService.getScriptProperties().getProperties();
+  var c = Object.keys(all).filter(function (k) { return k.indexOf('SEQ_COUNTER') === 0; }).map(function (k) { return k + '=' + all[k]; }).join(', ') || '0';
   SpreadsheetApp.getUi().alert('지금까지 순서 배정을 요청한 실제 평가자 수: ' + c + '\n(배정은 응답이 들어온 세션 수가 가장 적은 순서부터 이루어집니다.)');
 }
 
@@ -569,7 +604,29 @@ function buildSummary(includeTests) {
     push([g, sub.length, r1_(median_(caseMin)), r1_(mean_(caseMin))].concat(stepMeans).concat([r1_(median_(caseActiveMin))]));
   });
   push(['']);
-  push(['※ 모델명은 평가자에게 공개되지 않았습니다(블라인드). 제시 순서는 4×4 Latin square로 배정되었습니다.']);
+  push(['[4] 평가자 구성 (완료 케이스 기준)']);
+  push(['직군', '세부', 'Type', '평가자 수', '완료 케이스 수', '', '', '', '', '', '', '', '']);
+  var keyOf = function (r) { return [col(r, 'EvaluatorRole') || '(미기재)', col(r, 'EvaluatorDetail') || '', col(r, 'StudyType') || ''].join('\u0001'); };
+  unique_(rows.map(keyOf)).sort().forEach(function (k) {
+    var sub = rows.filter(function (r) { return keyOf(r) === k; });
+    var parts = k.split('\u0001');
+    push([parts[0], parts[1], parts[2], unique_(sub.map(function (r) { return col(r, 'SessionId'); })).length, sub.length, '', '', '', '', '', '', '', '']);
+  });
+  push(['']);
+
+  push(['[5] 직군별 Phase I-CVI (4점 이상 비율)']);
+  push(['직군', 'n(케이스)', 'Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'S-CVI/Ave', '', '', '', '', '']);
+  unique_(rows.map(function (r) { return col(r, 'EvaluatorRole') || '(미기재)'; })).sort().concat(['전체']).forEach(function (g) {
+    var sub = rows.filter(function (r) { return g === '전체' || (col(r, 'EvaluatorRole') || '(미기재)') === g; });
+    var ic = PHASE_KEYS.map(function (k) {
+      var v = sub.map(function (r) { return Number(col(r, phaseCols[k])); }).filter(function (x) { return x >= 1 && x <= 5; });
+      return v.length ? v.filter(function (x) { return x >= 4; }).length / v.length : '';
+    });
+    var valid = ic.filter(function (x) { return x !== ''; });
+    push([g, sub.length].concat(ic.map(r3_)).concat([r3_(mean_(valid)), '', '', '', '', '']));
+  });
+  push(['']);
+  push(['※ 모델명은 평가자에게 공개되지 않았습니다(블라인드). 평가자는 Type A/B 중 하나를 골라 AI 답변 2건을 평가했고, Type 안의 제시 순서는 균형 배정되었습니다.']);
 
   var width = 13;
   out = out.map(function (r) { var a = r.slice(0, width); while (a.length < width) a.push(''); return a; });
