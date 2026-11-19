@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#14304a">
+  <title>임상 수용성 평가 · QR 안내</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314304a'/%3E%3Cpath d='M18 34l9 9 19-21' stroke='%23f08a3c' stroke-width='7' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <style>
+    :root {
+      color-scheme: light;
+      --navy: #14304a; --navy-2: #1d4466; --orange: #e2702c; --orange-ink: #b4541a; --teal-ink: #187368;
+      --bg: #f3f6f9; --card: #fff; --line: #e1e7ee; --line-2: #cfd8e2; --text: #16212c; --muted: #5a6b7c;
+      --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.6; word-break: keep-all; -webkit-font-smoothing: antialiased; }
+    button { font: inherit; cursor: pointer; }
+    [hidden] { display: none !important; }
+    .top { background: var(--navy); color: #fff; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
+    .top-inner { max-width: 1040px; margin: 0 auto; display: flex; align-items: center; gap: 10px; }
+    .mark { width: 28px; height: 28px; border-radius: 8px; background: var(--orange) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 12.5l4 4 8-9' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat; flex: none; }
+    .top strong { font-size: 16px; }
+    .top small { display: block; font-size: 12px; opacity: .75; }
+    main { max-width: 1040px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 1px 2px rgba(16,33,52,.06), 0 4px 14px rgba(16,33,52,.06); }
+    .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .seg button { min-height: 48px; border: 1.5px solid var(--line-2); background: #fff; border-radius: 12px; font-weight: 800; font-size: 16px; color: var(--navy); }
+    .seg button[aria-selected="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .qr-wrap { display: grid; gap: 14px; justify-items: center; text-align: center; }
+    .qr-title { font-size: 24px; font-weight: 800; color: var(--navy); margin: 0; }
+    .qr-sub { color: var(--muted); font-size: 15px; margin: 0; }
+    .qr-img { width: min(78vw, 360px); aspect-ratio: 1; border: 1px solid var(--line); border-radius: 16px; padding: 10px; background: #fff; }
+    .qr-url { font-size: 20px; font-weight: 800; color: var(--orange-ink); letter-spacing: .01em; }
+    .btns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 100%; max-width: 520px; }
+    .btn { min-height: 48px; border-radius: 12px; border: 1.5px solid var(--line-2); background: #fff; color: var(--navy); font-weight: 700; font-size: 15px; padding: 0 12px; }
+    .btn.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .btn.accent { background: var(--orange-ink); border-color: var(--orange-ink); color: #fff; }
+    .btn.wide { grid-column: 1 / -1; }
+    h2 { font-size: 16px; color: var(--navy); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+    h2::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: #1f8a7e; }
+    textarea { width: 100%; min-height: 150px; border: 1.5px solid var(--line-2); border-radius: 12px; padding: 12px; font: inherit; font-size: 15px; line-height: 1.6; resize: vertical; }
+    ol, ul { margin: 0; padding-left: 20px; }
+    li + li { margin-top: 4px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .toast { position: fixed; left: 16px; right: 16px; margin-inline: auto; width: fit-content; bottom: calc(20px + env(safe-area-inset-bottom)); background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; pointer-events: none; }
+    @media (min-width: 900px) {
+      main { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); align-items: start; }
+      .span2 { grid-column: 1 / -1; }
+    }
+
+    /* Presentation (projector / monitor) */
+    .present { position: fixed; inset: 0; z-index: 50; background: #fff; display: grid; grid-template-rows: auto 1fr auto; padding: 4vh 4vw; text-align: center; }
+    .present h1 { margin: 0; font-size: clamp(28px, 5vh, 64px); color: var(--navy); }
+    .present > div:first-child { padding: 0 52px; }
+    .present .p-sub { font-size: clamp(16px, 2.6vh, 30px); color: var(--muted); margin-top: .6vh; }
+    .present img { height: min(62vh, 86vw); width: auto; aspect-ratio: 1; justify-self: center; align-self: center; }
+    .present .p-url { font-size: clamp(22px, 4.4vh, 56px); font-weight: 800; color: var(--orange-ink); }
+    .present .p-hint { font-size: clamp(14px, 2.2vh, 24px); color: var(--muted); margin-top: .8vh; }
+    .present .p-close { position: absolute; top: 12px; right: 12px; border: none; background: #eef2f6; color: var(--navy); width: 44px; height: 44px; border-radius: 12px; font-size: 22px; }
+
+    /* Printable card / poster (used by tools/render_qr_assets.js and the print button) */
+    body.print { background: #fff; }
+    .sheet { width: 794px; min-height: 1123px; margin: 0 auto; padding: 64px 64px 48px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; background: #fff; }
+    .sheet .brand { display: flex; align-items: center; gap: 12px; color: var(--navy); font-weight: 800; font-size: 22px; }
+    .sheet .brand .mark { width: 40px; height: 40px; border-radius: 10px; background-size: 26px; }
+    .sheet h1 { margin: 6px 0 0; font-size: 44px; color: var(--navy); letter-spacing: -0.01em; }
+    .sheet .en { color: var(--muted); font-size: 18px; margin-top: -10px; }
+    .sheet .type { display: inline-block; background: var(--orange-ink); color: #fff; font-weight: 800; font-size: 30px; padding: 8px 26px; border-radius: 999px; }
+    .sheet img { width: 440px; height: 440px; }
+    .sheet .url { font-size: 34px; font-weight: 800; color: var(--orange-ink); }
+    .sheet .steps { text-align: left; font-size: 19px; color: var(--text); background: #f3f6f9; border-radius: 16px; padding: 18px 26px 18px 44px; width: 100%; }
+    .sheet .foot { margin-top: auto; color: var(--muted); font-size: 14px; }
+    .card-img { width: 720px; padding: 40px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; background: #fff; }
+    .card-img h1 { margin: 0; font-size: 36px; color: var(--navy); }
+    .card-img .type { display: inline-block; background: var(--orange-ink); color: #fff; font-weight: 800; font-size: 26px; padding: 6px 22px; border-radius: 999px; }
+    .card-img img { width: 420px; height: 420px; }
+    .card-img .url { font-size: 30px; font-weight: 800; color: var(--orange-ink); }
+    .card-img .hint { font-size: 18px; color: var(--muted); }
+    @media print { @page { size: A4; margin: 0; } .sheet { page-break-after: always; } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script>
+(function () {
+  'use strict';
+  var HOST = 'eval.asclep.org';
+  var LINKS = [
+    { id: 'a', tab: 'Type A', title: '임상 수용성 평가 · Type A', path: '/a', img: 'type-a' },
+    { id: 'b', tab: 'Type B', title: '임상 수용성 평가 · Type B', path: '/b', img: 'type-b' },
+    { id: 's', tab: '직접 선택', title: '임상 수용성 평가', path: '/', img: 'select' }
+  ];
+  var params = new URLSearchParams(location.search);
+  var mode = params.get('mode') || '';
+  var cur = LINKS.filter(function (l) { return l.id === params.get('t'); })[0] || LINKS[0];
+  var app = document.getElementById('app');
+  var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var fullUrl = function (l) { return 'https://' + HOST + (l.path === '/' ? '/' : l.path); };
+  var shortUrl = function (l) { return HOST + (l.path === '/' ? '' : l.path); };
+  var toastT;
+  function toast(m) { var t = document.getElementById('toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, 2200); }
+
+  function message(l) {
+    return '[임상 수용성 평가 참여 안내]\n' +
+      '안녕하세요. AI 기반 제2형 당뇨병 외래 진료 권고안에 대한 임상 수용성 평가에 참여 부탁드립니다.\n\n' +
+      '• 소요 시간: 약 20–30분 (AI 답변 2건)\n' +
+      '• 휴대폰으로 바로 참여할 수 있습니다\n' +
+      '• 중간에 닫아도 같은 기기에서 다시 열면 이어서 진행됩니다\n\n' +
+      '▶ 참여 링크' + (l.id === 's' ? '' : ' (' + l.tab + ')') + ': ' + fullUrl(l);
+  }
+
+  // ---------- printable outputs ----------
+  if (mode === 'poster' || mode === 'card') {
+    document.body.classList.add('print');
+    var list = params.get('t') ? [cur] : LINKS.slice(0, 2);
+    app.innerHTML = list.map(function (l) {
+      if (mode === 'card') {
+        return '<div class="card-img">' +
+          '<h1>임상 수용성 평가</h1>' + (l.id === 's' ? '' : '<span class="type">' + esc(l.tab) + '</span>') +
+          '<img src="' + l.img + '.svg" alt="QR">' +
+          '<div class="url">' + esc(shortUrl(l)) + '</div>' +
+          '<div class="hint">휴대폰 카메라로 QR을 비추면 평가가 시작됩니다 · 약 20–30분</div></div>';
+      }
+      return '<section class="sheet">' +
+        '<div class="brand"><span class="mark"></span>AI 기반 T2D 임상 의사결정 지원 시스템</div>' +
+        '<h1>임상 수용성 평가</h1><div class="en">Physician Clinical Acceptability Assessment</div>' +
+        (l.id === 's' ? '' : '<span class="type">' + esc(l.tab) + '</span>') +
+        '<img src="' + l.img + '.svg" alt="QR">' +
+        '<div class="url">' + esc(shortUrl(l)) + '</div>' +
+        '<ol class="steps"><li>휴대폰 기본 카메라로 위 QR 코드를 비추세요.</li>' +
+        '<li>성명과 직군(인턴·레지던트·전문의)을 입력하세요.</li>' +
+        '<li>AI 답변 2건을 읽고 Phase별로 1–5점 평가합니다 (약 20–30분).</li></ol>' +
+        '<div class="foot">중간에 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.</div></section>';
+    }).join('');
+    return;
+  }
+
+  // ---------- interactive page ----------
+  function render() {
+    app.innerHTML =
+      '<header class="top"><div class="top-inner"><span class="mark"></span><div><strong>임상 수용성 평가 · QR 안내</strong>' +
+        '<small>화면에 띄우거나 카카오톡으로 보내 참여를 안내하세요</small></div></div></header>' +
+      '<main>' +
+        '<section class="card span2"><div class="seg" role="tablist" aria-label="링크 종류">' +
+          LINKS.map(function (l) { return '<button role="tab" data-t="' + l.id + '" aria-selected="' + (l === cur) + '">' + esc(l.tab) + '</button>'; }).join('') +
+        '</div><p class="muted" style="margin:10px 0 0">' +
+          (cur.id === 's' ? '평가자가 시작 화면에서 Type A·B 중 하나를 직접 고릅니다.' : '이 QR로 들어온 평가자는 <b>' + esc(cur.tab) + '</b>가 미리 선택된 상태로 시작합니다.') +
+        '</p></section>' +
+
+        '<section class="card qr-wrap">' +
+          '<p class="qr-title">' + esc(cur.title) + '</p>' +
+          '<img class="qr-img" src="' + cur.img + '.svg" alt="' + esc(cur.title) + ' QR 코드">' +
+          '<div class="qr-url">' + esc(shortUrl(cur)) + '</div>' +
+          '<p class="qr-sub">휴대폰 기본 카메라로 비추면 바로 열립니다</p>' +
+          '<div class="btns">' +
+            '<button class="btn primary wide" id="present">화면에 크게 띄우기</button>' +
+            '<button class="btn accent" id="shareImg">QR 이미지 보내기</button>' +
+            '<button class="btn" id="shareLink">링크 보내기</button>' +
+            '<button class="btn" id="copyLink">링크 복사</button>' +
+            '<a class="btn" style="display:grid;place-items:center;text-decoration:none" id="dl" href="' + cur.img + '-card.png" download="임상수용성평가_' + esc(cur.tab.replace(/\s/g, '')) + '_QR.png">QR 이미지 저장</a>' +
+          '</div>' +
+        '</section>' +
+
+        '<section class="card">' +
+          '<h2>카카오톡 안내 문구</h2>' +
+          '<textarea id="msg" aria-label="안내 문구">' + esc(message(cur)) + '</textarea>' +
+          '<div class="btns" style="max-width:none;margin-top:8px"><button class="btn primary" id="copyMsg">문구 복사</button><button class="btn" id="shareMsg">문구와 함께 공유</button></div>' +
+          '<h2 style="margin-top:18px">이렇게 쓰세요</h2>' +
+          '<ul class="muted">' +
+            '<li><b>카카오톡:</b> [QR 이미지 보내기] 또는 [링크 보내기] → 공유 목록에서 카카오톡 선택. PC에서는 [문구 복사] 후 대화창에 붙여넣기.</li>' +
+            '<li><b>회의·강의실:</b> [화면에 크게 띄우기] → 참가자가 카메라로 스캔.</li>' +
+            '<li><b>인쇄:</b> <a href="poster-a4.pdf" target="_blank" rel="noopener">A4 안내문 PDF</a> (Type A·B 각 1쪽).</li>' +
+            '<li>Type A·B 인원을 비슷하게 나누려면, 그룹을 반으로 나눠 서로 다른 QR을 안내하세요.</li>' +
+          '</ul>' +
+        '</section>' +
+      '</main>';
+
+    app.querySelector('.seg').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-t]'); if (!b) return;
+      cur = LINKS.filter(function (l) { return l.id === b.getAttribute('data-t'); })[0];
+      try { history.replaceState(null, '', '?t=' + cur.id); } catch (_) {}
+      render();
+    });
+    document.getElementById('present').addEventListener('click', present);
+    document.getElementById('copyLink').addEventListener('click', function () { copy(fullUrl(cur), '링크를 복사했습니다'); });
+    document.getElementById('copyMsg').addEventListener('click', function () { copy(document.getElementById('msg').value, '안내 문구를 복사했습니다'); });
+    document.getElementById('shareLink').addEventListener('click', function () { share({ title: cur.title, url: fullUrl(cur) }); });
+    document.getElementById('shareMsg').addEventListener('click', function () { share({ title: cur.title, text: document.getElementById('msg').value }); });
+    document.getElementById('shareImg').addEventListener('click', shareImage);
+  }
+
+  function copy(text, done) {
+    var ok = function () { toast(done); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(ok, function () { fallbackCopy(text) ? ok() : toast('복사하지 못했습니다. 길게 눌러 복사해 주세요.'); });
+    } else { fallbackCopy(text) ? ok() : toast('복사하지 못했습니다. 길게 눌러 복사해 주세요.'); }
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); var ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    ta.remove(); return ok;
+  }
+  function share(data) {
+    if (navigator.share) {
+      navigator.share(data).catch(function (e) { if (e && e.name !== 'AbortError') copy(data.url || data.text, '공유가 지원되지 않아 복사했습니다'); });
+    } else {
+      copy(data.url || data.text, '이 기기는 공유 기능이 없어 복사했습니다. 카카오톡에 붙여넣어 주세요');
+    }
+  }
+  function shareImage() {
+    var name = '임상수용성평가_' + cur.tab.replace(/\s/g, '') + '_QR.png';
+    fetch(cur.img + '-card.png').then(function (r) { return r.blob(); }).then(function (blob) {
+      var file = new File([blob], name, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        return navigator.share({ files: [file], title: cur.title, text: fullUrl(cur) }).catch(function (e) { if (e && e.name !== 'AbortError') throw e; });
+      }
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      toast('이미지를 저장했습니다. 카카오톡에서 사진으로 보내 주세요');
+    }).catch(function () { toast('이미지를 불러오지 못했습니다. [링크 보내기]를 이용해 주세요'); });
+  }
+  function present() {
+    var el = document.createElement('div');
+    el.className = 'present';
+    el.innerHTML = '<div><h1>' + esc(cur.title) + '</h1><div class="p-sub">휴대폰 카메라로 QR 코드를 비춰 주세요 · 약 20–30분</div></div>' +
+      '<img src="' + cur.img + '.svg" alt="QR 코드">' +
+      '<div><div class="p-url">' + esc(shortUrl(cur)) + '</div><div class="p-hint">중간에 닫아도 같은 기기에서 다시 열면 이어서 진행됩니다</div></div>' +
+      '<button class="p-close" aria-label="닫기">✕</button>';
+    document.body.appendChild(el);
+    var close = function () { if (document.fullscreenElement) document.exitFullscreen().catch(function () {}); el.remove(); document.removeEventListener('keydown', onKey); };
+    var onKey = function (e) { if (e.key === 'Escape') close(); };
+    el.querySelector('.p-close').addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    if (el.requestFullscreen) el.requestFullscreen().catch(function () {});
+  }
+  render();
+})();
+</script>
+</body>
+</html>

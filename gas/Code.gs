@@ -129,6 +129,10 @@ function doPost(e) {
     }
     // Responses 를 마지막에 기록: finish 재전송 시 '이미 저장됨' 판단 기준(Responses 행)이 다른 시트보다 먼저 생기지 않도록
     [SHEET.SESS, SHEET.LONG, SHEET.RESP].forEach(function (k) { if (db[k]) tFlush_(db[k]); });
+    // 실제(비테스트) 평가가 완료될 때마다 Summary 자동 갱신 — 실패해도 응답 저장에는 영향 없음
+    if (p.action === 'finish' && !p.is_test) {
+      try { buildSummary(false); } catch (eSum) { console.error('summary refresh failed: ' + eSum); }
+    }
     logRaw_(ss, p, Date.now() - t0, '');
     return json_(result);
   } catch (err) {
