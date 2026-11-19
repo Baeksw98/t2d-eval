@@ -26,6 +26,24 @@
 .mk.major { background: var(--red); color: #fff; border: 1px solid var(--red); }
 
 /* ---------- Intro ---------- */
+/* 판정 화면 읽는 순서 ①→④ (intro, unit intro) */
+.gc-order { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 0; }
+.gc-order li {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 13.5px; font-weight: 700; color: var(--navy); background: #f3f6f9; border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 11px 3px 3px;
+}
+.gc-order li + li { margin-left: 20px; }
+.gc-order li + li::before { content: "→"; position: absolute; left: -16px; color: var(--faint); font-weight: 800; }
+.gc-order li:last-child { background: var(--navy); border-color: var(--navy); color: #fff; }
+.gc-order li:last-child .gc-step-no { background: #fff; color: var(--navy); }
+.gc-order .gc-step-no { width: 22px; height: 22px; font-size: 12px; }
+.gc-howto-k { font-size: 14.5px; color: var(--navy); }
+/* intro: 진행 과정(번호 없음) → 선생님께서 하실 일 + ①→④ */
+.gc-proc { margin-top: 10px; }
+.gc-proc b { color: var(--navy); }
+.gc-todo { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
+.gc-prof-ask > .field { margin-top: 14px; }
 .gc-legend { margin-top: 14px; display: grid; gap: 8px; }
 .gc-legend > div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; font-size: 14.5px; }
 .gc-q { font-weight: 700; color: var(--navy); font-size: 15.5px; margin-bottom: 10px; }
@@ -80,7 +98,7 @@
 .gc-cnt.zero { background: #e7ecf1; color: var(--muted); }
 @media (min-width: 700px) { .gc-combos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-/* ---------- Item: element, path, criterion ---------- */
+/* ---------- Item: 채점 항목 (context) ---------- */
 .gc-elem-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gc-elem-id {
   font-weight: 800; font-size: 13.5px; color: var(--teal-ink); background: var(--teal-soft); border-radius: 6px;
@@ -88,33 +106,56 @@
 }
 .gc-elem-k { font-size: 12.5px; color: var(--faint); font-weight: 600; }
 .gc-title { font-size: 19px; color: var(--navy); margin-top: 6px; line-height: 1.45; }
-.gc-path {
-  margin-top: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center; gap: 6px; background: #f7f9fb; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px;
-}
-.gc-path.changed { background: #fff8f6; border-color: #f1c4bf; }
-.gp-step { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; min-width: 0; }
-.gp-step small { font-size: 11.5px; font-weight: 700; color: var(--muted); line-height: 1.2; }
-.gp-step .vd, .gp-step .mk { white-space: normal; max-width: 100%; }
-.gp-arrow { color: var(--faint); font-weight: 800; }
-.gc-path.changed .gp-arrow { color: var(--red); }
-.gp-final .vd { box-shadow: 0 0 0 2px #fff, 0 0 0 4px currentColor; }
-
-.gc-crit .section-title { margin-bottom: 6px; }
+.gc-crit { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
+.gc-crit-k { font-size: 13px; font-weight: 800; color: var(--navy-2); margin: 0 0 4px; }
 .gc-clamp {
-  font-size: 15px; line-height: 1.7; color: #23313e;
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 14.5px; line-height: 1.65; color: #23313e;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 .gc-clamp.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .gc-more-btn {
-  background: none; border: none; padding: 6px 0 0; min-height: 40px; color: var(--teal-ink); font-weight: 700; font-size: 14.5px;
+  background: none; border: none; padding: 4px 0 0; min-height: 40px; color: var(--teal-ink); font-weight: 700; font-size: 14.5px;
   text-decoration: underline; text-underline-offset: 3px;
 }
 
+/* ---------- Item: ① → ④ steps (numbered cards joined by a connector under the badges) ---------- */
+.gc-steps { list-style: none; margin-bottom: 0; padding: 0; display: grid; gap: 22px; }   /* margin-top: .content > * + * */
+.gc-step { position: relative; scroll-margin-top: calc(var(--topbar-h) + 12px); }
+/* connector: badge centre = card border 1px + padding 18px + badge 14px */
+.gc-step + .gc-step::before {
+  content: ""; position: absolute; left: 32px; top: -22px; height: 16px; width: 2px; background: #a9b8c7; border-radius: 1px;
+}
+.gc-step + .gc-step::after {
+  content: ""; position: absolute; left: 28px; top: -8px; width: 0; height: 0;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #a9b8c7;
+}
+.gc-step-no {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: var(--navy); color: #fff; font-size: 14px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.gc-step-head { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; }
+.gc-step-tt { min-width: 0; padding-top: 2px; }
+.gc-step-title { font-size: 16.5px; font-weight: 800; color: var(--navy); line-height: 1.4; margin: 0; }
+.gc-step-sub { font-size: 13.5px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+.gc-step-aside { padding-top: 2px; display: flex; align-items: center; }
+.gc-step-aside .vd, .gc-step-aside .mk { white-space: nowrap; }
+/* 아주 좁은 화면(≤359px): ④ 제목이 두 줄로 꺾이지 않게 '바뀜/변경 없음' 배지를 제목 아래 줄로 */
+@media (max-width: 359px) {
+  .gc-final .gc-step-head { grid-template-columns: 28px minmax(0, 1fr); }
+  .gc-final .gc-step-aside { grid-column: 2; padding-top: 0; }
+}
+.gc-why { margin-top: 10px; font-size: 16px; line-height: 1.75; color: var(--text); }
+.mini + .gc-why { margin-top: 0; }
+/* 문장 안의 단계 번호 (gc.js nbHTML) */
+.gc-nb {
+  display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; margin-right: .25em;
+  background: var(--navy); color: #fff; font-size: .78em; font-weight: 800; line-height: 1; vertical-align: .1em;
+  font-variant-numeric: tabular-nums; font-style: normal;
+}
+.qloc .gc-nb { background: var(--faint); }
+
 /* ---------- Item: CDSS answer ---------- */
-.gc-ans-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
-.gc-ans-where { font-weight: 800; color: var(--navy); font-size: 15px; }
-.gc-qtext { margin-top: 6px; font-size: 14px; color: var(--muted); }
+.gc-qtext { margin-top: 10px; font-size: 14px; color: var(--muted); }
 .gc-qtext-k { display: block; font-size: 11.5px; font-weight: 800; color: var(--faint); letter-spacing: .01em; }
 .gc-answer .cc-drugs { margin-top: 10px; }
 .gc-ans-body {
@@ -127,6 +168,13 @@ mark.gc-hl.r { background: #fff1b8; box-shadow: inset 0 -2px 0 #d9a700; }
 mark.gc-hl.a { text-decoration: underline dotted #1f8a7e; text-decoration-thickness: 2px; text-underline-offset: 4px; }
 mark.gc-hl.a:not(.r) { background: #e6f5f2; }
 .callout mark.gc-hl.r { color: var(--text); }
+/* ② ③이 인용한 같은 조합의 다른 답 (① 안에 바로 표시) */
+.gc-cited .mini { margin-top: 12px; }
+.gc-cited-row {
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: #fff; font-size: 15px; line-height: 1.75;
+}
+.gc-cited-row + .gc-cited-row { margin-top: 8px; }
+.gc-cited-row .callout { flex-wrap: wrap; font-size: 14px; padding: 4px 10px; }
 .gc-hl-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 details.gc-more { margin-top: 12px; border-top: 1px dashed var(--line-2); }
 details.gc-more > summary, details.gc-basis > summary {
@@ -152,19 +200,12 @@ details.gc-more[open] > summary::after, details.gc-basis[open] > summary::after 
 .gc-full-q b { color: var(--teal-ink); font-variant-numeric: tabular-nums; }
 .gc-full-row .callout { font-size: 13.5px; padding: 4px 10px; }
 
-/* ---------- Item: AI Rater / AI audit cards ---------- */
-.gc-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
-.gc-who { font-size: 16.5px; color: var(--navy); font-weight: 800; }
-.gc-who small { font-size: 12px; color: var(--faint); font-weight: 600; margin-left: 2px; }
-.gc-rater { border-left: 4px solid var(--navy-2); }
-.gc-audit.minor { border-left: 4px solid var(--amber); }
-.gc-audit.major { border-left: 4px solid var(--red); }
+/* ---------- Item: ② AI 채점 · ③ AI 감사 ---------- */
 .gc-cat { margin-top: 10px; font-size: 14.5px; }
 .gc-cat > span {
   display: inline-block; font-size: 12px; font-weight: 800; color: var(--muted); background: #f1f4f7; border-radius: 6px;
   padding: 1px 7px; margin-right: 8px;
 }
-.gc-text { font-size: 15px; line-height: 1.75; }
 .gc-quotes, .gc-evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .gc-quotes q, .gc-evidence q {
   display: block; padding: 8px 12px; border-radius: 0 10px 10px 0; font-size: 14.5px; line-height: 1.7;
@@ -175,28 +216,31 @@ details.gc-more[open] > summary::after, details.gc-basis[open] > summary::after 
 .qloc.miss { color: var(--red); font-weight: 700; }
 .qloc.other { color: #8a5a00; font-weight: 700; }
 .ev-src { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
-.gc-compare {
-  margin-top: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
-  background: #fff8f6; border: 1px solid #f1c4bf; border-radius: 12px; padding: 10px 14px;
-}
-.cmp-from, .cmp-to { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.cmp-from small, .cmp-to small { font-size: 11.5px; font-weight: 700; color: var(--muted); }
-.cmp-arrow { font-size: 24px; line-height: 1; color: var(--red); font-weight: 800; }
-.cmp-to .vd { font-size: 17px; padding: 3px 14px; }
-.gc-keep {
-  margin-top: 12px; display: flex; align-items: flex-start; gap: 10px; background: var(--amber-soft);
-  border: 1px solid #efd9ad; border-radius: 12px; padding: 10px 14px; font-size: 14px; color: #5c4310;
-}
-.gc-keep .vd { flex: none; }
+.gc-mark-mean { margin-top: 10px; border-radius: 10px; padding: 7px 12px; font-size: 14px; font-weight: 700; line-height: 1.5; }
+.gc-audit.minor .gc-mark-mean { background: var(--amber-soft); color: #5c4310; border: 1px solid #efd9ad; }
+.gc-audit.major .gc-mark-mean { background: var(--red-soft); color: #8a2a24; border: 1px solid #f1c4bf; }
 
-/* ---------- Item: AI final verdict, basis ---------- */
-.gc-final {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; background: var(--navy); color: #fff;
-  border-radius: var(--radius); padding: 14px 18px; box-shadow: var(--shadow);
+/* ---------- Item: ④ 최종 판정 (what the physician agrees with) ---------- */
+.card.gc-final { background: var(--navy); color: #fff; border-color: var(--navy); }
+.gc-final .gc-step-no { background: #fff; color: var(--navy); }
+.gc-final .gc-step-title { color: #fff; }
+.gc-chg { display: inline-flex; align-items: center; font-size: 12.5px; font-weight: 800; border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+.gc-chg.yes { background: #ffe1cc; color: #7f330b; }
+.gc-chg.no { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.4); }
+.gc-ba {
+  margin-top: 14px; display: grid; grid-template-columns: auto auto minmax(0, auto); align-items: end; gap: 6px 12px;
+  width: fit-content; max-width: 100%;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 12px 14px;
 }
-.gc-final-k { font-size: 15.5px; font-weight: 800; }
-.gc-final-def { font-size: 14px; font-weight: 700; opacity: .95; }
-.gc-final-why { flex-basis: 100%; font-size: 13.5px; opacity: .88; }
+.gc-ba-from, .gc-ba-to { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.gc-ba small { font-size: 12px; font-weight: 700; color: rgba(255,255,255,.82); line-height: 1.3; }
+.gc-ba-arrow { font-size: 22px; line-height: 1; font-weight: 800; color: rgba(255,255,255,.6); padding-bottom: 6px; }
+.gc-final.changed .gc-ba-arrow { color: #ffb38a; }
+.gc-final .vd.struck { opacity: .8; }
+.gc-final-def { margin-top: 10px; font-size: 14px; font-weight: 600; color: rgba(255,255,255,.92); }
+
+details.card.gc-basis { background: #fafbfc; box-shadow: none; }
+.gc-ref { font-size: 11.5px; font-weight: 700; color: var(--muted); background: #edf1f5; border-radius: 999px; padding: 1px 8px; }
 .gc-basis-body { margin-top: 10px; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.7; }
 .gc-note {
   background: #f6f8fa; border: 1px dashed var(--line-2); border-radius: 10px; padding: 8px 10px; font-size: 13.5px; color: #33424f;
@@ -206,6 +250,11 @@ details.gc-more[open] > summary::after, details.gc-basis[open] > summary::after 
 /* ---------- Decision dock ---------- */
 .gc-ask { font-size: 15px; }
 .gc-ask .vd { font-size: 14px; padding: 1px 8px; vertical-align: 1px; }
+.gc-ask-step {
+  background: none; border: none; padding: 0; font: inherit; font-weight: 800; color: var(--navy); cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px; touch-action: manipulation;
+}
+.gc-ask-step:hover { color: var(--teal-ink); }
 .ch.agree[aria-pressed="true"] { background: var(--teal-ink); border-color: var(--teal-ink); color: #fff; }
 .ch.disagree[aria-pressed="true"] { background: var(--red); border-color: var(--red); color: #fff; }
 .gc-alt { display: grid; gap: 6px; padding-top: 2px; }
@@ -236,6 +285,9 @@ details.gc-more[open] > summary::after, details.gc-basis[open] > summary::after 
   .ch.alt small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 @media (min-width: 1024px) {
+  /* card padding 24px → badge centre 39px */
+  .gc-step + .gc-step::before { left: 38px; }
+  .gc-step + .gc-step::after { left: 34px; }
   .gc-choice.alt { grid-template-columns: 1fr; }
   .dock textarea.gc-comment { min-height: 96px; height: 96px; }
   .gc-title { font-size: 21px; }

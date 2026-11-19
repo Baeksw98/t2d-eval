@@ -219,8 +219,8 @@ const iso = ms => new Date(T0 + ms).toISOString();
 
 function physician(name, part, extra) {
   return Object.assign({ name, part, sid: uuid(), evId: uuid(), dev: 'dev-' + name, visit: uuid(), seq: null, seqSource: 'server', order: null,
-    ordinal: 1, linked: null, test: false, fields: { board_years: '10–19년', setting: '상급종합병원', t2d_volume: '월 100–299명' },
-    codes: { board_years: 3, setting: 1, t2d_volume: 2 } }, extra || {});
+    ordinal: 1, linked: null, test: false, fields: { board_years: '10–19년', setting: '상급종합병원', ai_freq: '주 1–2회' },
+    codes: { board_years: 3, setting: 1, ai_freq: 3 } }, extra || {});
 }
 function base(ph, action, extra) {
   return Object.assign({
@@ -297,7 +297,9 @@ const endItems = (a, b) => ({
   eq('setup: returns the URL', env.setupUrl, env.created[0].getUrl());
   ok('setup: logs the URL', env.logs.some(l => l.indexOf(env.created[0].getUrl()) >= 0));
   const G = env.ctx.GC_ITEMS;
-  eq('GC_BACKEND_VERSION', env.ctx.GC_BACKEND_VERSION, '2026-11-19.gc-backend-v1');
+  GC_CONFIG.PROFILE_FIELDS.forEach(f => eq('GC_OPT.' + f.id + ' = gc-config.js PROFILE_FIELDS options (codes)', JSON.stringify(env.ctx.GC_OPT[f.id]), JSON.stringify(f.options)));
+  eq('profile fields = board_years, setting, ai_freq', GC_CONFIG.PROFILE_FIELDS.map(f => f.id).join(','), 'board_years,setting,ai_freq');
+  eq('GC_BACKEND_VERSION', env.ctx.GC_BACKEND_VERSION, '2026-11-19.gc-backend-v2');
   eq('GC_ITEMS data_version = gc_items.js', G.data_version, GC_DATA.data_version);
   eq('GC_ITEMS units', Object.keys(G.units).join(','), Object.keys(GC_DATA.units).join(','));
   eq('GC_ITEMS item counts (P051_gpt 4, P051_deepseek 8, P011_gpt 10, P011_deepseek 7)',
@@ -399,13 +401,15 @@ const endItems = (a, b) => ({
   eq('IsTest FALSE (boolean)', s1.IsTest, false);
   eq('Eval_board_years label', s1.Eval_board_years, '10–19년');
   eq('Eval_board_years_code', s1.Eval_board_years_code, 3);
-  eq('Eval_t2d_volume_code', s1.Eval_t2d_volume_code, 2);
+  eq('Eval_ai_freq label', s1.Eval_ai_freq, '주 1–2회');
+  eq('Eval_ai_freq_code', s1.Eval_ai_freq_code, 3);
+  ok('no Eval_t2d_volume column (question removed)', !read(SS, 'GC_Sessions')[0].some(h => /t2d_volume/.test(h)));
   eq('device FormFactor', s1.FormFactor, 'mobile');
   eq('device ViewportW', s1.ViewportW, 390);
   eq('ConsentVersion', s1.ConsentVersion, GC_CONFIG.CONSENT_VERSION);
   eq('PartPreselected FALSE', s1.PartPreselected, false);
   eq('Src', s1.Src, 'qr');
-  eq('BackendVersion', s1.BackendVersion, '2026-11-19.gc-backend-v1');
+  eq('BackendVersion', s1.BackendVersion, '2026-11-19.gc-backend-v2');
   ok('FirstSeenAt is a Date', s1.FirstSeenAt instanceof Date);
   eq('GC_Raw logged gc_start', objs(SS, 'GC_Raw').filter(r => r.Action === 'gc_start').length, 1);
   ok('no CA sheets in the GC spreadsheet', ['RawJSON', 'Sessions', 'Responses', 'PhaseLong', 'Summary'].every(n => !SS.getSheetByName(n)));
@@ -616,12 +620,13 @@ const endItems = (a, b) => ({
   };
   const NA = 'not_applicable';
   const PROFILE = [
-    { board_years: ['5–9년', 2], setting: ['상급종합병원', 1], t2d_volume: ['월 300명 이상', 3] },
-    { board_years: ['10–19년', 3], setting: ['종합병원', 2], t2d_volume: ['월 100–299명', 2] },
-    { board_years: ['10–19년', 3], setting: ['상급종합병원', 1], t2d_volume: ['월 100–299명', 2] },
-    { board_years: ['20년 이상', 4], setting: ['병원·의원', 3], t2d_volume: ['월 100명 미만', 1] },
-    { board_years: ['5년 미만', 1], setting: ['상급종합병원', 1], t2d_volume: ['월 300명 이상', 3] },
-    { board_years: ['10–19년', 3], setting: ['상급종합병원', 1], t2d_volume: ['월 100–299명', 2] }
+    // ai_freq: G1 거의 매일, G2 주 3–6회, G3 거의 매일, G4 사용한 적 없음, G5 주 1회 미만, G6 주 1–2회 (→ [2], [4-3])
+    { board_years: ['5–9년', 2], setting: ['상급종합병원', 1], ai_freq: ['거의 매일', 5] },
+    { board_years: ['10–19년', 3], setting: ['종합병원', 2], ai_freq: ['주 3–6회', 4] },
+    { board_years: ['10–19년', 3], setting: ['상급종합병원', 1], ai_freq: ['거의 매일', 5] },
+    { board_years: ['20년 이상', 4], setting: ['병원·의원', 3], ai_freq: ['사용한 적 없음', 1] },
+    { board_years: ['5년 미만', 1], setting: ['상급종합병원', 1], ai_freq: ['주 1회 미만', 2] },
+    { board_years: ['10–19년', 3], setting: ['상급종합병원', 1], ai_freq: ['주 1–2회', 3] }
   ];
   const mk = (name, part, i, extra) => {
     const pr = PROFILE[i];
@@ -742,6 +747,10 @@ const endItems = (a, b) => ({
   eq('[2] board_years 10–19년 n (G002, G003, G006)', row(s2, r => r[1] === '10–19년')[2], 3);
   eq('[2] board_years 10–19년 %', row(s2, r => r[1] === '10–19년')[3], 50);
   eq('[2] setting 상급종합병원 n', row(s2, r => r[1] === '상급종합병원')[2], 4);
+  eq('[2] ai_freq 거의 매일 n / % (G001, G003)', row(s2, r => r[1] === '거의 매일').slice(2, 4).join('/'), '2/33.3');
+  ok('[2] ai_freq listed in GC_OPT order', ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일']
+    .map(l => s2.findIndex(r => r[1] === l)).every((v, i, a) => v > 0 && (i === 0 || v > a[i - 1])));
+  ok('[2] no t2d_volume row', !s2.some(r => /t2d_volume|진료량/.test(String(r[0]))));
   const s3 = section(S, 3);
   eq('[3] status table: 확정(만장일치) total', row(s3, r => r[0] === '확정(만장일치)')[1], 20);
   eq('[3] status table: changed among decided', row(s3, r => r[0] === '합계')[6], 9);
@@ -756,8 +765,29 @@ const endItems = (a, b) => ({
   eq('[4] ✗ judgments / agree final / agree rater', [maj[2], maj[3], maj[7]].join('/'), '47/28/14');
   const min = row(s4, r => r[0] === '감사 표시' && String(r[1]).startsWith('△'));
   eq('[4] △ judgments / agree final / agree rater (equal: no correction)', [min[2], min[3], min[7]].join('/'), '28/22/22');
+  // audit marks are named as on the item screen (gc/gc.js MARK): ✗ 판정 보정 / △ 근거 보완
+  eq('[4] audit mark labels match the screen', [maj[1], min[1]].join(' | '), '✗ (판정 보정) | △ (근거 보완)');
+  ok('summary uses no old mark names (판정 수정 / 경미한 지적)', !S.some(r => r.some(c => /판정 수정|경미한 지적/.test(String(c)))));
   const it = row(s4, r => r[0] === '전체' && r[1] === 26);
   eq('[4-2] decided items equal to AI final 17/26', it[2] + '/' + it[3], '17/0.654');
+  // [4-3] AI 사용 빈도별 AI 최종 동의율. Hand count (latest per physician, final = ITEM.final):
+  //   G001 Part A 18 − 6 disagree (a1, a4, a5, a8, b3 + a2 changed later) = 12; G002 18 − 6 = 12; G003 18 − 4 = 14;
+  //   G004 10 − 5 = 5; G005 9 − 3 = 6; G006 2 − 1 = 1  → 거의 매일 = G001 + G003 = 26/36
+  const i43 = s4.findIndex(r => String(r[0]).startsWith('[4-3]'));
+  ok('[4-3] AI use frequency table present inside [4]', i43 > 0);
+  const f43 = s4.slice(i43);
+  const fr = l => row(f43, r => r[0] === l);
+  const frs = l => fr(l).slice(1, 6).join('/');
+  eq('[4-3] header', JSON.stringify(f43[1].slice(0, 8)), JSON.stringify(['AI 사용 빈도 (ai_freq)', '코드', '전문의 n', '판정 n', 'AI 최종 동의 n', 'AI 최종 동의율', '95% CI 하한', '95% CI 상한']));
+  eq('[4-3] 사용한 적 없음 code/phys/n/agree/rate', frs('사용한 적 없음'), '1/1/10/5/0.5');
+  eq('[4-3] 주 1회 미만', frs('주 1회 미만'), '2/1/9/6/' + r3(6 / 9));
+  eq('[4-3] 주 1–2회', frs('주 1–2회'), '3/1/2/1/0.5');
+  eq('[4-3] 주 3–6회', frs('주 3–6회'), '4/1/18/12/' + r3(12 / 18));
+  eq('[4-3] 거의 매일 (2 physicians)', frs('거의 매일'), '5/2/36/26/' + r3(26 / 36));
+  const w43 = wilson(26, 36);
+  eq('[4-3] 거의 매일 Wilson CI', fr('거의 매일').slice(6, 8).join('/'), r3(w43[0]) + '/' + r3(w43[1]));
+  eq('[4-3] 전체 = [4] 전체', fr('전체').slice(2, 6).join('/'), '6/75/50/' + r3(50 / 75));
+  ok('[4-3] no (미응답) row when every physician answered', !f43.some(r => String(r[0]).startsWith('(미응답')));
   const s5 = section(S, 5);
   const pa = row(s5, r => r[0] === 'Part A'), pb = row(s5, r => r[0] === 'Part B'), pt = row(s5, r => r[0] === '전체');
   eq('[5] Part A percent agreement = 43/54', pa[4], r3(43 / 54));
@@ -806,7 +836,11 @@ const endItems = (a, b) => ({
     H_GC_JUDG.every(c => CB.some(r => r[0] === 'GC_Judgments' && r[1] === c && r[4] === 'Y')));
   ok('GC_Codebook: dynamic Eval_* / End_* columns listed', ['Eval_board_years', 'Eval_board_years_code', 'End_info_sufficient', 'End_hitl_acceptable_code']
     .every(c => CB.some(r => r[0] === 'GC_Sessions' && r[1] === c && r[4] === 'Y')));
-  eq('GC_Codebook: Eval_t2d_volume uses the GC wording', (CB.find(r => r[0] === 'GC_Sessions' && r[1] === 'Eval_t2d_volume') || [])[3], '월 100명 미만, 월 100–299명, 월 300명 이상');
+  eq('GC_Codebook: Eval_ai_freq documents codes 1–5', (CB.find(r => r[0] === 'GC_Sessions' && r[1] === 'Eval_ai_freq') || [])[3],
+    '1 사용한 적 없음, 2 주 1회 미만, 3 주 1–2회, 4 주 3–6회, 5 거의 매일');
+  ok('GC_Codebook: Eval_ai_freq_code listed', CB.some(r => r[0] === 'GC_Sessions' && r[1] === 'Eval_ai_freq_code' && r[4] === 'Y'));
+  ok('GC_Codebook: no t2d_volume definition', !CB.some(r => /t2d_volume/.test(String(r[1]))));
+  eq('GC_Codebook: AuditMark names as on screen', (CB.find(r => r[1] === 'AuditMark') || [])[3], 'major = ✗ 판정 보정 / minor = △ 근거 보완');
   eq('GC_Codebook: End_ item code described', (CB.find(r => r[0] === 'GC_Sessions' && r[1] === 'End_hitl_acceptable_code') || [])[3], '정수 (선택지 순서, 1부터)');
   eq('GC_Codebook: Visits.TypeParam = ?part', (CB.find(r => r[0] === 'Visits' && r[1] === 'TypeParam') || [])[2], '링크로 미리 지정된 Part (?part=)');
   ok('GC_Codebook descriptions are filled', CB.slice(1).every(r => String(r[2]).length > 0 && String(r[2]).indexOf('설명 없음') < 0),
@@ -901,8 +935,8 @@ const endItems = (a, b) => ({
   // --- same name: different profiles → separate physicians; same profile + same item on two devices → flagged, merged ---
   {
     const env = makeEnv();
-    const x = physician('김민수', 'B', { dev: 'dev-x', fields: { board_years: '5년 미만', setting: '종합병원', t2d_volume: '월 100명 미만' },
-      codes: { board_years: 1, setting: 2, t2d_volume: 1 } });
+    const x = physician('김민수', 'B', { dev: 'dev-x', fields: { board_years: '5년 미만', setting: '종합병원', ai_freq: '사용한 적 없음' },
+      codes: { board_years: 1, setting: 2, ai_freq: 1 } });
     const y = physician('김 민수', 'B', { dev: 'dev-y' });
     const z1 = physician('박영희', 'B', { dev: 'dev-z1' });
     const z2 = physician('박영희', 'B', { dev: 'dev-z2' });
@@ -1024,6 +1058,27 @@ const endItems = (a, b) => ({
   const c = objs(env.SS, 'GC_Concordance').find(x => x.TargetKey === 'P051_deepseek|C1|P2');
   eq('empty: ConcordanceScore = AI audit score', c.ConcordanceScore, c.Score_AI);
   ok('empty: GC_Summary written', read(env.SS, 'GC_Summary').length > 30);
+  const f = section(read(env.SS, 'GC_Summary'), 4);
+  const i = f.findIndex(r => String(r[0]).startsWith('[4-3]'));
+  ok('empty: [4-3] lists every ai_freq level with n = 0', i > 0 && ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일', '전체']
+    .every(l => { const r = f.slice(i).find(x => x[0] === l); return r && r[2] === 0 && r[3] === 0 && r[5] === ''; }));
+})();
+
+// =====================================================================
+// 4-2) A physician without ai_freq (e.g. an older site version) → [4-3] (미응답·기타), [2] (미응답)
+// =====================================================================
+(function noAiFreq() {
+  const env = makeEnv();
+  const ph = physician('미응답', 'A', { fields: { board_years: '5–9년', setting: '종합병원' }, codes: { board_years: 2, setting: 2 } });
+  startPh(env, ph);
+  const id = partItems('A')[0];
+  env.post(base(ph, 'gc_judgment', { judgment: judgment(ph, id, ITEM[id].final) }));
+  env.ctx.buildGcSummary(false);
+  const S = read(env.SS, 'GC_Summary');
+  const f = section(S, 4);
+  const r = f.slice(f.findIndex(x => String(x[0]).startsWith('[4-3]'))).find(x => x[0] === '(미응답·기타)') || [];
+  eq('no ai_freq: [4-3] (미응답·기타) phys/n/agree', r.slice(2, 5).join('/'), '1/1/1');
+  eq('no ai_freq: [2] AI 사용 빈도 (미응답) n', (section(S, 2).find(x => x[1] === '(미응답)') || [])[2], 1);
 })();
 
 // =====================================================================

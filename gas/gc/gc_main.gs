@@ -46,7 +46,7 @@
 // GC 응답 스프레드시트 ID. 비워 두면 setup 이 새 스프레드시트를 만들고 그 ID 를 스크립트 속성(GC_SPREADSHEET_ID)에 저장합니다.
 var GC_SPREADSHEET_ID = "";
 var GC_SPREADSHEET_NAME = '가이드라인 부합도 검증 (GC) 응답';
-var GC_BACKEND_VERSION = '2026-11-19.gc-backend-v1';
+var GC_BACKEND_VERSION = '2026-11-19.gc-backend-v2';
 
 // ============================================================
 // HTTP ENTRY POINTS

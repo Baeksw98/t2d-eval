@@ -15,6 +15,19 @@
  *      (agree / disagree + corrected verdict + comment, an edit via [이전], a reload/resume, a fix from the
  *      final summary) → finish → "다른 Part 이어서" → Part B → finish.
  *   2. Desktop 1366×860: same with ?part=B preselected, then continuation into Part A.
+ * Every item: the screen reads as a story in DOM order — 채점 항목 card, then ① CDSS 답변 → ② AI 채점 → ③ AI 감사 →
+ * ④ 최종 판정 (numbered <li> steps with h2 headings), then 채점표 적용 근거; no outcome strip above; ④ shows '감사에서 바뀜'
+ * (struck AI 채점 verdict) iff audit.corrected differs from the rater verdict, else '변경 없음'; the dock asks about ④.
+ * Intro: profile = board_years, setting, ai_freq (5 options, codes 1–5); the ①→④ reading order on intro and unit intro,
+ * and no other numbered list there (the process lines are unnumbered, so ①–④ only ever mean the item-screen steps).
+ * Item screen also: no '판정 N / M' pill in the case head and no 충족/감점 legend in the 채점 항목 card (topbar, dock and ④
+ * carry them); the rubric question is labelled '채점표 질문' and quoted 「…」; ② labels the reason '판정 사유' (③ refers to
+ * AI 채점의 「판정 사유」); the word 'Rater' never shows (③ text says 'AI 채점'); a sentence ②/③ quote from another answer
+ * of the same combination is shown inside ① (.gc-cited-row, highlighted) — the expected answers are computed here from
+ * data/cases.js independently of the page.
+ * v1 draft probe: a continuation draft saved by the v1 page (no `missing`, has t2d_volume) asks ai_freq and can start.
+ * Layout probes (unless --no-layout): Galaxy S8, iPhone SE (320 px), iPad portrait + landscape, iPhone 13 landscape, and a
+ * Phase 1 item (combo 0, injected into the data in the browser only; nothing is sent).
  * Every screen: no horizontal scroll, no model names on the page. Whole run: no console errors.
  * Backend (GC spreadsheet via /__sheets?app=gc): GC_Sessions / GC_Judgments rows are checked field by field against
  * what was entered (verdicts, agreement flags, timing, Opened*, Eval_*, End_*), then /__gcsummary builds the GC summary
@@ -51,10 +64,37 @@ function loadWindowScript(file) {
 }
 const GC_CONFIG = loadWindowScript('gc/gc-config.js').GC_CONFIG;
 const GC_DATA = loadWindowScript('gc/data/gc_items.js').GC_DATA;
+const T2D_DATA = loadWindowScript('data/cases.js').T2D_DATA;
 const ITEM = {};
 Object.values(GC_DATA.units).forEach(u => u.items.forEach(it => { ITEM[it.id] = it; }));
+// what the page shows for ③ (and ②): the data's 'Rater' in the screen's term 'AI 채점'
+const screenTerms = (s) => String(s == null ? '' : s).replace(/Rater(는|가)?/g, (_, p) => 'AI 채점' + (p === '는' ? '은' : p === '가' ? '이' : ''));
+// answers of the same combination (or Phase 1) — other than the item's own — that contain a ②/③ quote, in answer order
+const ALL_Q = ['2.1', '2.2', '2.3', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '4.1', '4.2', '4.3', '5.1', '5.2', '5.3', '5.4'];
+function answerText(it, q) {
+  const out = T2D_DATA.outputs[it.unit];
+  if (!it.combo) { const p1 = out.phase_1 || {}; return q === '1.1' ? [(p1['1.1'] || {}).answer, (p1['1.1'] || {}).referral].join('\n') : String(p1[q] || ''); }
+  const a = out.combinations[it.combo - 1].answers[q];
+  return a && typeof a === 'object' ? [a.answer, a.next_visit].join('\n') : String(a == null ? '' : a);
+}
+function expectedCited(it) {
+  const ev = it.audit.evidence.map(e => (String(e).match(/^([^“]*?)\s*:\s*“([\s\S]*)”\s*$/) || [])[2]).filter(Boolean);
+  const qs = it.combo ? ALL_Q : ['1.1', '1.2'];
+  const hit = new Set();
+  it.rater.quotes.concat(ev).map(q => String(q || '').trim()).filter(q => q.length >= 2).forEach(q => {
+    if (answerText(it, it.question).indexOf(q) >= 0) return;
+    const o = qs.find(x => x !== it.question && answerText(it, x).indexOf(q) >= 0);
+    if (o) hit.add(o);
+  });
+  return qs.filter(x => hit.has(x));
+}
 const partItems = (pid) => GC_CONFIG.PARTS.find(p => p.id === pid).sequences[0].reduce((a, k) => a + GC_DATA.units[k].items.length, 0);
 const altsFor = (it) => GC_CONFIG.VERDICTS.map(v => v.id).filter(v => v !== it.final);
+const VLABEL = Object.fromEntries(GC_CONFIG.VERDICTS.map(v => [v.id, v.label]));
+const PF = Object.fromEntries(GC_CONFIG.PROFILE_FIELDS.map(f => [f.id, f]));
+const PF_AI_LAST = GC_CONFIG.PROFILE_FIELDS.find(f => f.id === 'ai_freq').options[4];
+const changedByAudit = (it) => !!it.audit.corrected && it.audit.corrected !== it.rater.verdict;
+const storyStats = { items: 0, changed: 0, unchanged: 0, cited: 0 };
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -137,6 +177,83 @@ function plan(k, it, sessionNo) {
   return { agree: true };
 }
 
+// item screen = story in DOM order: 채점 항목 → ① CDSS 답변 → ② AI 채점 → ③ AI 감사 → ④ 최종 판정 → 채점표 적용 근거
+async function checkItemScreen(page, kind, it) {
+  const tag = `[${kind}] item ${it.id}`;
+  const changed = changedByAudit(it);
+  const d = await page.evaluate(() => {
+    const q = (s) => document.querySelector(s);
+    const txt = (s) => { const e = q(s); return e ? e.textContent.replace(/\s+/g, ' ').trim() : ''; };
+    const after = (a, b) => !!(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const steps = [1, 2, 3, 4].map(n => q('#gcStep' + n));
+    const ol = q('ol.gc-steps'), elem = q('.gc-elem'), basis = q('details.gc-basis');
+    return {
+      missing: ['.gc-elem', '.gc-elem .gc-crit #gcCrit', 'ol.gc-steps', 'details.gc-basis'].filter(s => !q(s)),
+      strip: !!q('.gc-path, .gc-compare'),
+      order: steps.every(Boolean) && steps.every((el, i) => i === 0 || after(steps[i - 1], el)),
+      inList: steps.every(el => el && el.tagName === 'LI' && el.parentElement === ol),
+      elemFirst: after(elem, ol), basisAfter: after(steps[3], basis),
+      cls: steps.map(el => (el && el.querySelector(':scope > section') || {}).className || ''),
+      heads: [1, 2, 3, 4].map(n => { const h = q('#gcS' + n + 'h'); return h ? h.tagName + '|' + h.textContent : ''; }),
+      labelled: steps.map((el, i) => !!el && (el.querySelector(':scope > section') || { getAttribute: () => '' }).getAttribute('aria-labelledby') === 'gcS' + (i + 1) + 'h'),
+      badges: steps.map(el => el ? txt('#' + el.id + ' > section > .gc-step-head > .gc-step-no') : ''),
+      h1: txt('h1'),
+      raterChip: txt('#gcStep2 .gc-step-aside'), markChip: txt('#gcStep3 .gc-step-aside'), markMean: txt('#gcStep3 .gc-mark-mean'),
+      why: txt('#gcStep2 .gc-why'), expl: txt('#gcStep3 .gc-why'),
+      badge: txt('#gcStep4 .gc-step-aside'), from: txt('#gcStep4 .gc-ba-from .vd'), struck: !!q('#gcStep4 .gc-ba-from .vd.struck'),
+      to: txt('#gcStep4 .gc-ba-to .vd'),
+      ask: txt('#gcAsk'), askJump: !!q('#gcAsk [data-act="to-final"]'),
+      navyPill: !!q('.case-head .pill.navy'), vkey: !!q('.gc-vkey'),
+      qk: txt('#gcStep1 .gc-qtext-k'), qtext: txt('#gcStep1 .gc-qtext'),
+      raterMini: Array.from(document.querySelectorAll('#gcStep2 h3.mini')).map(e => e.textContent.trim()),
+      cited: Array.from(document.querySelectorAll('#gcStep1 .gc-cited-row')).map(e => e.getAttribute('data-q')),
+      citedMarked: Array.from(document.querySelectorAll('#gcStep1 .gc-cited-row')).every(e => !!e.querySelector('mark.gc-hl')),
+      oldLoc: /전체 답변 보기에서 표시/.test(document.body.innerText),
+      rater: /Rater/.test(document.body.innerText)
+    };
+  });
+  const bad = [];
+  if (d.missing.length) bad.push('missing ' + d.missing.join(', '));
+  if (d.strip) bad.push('outcome strip / comparison above the reading flow');
+  if (!d.order) bad.push('steps not in DOM order ① < ② < ③ < ④');
+  if (!d.inList) bad.push('steps are not the <li> of ol.gc-steps');
+  if (!d.elemFirst) bad.push('채점 항목 card not before the steps');
+  if (!d.basisAfter) bad.push('채점표 적용 근거 not after ④');
+  ['gc-answer', 'gc-rater', 'gc-audit', 'gc-final'].forEach((c, i) => { if (d.cls[i].split(' ').indexOf(c) < 0) bad.push(`step ${i + 1} is not .${c}`); });
+  const titles = ['CDSS 답변', 'AI 채점', 'AI 감사', '최종 판정'];
+  d.heads.forEach((h, i) => { if (!h.startsWith('H2|') || h.indexOf(titles[i]) < 0) bad.push(`step ${i + 1} heading "${h}"`); });
+  if (d.labelled.some(x => !x)) bad.push('step sections not labelled by their headings');
+  if (d.badges.join('') !== '1234') bad.push('step badges ' + d.badges.join(','));
+  if (d.h1 !== it.title) bad.push(`h1 "${d.h1}" ≠ element title`);
+  const why = it.rater.verdict === 'deducted' ? '왜 감점했나' : it.rater.verdict === 'met' ? '왜 충족으로 봤나' : '';
+  if (why && d.heads[1].indexOf(why) < 0) bad.push(`② heading lacks "${why}"`);
+  if (d.raterChip !== VLABEL[it.rater.verdict]) bad.push(`② verdict chip "${d.raterChip}" ≠ ${VLABEL[it.rater.verdict]}`);
+  if (it.rater.reason && d.why !== screenTerms(it.rater.reason).replace(/\s+/g, ' ').trim()) bad.push('② reason text differs from rater.reason');
+  if (d.markChip.indexOf(it.audit.mark === 'major' ? '✗' : '△') !== 0) bad.push(`③ mark chip "${d.markChip}"`);
+  if (!d.markMean) bad.push('③ mark meaning missing');
+  if (it.audit.explanation && d.expl !== screenTerms(it.audit.explanation).replace(/\s+/g, ' ').trim()) bad.push('③ explanation text differs');
+  if (d.rater) bad.push("the word 'Rater' is visible (the screen calls it AI 채점)");
+  if (d.navyPill) bad.push("duplicate '판정 N / M' pill in the case head");
+  if (d.vkey) bad.push('충족/감점 legend still in the 채점 항목 card');
+  if (it.question_text && (d.qk.indexOf('채점표 질문') !== 0 || d.qtext.indexOf('「' + it.question_text.replace(/\s+/g, ' ').trim() + '」') < 0)) bad.push(`rubric question not labelled/quoted: "${d.qtext}"`);
+  if (d.raterMini[0] !== '판정 사유') bad.push(`② first label "${d.raterMini[0]}" (expected 판정 사유)`);
+  const wantCited = expectedCited(it);
+  if (d.cited.join(',') !== wantCited.join(',')) bad.push(`① cited other answers [${d.cited}] ≠ expected [${wantCited}]`);
+  if (d.cited.length && !d.citedMarked) bad.push('① cited other answer shown without its highlight');
+  if (d.oldLoc) bad.push("old location note '전체 답변 보기에서 표시' still shown");
+  if (wantCited.length) storyStats.cited++;
+  // ④: '바뀜' iff audit.corrected differs from the rater verdict
+  if (/바뀜/.test(d.badge) !== changed) bad.push(`④ badge "${d.badge}" but changed = ${changed}`);
+  if (!changed && d.badge !== '변경 없음') bad.push(`④ badge "${d.badge}" (expected 변경 없음)`);
+  if (d.struck !== changed) bad.push(`④ AI 채점 verdict struck = ${d.struck}, changed = ${changed}`);
+  if (d.from.indexOf(VLABEL[it.rater.verdict]) !== 0) bad.push(`④ from "${d.from}" ≠ ${VLABEL[it.rater.verdict]}`);
+  if (d.to !== VLABEL[it.final]) bad.push(`④ to "${d.to}" ≠ final ${VLABEL[it.final]}`);
+  if (!d.askJump || d.ask.indexOf('최종 판정') < 0 || d.ask.indexOf(VLABEL[it.final]) < 0) bad.push(`dock question "${d.ask}" does not point at ④ (${VLABEL[it.final]})`);
+  bad.forEach(b => fail(`${tag}: ${b}`));
+  storyStats.items++; storyStats[changed ? 'changed' : 'unchanged']++;
+  return d;
+}
+
 async function decide(page, it, d, expected) {
   if (d.agree) {
     await page.click('[data-agree="1"]');
@@ -179,9 +296,21 @@ async function intro(page, R, kind, firstPart, urlPart) {
   await sleep(150);
   if (await page.evaluate(() => !!window.__GC_APP__.state())) fail(`[${kind}] session started without required fields`);
   await page.fill('#evName', kind === 'desktop' ? 'E2E 데스크톱' : 'E2E 모바일');
+  // profile = board_years, setting, ai_freq (no t2d_volume); ai_freq options in config order (codes 1–5)
+  const prof = await page.evaluate(() => ({
+    fields: Array.from(document.querySelectorAll('#profileFields [data-field]')).map(e => e.getAttribute('data-field')),
+    ai: Array.from(document.querySelectorAll('.seg[data-field="ai_freq"] button')).map(b => b.textContent),
+    order: document.querySelectorAll('.gc-order li').length,
+    otherNumbered: document.querySelectorAll('#main ol:not(.gc-order), main ol:not(.gc-order)').length
+  }));
+  if (prof.fields.join(',') !== 'board_years,setting,ai_freq') fail(`[${kind}] intro profile fields ${prof.fields.join(',')}`);
+  else if (JSON.stringify(prof.ai) !== JSON.stringify(PF.ai_freq.options)) fail(`[${kind}] ai_freq options ${JSON.stringify(prof.ai)}`);
+  else ok('intro profile: board_years, setting, ai_freq (5 options in order)');
+  if (prof.order !== 4) fail(`[${kind}] intro reading order shows ${prof.order} steps`);
+  if (prof.otherNumbered) fail(`[${kind}] intro has another numbered list besides the ①→④ reading order`);
   await page.click('.seg[data-field="board_years"] button >> nth=2');
   await page.click('.seg[data-field="setting"] button >> nth=0');
-  await page.click('.seg[data-field="t2d_volume"] button >> nth=1');
+  await page.click('.seg[data-field="ai_freq"] button >> nth=1');
   await page.click(`[data-part="${firstPart}"]`);
   await page.click('#startBtn');   // no consent yet → still intro
   await sleep(150);
@@ -204,6 +333,8 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
       await page.waitForSelector('.gc-combo');
       const n = await page.$$eval('.gc-combo', els => els.length);
       if (n !== 3) fail(`[${kind}] unit intro shows ${n} combinations`);
+      const nOrder = await page.$$eval('.gc-order li', els => els.length);
+      if (nOrder !== 4) fail(`[${kind}] unit intro reading order shows ${nOrder} steps`);
       await R.checkLayout(`unit ${s.u + 1}`);
       if (extras && s.u === 0) {
         await R.snap(`s${sessionNo}_unit${s.u + 1}`);
@@ -219,13 +350,7 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
     const it = ITEM[s.itemId];
     const k = s.k;
     await page.waitForSelector('.gc-title');
-    for (const sel of ['.gc-path', '.gc-crit', '.gc-answer', '.gc-rater', '.gc-audit', '.gc-final', '.gc-basis']) {
-      if (!(await page.$(sel))) fail(`[${kind}] item ${it.id}: missing ${sel}`);
-    }
-    if (it.audit.mark === 'major' && it.audit.corrected && !(await page.$('.gc-compare'))) fail(`[${kind}] item ${it.id}: ✗ comparison missing`);
-    const ask = await page.$eval('#gcAsk', e => e.textContent);
-    const finalLabel = GC_CONFIG.VERDICTS.find(v => v.id === it.final).label;
-    if (!ask.includes(finalLabel)) fail(`[${kind}] item ${it.id}: dock question "${ask}" lacks AI final "${finalLabel}"`);
+    await checkItemScreen(page, kind, it);
     await R.checkLayout(`item ${k}`);
 
     if (extras && k === 1) {
@@ -236,6 +361,15 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
       await page.click('[data-act="next"]', { force: true });
       await sleep(120);
       if ((await R.S()).stepIdx !== s.stepIdx) fail(`[${kind}] advanced without a decision`);
+      // '④ 최종 판정' in the dock question scrolls to step ④
+      await page.click('#gcAsk [data-act="to-final"]');
+      const reached = await page.waitForFunction(() => {
+        const r = document.getElementById('gcStep4').getBoundingClientRect();
+        const bottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+        return r.top >= 0 && (r.top < 160 || (bottom && r.top < window.innerHeight));
+      }, null, { timeout: 3000 }).then(() => true, () => false);
+      if (!reached) fail(`[${kind}] dock '④ 최종 판정' did not scroll to step ④`); else ok('dock question jumps to ④');
+      await page.evaluate(() => window.scrollTo(0, 0));
       // expanders → opened flags
       const crit = await page.$('[data-act="crit"]:not([hidden])');
       if (crit) await crit.click();
@@ -410,8 +544,44 @@ async function runFlow(browser, kind, firstPart, urlPart) {
   return sessions;
 }
 
-// short layout probes on other form factors (no horizontal scroll on intro, unit intro, item + disagree dock)
-async function layoutProbe(browser, kind) {
+// a continuation draft saved by the v1 page (gc:draft:v1 without `missing`, fields with t2d_volume) → ai_freq is asked
+async function v1DraftProbe(browser) {
+  console.log('\n=== v1 continuation draft ===');
+  const kind = 'iPhone 13';
+  const { ctx, page } = await newPage(browser, kind);
+  const q = new URLSearchParams({ src: 'e2e-layout', test: '1' });
+  await page.goto(`${BASE}/gc/?reset=1&${q}`);
+  await page.waitForSelector('#eligCard');
+  const v1draft = {
+    eligible: 'yes', name: 'E2E 구버전', fields: { board_years: '10–19년', setting: '상급종합병원', t2d_volume: '월 100–299명' },
+    part: 'B', consent: true, consent_at: new Date().toISOString(), consent_inherited: true,
+    linked: '11111111-2222-4333-8444-555555555555', done_parts: ['A'], evaluator_id: 'e2e-v1-draft', prev_patients: [], pending: [],
+    introBucket: { active_ms: 0, idle_ms: 0, hidden_ms: 0, wall_ms: 0 }
+  };
+  await page.evaluate(d => { localStorage.removeItem('gc:state:v1'); localStorage.setItem('gc:draft:v1', JSON.stringify(d)); }, v1draft);
+  await page.goto(`${BASE}/gc/?${q}`);
+  await page.waitForSelector('#evaluatorCard');
+  const info = await page.evaluate(() => ({
+    ask: Array.from(document.querySelectorAll('#evaluatorCard [data-field]')).map(e => e.getAttribute('data-field')),
+    notice: (document.querySelector('.notice.info') || {}).textContent || ''
+  }));
+  if (info.ask.join(',') !== 'ai_freq') fail(`[v1 draft] continuation asks [${info.ask}] (expected ai_freq)`);
+  if (info.notice.indexOf('AI 사용 빈도') < 0) fail(`[v1 draft] notice does not name the new question: "${info.notice}"`);
+  await page.click('.seg[data-field="ai_freq"] button >> nth=4');
+  await page.click('#startBtn');
+  const started = await page.waitForFunction(() => window.__GC_APP__.state() && window.__GC_APP__.state().screen === 'eval', null, { timeout: 20000 }).then(() => true, () => false);
+  if (!started) fail('[v1 draft] session did not start after answering ai_freq');
+  else {
+    const st = await page.evaluate(() => { const s = window.__GC_APP__.state(); return { f: s.evaluator.fields, c: s.evaluator.codes, l: s.linked_session_id, p: s.part }; });
+    if (st.f.ai_freq !== PF_AI_LAST || st.c.ai_freq !== 5 || 't2d_volume' in st.f || st.l !== v1draft.linked || st.p !== 'B') fail(`[v1 draft] session evaluator ${JSON.stringify(st)}`);
+    else ok(`v1 draft: ai_freq asked, session B starts linked with {${Object.keys(st.f).join(', ')}}`);
+  }
+  await ctx.close();
+}
+
+// short layout probes on other form factors (no horizontal scroll on intro, unit intro, item + disagree dock).
+// allItems: also walk every item of the Part (agree) and check the ①→④ structure and the width on each.
+async function layoutProbe(browser, kind, part = 'A', allItems = false) {
   const { ctx, page } = await newPage(browser, kind);
   const R = makeRunner(page, kind);
   const q = new URLSearchParams({ reset: '1', src: 'e2e-layout', test: '1' });
@@ -419,8 +589,8 @@ async function layoutProbe(browser, kind) {
   await page.waitForSelector('#eligCard');
   await page.click('[data-elig="yes"]');
   await page.fill('#evName', 'E2E 레이아웃');
-  for (const f of ['board_years', 'setting', 't2d_volume']) await page.click(`.seg[data-field="${f}"] button >> nth=0`);
-  await page.click('[data-part="A"]');
+  for (const f of GC_CONFIG.PROFILE_FIELDS.map(x => x.id)) await page.click(`.seg[data-field="${f}"] button >> nth=0`);
+  await page.click(`[data-part="${part}"]`);
   await page.check('#evConsent');
   await R.checkLayout('intro');
   await page.click('#startBtn');
@@ -429,14 +599,106 @@ async function layoutProbe(browser, kind) {
   await R.checkLayout('unit');
   await R.clickNext();
   await page.waitForSelector('.gc-title');
-  await page.click('[data-agree="0"]');
+  // expander first: on short screens (iPhone SE) the 비동의 dock is tall and a centred element would sit behind it
   await page.click('.gc-answer details.gc-more > summary');
+  await page.click('[data-agree="0"]');
   await R.checkLayout('item + disagree');
-  // the decision buttons must stay reachable on screen
-  const box = await page.$eval('[data-act="next"]', b => { const r = b.getBoundingClientRect(); return { b: r.bottom, h: window.innerHeight }; });
-  if (box.b > box.h + 1 && kind.indexOf('landscape') < 0) fail(`[${kind}] [다음] below the viewport`);
-  await R.snap('probe_item');
+  // the decision buttons must stay reachable on screen (unless the dock follows the content, as on landscape phones)
+  const box = await page.$eval('[data-act="next"]', b => {
+    const r = b.getBoundingClientRect();
+    return { b: r.bottom, h: window.innerHeight, pos: getComputedStyle(document.getElementById('dock')).position };
+  });
+  if (box.b > box.h + 1 && box.pos !== 'static') fail(`[${kind}] [다음] below the viewport`);
+  await R.snap(`probe_${part}_item`);
+  if (allItems) {
+    await page.click('[data-agree="1"]');
+    let n = 0;
+    for (;;) {
+      await R.clickNext();
+      const s = await R.S();
+      if (s.screen !== 'eval') break;
+      if (s.i < 0) { await R.checkLayout(`unit ${s.u + 1}`); continue; }
+      await page.waitForSelector('.gc-title');
+      await page.click('.gc-answer details.gc-more > summary');
+      await checkItemScreen(page, kind, ITEM[s.itemId]);
+      await R.checkLayout(`item ${s.k} (${s.itemId})`);
+      await page.click('[data-agree="1"]');
+      n++;
+    }
+    ok(`${kind}: Part ${part} — all ${n + 1} items: ①→④ structure and no horizontal scroll`);
+  }
   ok(`${kind}: layout ok`);
+  await ctx.close();
+}
+
+// Phase 1 item (combo 0): the current data has none, so one is injected into GC_DATA in the browser only
+// (ENDPOINT emptied for this page: nothing is sent). Checks the ①→④ story, the Phase 1 answer and its expander.
+async function phase1Probe(browser, kind) {
+  const ctx = await browser.newContext({ ...devices[kind], locale: 'ko-KR' });
+  const CASES = loadWindowScript('data/cases.js').T2D_DATA;
+  const unit = GC_CONFIG.PARTS.find(p => p.id === 'A').sequences[0][0];
+  const p1 = (CASES.outputs[unit].phase_1 || {})['1.1'] || {};
+  const tpl = GC_DATA.units[unit].items.find(it => it.audit.mark === 'major') || GC_DATA.units[unit].items[0];
+  const quote = String(p1.answer || '').slice(0, 24);
+  const item = JSON.parse(JSON.stringify(tpl));
+  Object.assign(item, { id: unit + '|P1|Q1.1-99', combo: 0, question: '1.1', question_text: '', element: 'Q1.1-99', target_key: unit + '|P1' });
+  item.rater.quotes = quote ? [quote] : [];
+  await ctx.route('**/gc/gc-config.js*', async (route) => {
+    const res = await route.fetch();
+    const body = (await res.text()).replace(/ENDPOINT:\s*'[^']*'/, "ENDPOINT: ''");
+    await route.fulfill({ response: res, body, headers: { ...res.headers(), 'content-type': 'text/javascript; charset=utf-8' } });
+  });
+  await ctx.route('**/gc/data/gc_items.js*', async (route) => {
+    const res = await route.fetch();
+    const body = (await res.text()) + `\n;window.GC_DATA.units[${JSON.stringify(unit)}].items.unshift(${JSON.stringify(item)});\n`;
+    await route.fulfill({ response: res, body, headers: { ...res.headers(), 'content-type': 'text/javascript; charset=utf-8' } });
+  });
+  const page = await ctx.newPage();
+  const tag = `${kind} Phase 1`;
+  page.on('pageerror', e => fail(`[${tag}] pageerror: ${e.message}`));
+  const R = makeRunner(page, tag);
+  await page.goto(`${BASE}/gc/?reset=1&test=1&src=e2e-p1`);
+  await page.waitForSelector('#eligCard');
+  await page.click('[data-elig="yes"]');
+  await page.fill('#evName', 'E2E Phase 1');
+  for (const f of GC_CONFIG.PROFILE_FIELDS.map(x => x.id)) await page.click(`.seg[data-field="${f}"] button >> nth=0`);
+  await page.click('[data-part="A"]');
+  await page.check('#evConsent');
+  await page.click('#startBtn');
+  await page.waitForFunction(() => window.__GC_APP__.state() && window.__GC_APP__.state().screen === 'eval', null, { timeout: 20000 });
+  // jump to the injected item (the saved position is restored on reload)
+  const found = await page.evaluate((id) => {
+    const s = window.__GC_APP__.state(), steps = window.__GC_APP__.steps();
+    const idx = steps.findIndex(st => st.i >= 0 && window.GC_DATA.units[s.order[st.u]].items[st.i].id === id);
+    if (idx >= 0) s.stepIdx = idx;
+    return idx >= 0;
+  }, item.id);
+  if (!found) { fail(`[${tag}] injected item not in the session`); await ctx.close(); return; }
+  await sleep(1600);
+  await page.reload();
+  await page.waitForSelector('.gc-title');
+  if ((await R.S()).itemId !== item.id) { fail(`[${tag}] did not open the injected item`); await ctx.close(); return; }
+  await checkItemScreen(page, tag, item);
+  const p = await page.evaluate(() => ({
+    sub: (document.querySelector('#gcStep1 .gc-step-sub') || {}).textContent || '',
+    chips: !!document.querySelector('#gcStep1 .cc-drugs'),
+    hl: document.querySelectorAll('#gcStep1 .gc-ans-body mark.gc-hl.r').length,
+    summary: (document.querySelector('.gc-answer details.gc-more > summary') || {}).textContent || ''
+  }));
+  if (!/^Phase 1 · 답 1\.1/.test(p.sub)) fail(`[${tag}] ① sub "${p.sub}"`);
+  if (p.chips) fail(`[${tag}] drug chips shown for a Phase 1 item`);
+  if (quote && !p.hl) fail(`[${tag}] AI 채점 quote not highlighted in the Phase 1 answer`);
+  if (p.summary.indexOf('Phase 1 전체 답변') < 0) fail(`[${tag}] expander "${p.summary}"`);
+  await page.click('.gc-answer details.gc-more > summary');
+  const rows = await page.$$eval('.gc-answer .gc-full-row', els => els.length);
+  if (rows !== 2) fail(`[${tag}] Phase 1 full answer shows ${rows} rows`);
+  await R.checkLayout('Phase 1 item');
+  await page.click('[data-agree="0"]');
+  await page.click(`[data-alt="${altsFor(item)[0]}"]`);
+  const j = (await R.S()).judgments[item.id];
+  if (!j || j.agree !== false || j.alt_verdict !== altsFor(item)[0] || !j.opened.full_answer) fail(`[${tag}] decision not recorded: ${JSON.stringify(j && { a: j.agree, v: j.alt_verdict, o: j.opened })}`);
+  await R.snap('phase1_item', true);
+  ok(`${tag}: ①→④ story, Phase 1 answer + expander, decision recorded`);
   await ctx.close();
 }
 
@@ -473,16 +735,17 @@ async function checkBackend(allSessions) {
       AgreeN: nAgree, DisagreeN: ids.length - nAgree, SessionOrdinal: s.session_ordinal,
       LinkedSessionId: s.linked || '', EvaluatorId: s.evaluator_id, SeqSource: s.seq_source, SequenceIndex: s.seq_index,
       Src: 'e2e', ConsentInherited: !!s.consent.inherited, ConsentVersion: GC_CONFIG.CONSENT_VERSION,
-      // profile entered on the intro (continuation inherits it): board_years nth=2, setting nth=0, t2d_volume nth=1
-      Eval_board_years: GC_CONFIG.PROFILE_FIELDS[0].options[2], Eval_board_years_code: 3,
-      Eval_setting: GC_CONFIG.PROFILE_FIELDS[1].options[0], Eval_setting_code: 1,
-      Eval_t2d_volume: GC_CONFIG.PROFILE_FIELDS[2].options[1], Eval_t2d_volume_code: 2,
+      // profile entered on the intro (continuation inherits it): board_years nth=2, setting nth=0, ai_freq nth=1
+      Eval_board_years: PF.board_years.options[2], Eval_board_years_code: 3,
+      Eval_setting: PF.setting.options[0], Eval_setting_code: 1,
+      Eval_ai_freq: PF.ai_freq.options[1], Eval_ai_freq_code: 2,
       // end items: info_sufficient nth=3; hitl_acceptable nth=4 (session 1) / nth=2 (session 2)
       End_info_sufficient: GC_CONFIG.END_ITEMS[0].options[3], End_info_sufficient_code: 4,
       End_hitl_acceptable: GC_CONFIG.END_ITEMS[1].options[s.session_ordinal === 1 ? 4 : 2], End_hitl_acceptable_code: s.session_ordinal === 1 ? 5 : 3,
       Resumes: s.resumes
     };
     Object.keys(want).forEach(k => { if (r[k] !== want[k]) fail(`${tag}: GC_Sessions.${k} = ${JSON.stringify(r[k])}, expected ${JSON.stringify(want[k])}`); });
+    if (Object.keys(r).some(c => /t2d_volume/.test(c))) fail(`${tag}: GC_Sessions still has a t2d_volume column`);
     if (!/^GT?\d{3}$/.test(String(r.EvaluatorCode))) fail(`${tag}: EvaluatorCode ${r.EvaluatorCode}`);
     // the mid-session reload fires a gc_progress beacon (pagehide) → drop-off point recorded
     if (s.reloaded && !(Number(r.FurthestUnit) >= 1 && Number(r.FurthestItem) >= 1)) fail(`${tag}: FurthestUnit/FurthestItem not recorded (${r.FurthestUnit}/${r.FurthestItem})`);
@@ -597,8 +860,13 @@ async function checkSummary(J, S, V) {
   const s1 = section(1).find(r => r[0] === '전체') || [];
   const completed = pool2.filter(r => r.Status === 'completed').length;
   if (s1[3] !== pool2.length || s1[6] !== completed) fail(`GC_Summary [1]: sessions ${s1[3]}/${s1[6]} ≠ ${pool2.length}/${completed}`);
-  const s4 = section(4).find(r => r[0] === '전체' && r[2] === nVotes) || [];
-  if (s4[3] !== nAgreeFinal || s4[7] !== nAgreeRater) fail(`GC_Summary [4]: agree final/rater ${s4[3]}/${s4[7]} ≠ ${nAgreeFinal}/${nAgreeRater} (n ${nVotes})`);
+  const s4all = section(4).find(r => r[0] === '전체' && r[2] === nVotes) || [];
+  if (s4all[3] !== nAgreeFinal || s4all[7] !== nAgreeRater) fail(`GC_Summary [4]: agree final/rater ${s4all[3]}/${s4all[7]} ≠ ${nAgreeFinal}/${nAgreeRater} (n ${nVotes})`);
+  const s4 = section(4);
+  const i43 = s4.findIndex(r => String(r[0]).startsWith('[4-3]'));
+  const all43 = i43 < 0 ? null : s4.slice(i43).find(r => r[0] === '전체');
+  if (!all43) fail('GC_Summary [4-3] (AI 사용 빈도별 AI 최종 동의율) missing');
+  else if (all43[3] !== nVotes || all43[4] !== nAgreeFinal) fail(`GC_Summary [4-3] 전체 ${all43[3]}/${all43[4]} ≠ ${nVotes}/${nAgreeFinal}`);
   const s5 = section(5);
   ['Part A', 'Part B'].forEach(p => {
     const r = s5.find(x => x[0] === p) || [];
@@ -612,7 +880,7 @@ async function checkSummary(J, S, V) {
   const leak = ['GC_Summary', 'GC_Adjudication', 'GC_Concordance'].some(n => out[n].some(r => r.some(v => names.indexOf(String(v)) >= 0)));
   if (leak) fail('physician names appear in the GC summary sheets');
   if (!out.GC_Codebook.length || out.GC_Codebook.slice(1).some(r => String(r[2]).indexOf('설명 없음') >= 0)) fail('GC_Codebook missing or has undocumented columns');
-  ok(`GC_Summary: [0]–[8] present; [1] ${pool2.length} sessions / ${completed} completed; [4] AI final agreement ${nAgreeFinal}/${nVotes}, raw Rater ${nAgreeRater}/${nVotes}; [5] κ ` +
+  ok(`GC_Summary: [0]–[8] present; [1] ${pool2.length} sessions / ${completed} completed; [4] AI final agreement ${nAgreeFinal}/${nVotes}, raw Rater ${nAgreeRater}/${nVotes}; [4-3] by ai_freq; [5] κ ` +
     (s5.filter(x => /^Part/.test(x[0])).map(x => x[0] + ' ' + (x[6] === '' ? '—' : x[6])).join(', ')) + '; no names; GC_Codebook complete');
 }
 
@@ -625,11 +893,16 @@ async function checkSummary(J, S, V) {
   all.push(...await runFlow(browser, 'desktop', 'B', 'B'));
   if (LAYOUT) {
     console.log('\n=== layout probes ===');
-    for (const k of ['Galaxy S8', 'iPad (gen 7)', 'iPhone 13 landscape']) await layoutProbe(browser, k);
+    for (const k of ['Galaxy S8', 'iPad (gen 7)', 'iPad (gen 7) landscape', 'iPhone 13 landscape']) await layoutProbe(browser, k);
+    await layoutProbe(browser, 'iPhone SE', 'A', true);   // 320 px: every item of both Parts
+    await layoutProbe(browser, 'iPhone SE', 'B', true);
+    await phase1Probe(browser, 'iPhone 13');
   }
+  await v1DraftProbe(browser);
   await sleep(800);   // let the last beacons land
   await checkBackend(all);
   await browser.close();
+  console.log(`\nitem screens checked (①→④ order, ④ 바뀜 iff corrected ≠ rater): ${storyStats.items} (바뀜 ${storyStats.changed}, 변경 없음 ${storyStats.unchanged}, with cited other answers ${storyStats.cited})`);
   console.log(`\n${errors.length ? 'FAILED' : 'PASSED'}: ${errors.length} problem(s)${notes.length ? ' · ' + notes.join('; ') : ''}`);
   if (errors.length) { errors.forEach(e => console.log(' - ' + e)); process.exit(1); }
 })().catch(e => { console.error(e); process.exit(1); });

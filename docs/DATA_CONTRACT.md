@@ -10,23 +10,42 @@ Conventions
 - Booleans are real booleans (`TRUE`/`FALSE`). Numbers are numbers. Seconds have 1 decimal, minutes 1 decimal.
 - Coded answers are stored twice: label column `X` (Korean text) and `X_code` (integer, 1-based option index).
 - Dynamic columns: evaluator profile fields → `Eval_<id>` (+ `Eval_<id>_code`), per-case secondary items →
-  `Case_<id>` (+ `_code`), end-of-session items → `End_<id>` (+ `_code`). The backend appends missing headers.
+  `Case_<id>` (+ `_code`), end-of-session items → `End_<id>` (+ `_code`). The backend appends missing headers
+  (so `Eval_ai_freq`/`_code` appear by themselves on the first v3.4 row, with no backend redeploy).
 - Test sessions: `IsTest = TRUE` (URL `?test=1`, or site without ENDPOINT). Excluded from Summary/AnalysisLong.
 
 ## Item ids used by the Summary (config.js)
+Evaluator profile since site v3.4 (`APP_VERSION 2026-11-19.ca-v3.4`):
+인턴 → no role item · 레지던트 → `year` only · 전문의 → `specialty`, `board_years`; plus ONE common item for every role, `ai_freq`.
+Consent text v3.4 lists "성명, 직군·연차/경력, AI 사용 빈도, …" → `CONSENT_VERSION 2026-11-19-v3` (stored as `ConsentVersion`;
+sessions started before the deploy keep the version they stored).
+
 | id | where | options (code = index+1) |
 |---|---|---|
 | `year` | resident field | R1, R2, R3 |
-| `major` | resident field | 내과, 가정의학과, 기타 (직접 입력) |
 | `specialty` | specialist field | list + 기타 (직접 입력) (no code semantics) |
 | `board_years` | specialist field | 5년 미만, 5–9년, 10–19년, 20년 이상 |
-| `t2d_volume` | common profile | 월 1명 미만, 월 1–10명, 월 11–30명, 월 31명 이상 |
-| `ai_use` | common profile | 사용한 적 없음, 월 1회 미만, 월 1회–주 1회, 주 2회 이상, 거의 매일 |
-| `ai_trust` | common profile, first session only (carried into linked sessions) | 1 전혀 신뢰하지 않음 … 5 매우 신뢰함 |
+| `ai_freq` | common profile, every role (v3.4+), first session only (carried into linked sessions; asked in the continuation when the earlier session has none) | 사용한 적 없음(1), 주 1회 미만(2), 주 1–2회(3), 주 3–6회(4), 거의 매일(5) — same id/label/options/codes as GC |
 | `harm` | per case | 없음(1), 경미한 위해 가능성(2), 중대한 위해 가능성(3) |
 | `harm_phases` | per case, optional, only if harm ≥ 2 | multi: P1, COMBO, P2, P3, P4, P5 → stored `P3;P4` |
 | `would_prescribe` | per case | 그대로 처방(1), 일부 수정하여 처방(2), 처방할 조합 없음(3) |
 | `intent_use` | end of session | 1 전혀 그렇지 않다 … 5 매우 그렇다 |
+
+Legacy profile items (site ≤ v3.3, no longer asked). Their columns and values stay in the sheets for respondents who
+answered them; sessions started on v3.3 and resumed after the v3.4 deploy keep sending them (the evaluator object is fixed
+at session start). The Summary shows them only when ≥ 1 included evaluator has a value, labelled `(v3.3 이전 문항)`.
+
+| id | where | options (code = index+1) |
+|---|---|---|
+| `major` | resident field (≤ v3.3) | 내과, 가정의학과, 기타 (직접 입력) |
+| `t2d_volume` | common profile (≤ v3.3) | 월 1명 미만, 월 1–10명, 월 11–30명, 월 31명 이상 |
+| `ai_use` | common profile (≤ v3.3) | 사용한 적 없음, 월 1회 미만, 월 1회–주 1회, 주 2회 이상, 거의 매일 — **different scale from `ai_freq`; never merge the codes** |
+| `ai_trust` | common profile (≤ v3.3), first session only | 1 전혀 신뢰하지 않음 … 5 매우 신뢰함 |
+
+Evaluator characteristics in Summary/AnalysisLong are per evaluator: the first included session's value, else the value
+from another session of the same evaluator (so a v3.3 evaluator who continued on v3.4 has both the legacy items from
+session 1 and `ai_freq` from session 2). AnalysisLong carries `AIFreq_code` (after `BoardYears`) next to the legacy
+`T2DVolume_code`, `AIUse_code`, `AITrust_code`, `Major` (blank for evaluators who were not asked).
 
 ## Sheets
 

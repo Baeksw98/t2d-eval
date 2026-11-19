@@ -46,7 +46,7 @@
 // GC 응답 스프레드시트 ID. 비워 두면 setup 이 새 스프레드시트를 만들고 그 ID 를 스크립트 속성(GC_SPREADSHEET_ID)에 저장합니다.
 var GC_SPREADSHEET_ID = "";
 var GC_SPREADSHEET_NAME = '가이드라인 부합도 검증 (GC) 응답';
-var GC_BACKEND_VERSION = '2026-11-19.gc-backend-v1';
+var GC_BACKEND_VERSION = '2026-11-19.gc-backend-v2';
 
 // ============================================================
 // HTTP ENTRY POINTS
@@ -296,7 +296,7 @@ var GC_SHEET = {
 };
 var GC_VERDICTS = ['met', 'deducted', 'not_applicable'];          // PhysVerdict_code = 순서 + 1
 var GC_VERDICT_KO = { met: '충족', deducted: '감점', not_applicable: '채점 대상 아님' };
-var GC_MARK_KO = { major: '✗ (판정 수정)', minor: '△ (경미한 지적)' };
+var GC_MARK_KO = { major: '✗ (판정 보정)', minor: '△ (근거 보완)' };   // 판정 화면(gc/gc.js MARK)과 같은 이름
 // Part → 답변(unit) 묶음. gc/gc-config.js 의 PARTS 와 같아야 한다 (tools/test_gc.js 가 확인).
 var GC_PARTS = { A: ['P051_deepseek', 'P011_gpt'], B: ['P011_deepseek', 'P051_gpt'] };
 var GC_STATUS = {
@@ -307,13 +307,14 @@ var GC_STATUS_ORDER = ['확정(만장일치)', '확정(다수결)', '잠정(1인
 var GC_OPT = {
   board_years: ['5년 미만', '5–9년', '10–19년', '20년 이상'],
   setting: ['상급종합병원', '종합병원', '병원·의원', '기타'],
-  t2d_volume: ['월 100명 미만', '월 100–299명', '월 300명 이상']
+  // CA config.js COMMON_FIELDS 의 ai_freq 와 같은 선택지·코드(1–5)
+  ai_freq: ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일']
 };
 var GC_CB_ITEMS = {
   board_years: ['Eval_', '분과전문의 취득 후 경력', '5년 미만, 5–9년, 10–19년, 20년 이상', true],
   setting: ['Eval_', '주 근무 기관', '상급종합병원, 종합병원, 병원·의원, 기타', true],
-  t2d_volume: ['Eval_', '최근 3개월 직접 진료한 제2형 당뇨병 환자 수 (월 평균)', '월 100명 미만, 월 100–299명, 월 300명 이상', true],
-  info_sufficient: ['End_', 'AI 답변·AI Rater 판정·AI 감사 의견만으로 판정을 확정하기에 정보가 충분했다', '1 전혀 그렇지 않다 … 5 매우 그렇다', true],
+  ai_freq: ['Eval_', '진료·학습·연구에 생성형 AI(대화형 AI 챗봇 등)나 AI 진료 보조 도구를 사용하는 빈도', '1 사용한 적 없음, 2 주 1회 미만, 3 주 1–2회, 4 주 3–6회, 5 거의 매일', true],
+  info_sufficient: ['End_', 'CDSS 답변·AI 채점 판정·AI 감사 의견만으로 판정을 확정하기에 정보가 충분했다', '1 전혀 그렇지 않다 … 5 매우 그렇다', true],
   hitl_acceptable: ['End_', 'AI 감사가 표시한 판정만 전문의가 확정하고 나머지는 AI 판정을 쓰는 방식은 타당하다', '1 전혀 그렇지 않다 … 5 매우 그렇다', true]
 };
 var GC_ADJ_COLS = ['ItemId', 'UnitKey', 'Element', 'Title', 'Combo', 'Question', 'AuditMark', 'AuditCategory', 'RaterVerdict',
@@ -970,7 +971,7 @@ function gc_summary_(G) {
 
 function gc_rules_() {
   return [
-    '검증 대상 = AI 감사가 △(경미한 지적) 또는 ✗(판정 수정)로 표시한 AI Rater 판정. 나머지 판정은 AI 감사가 확인(✓)한 판정으로 전문의가 다시 보지 않습니다.',
+    '검증 대상 = AI 감사가 △(근거 보완) 또는 ✗(판정 보정)로 표시한 AI Rater 판정. 나머지 판정은 AI 감사가 확인(✓)한 판정으로 전문의가 다시 보지 않습니다.',
     '테스트 응답(IsTest=TRUE)은 모든 표에서 제외합니다(buildGcSummaryIncludingTests 실행 시에만 포함).',
     '파일럿 세션(Wave 가 pilot 으로 시작, 링크의 ?wave=pilot)은 참여 흐름 [1] 에만 세고, 판정 집계·확정·부합도·[2]–[8] 에서는 제외합니다(CA 와 같은 규칙).',
     '전문의 식별: EvaluatorCode(G001…, 정규화한 성명 기준) → 없으면 EvaluatorId → 없으면 SessionId. 같은 전문의가 같은 판정을 여러 번 했으면 가장 최근 판정(AnsweredAt, 같으면 ServerUpdatedAt)만 셉니다.',
@@ -1000,7 +1001,7 @@ function gc_s0_(o, G) {
   Object.keys(GC_PARTS).forEach(function (p) {
     o.add(['  Part ' + p, G.items.filter(function (it) { return it.part === p; }).length, GC_PARTS[p].join(' + ')]);
   });
-  o.add(['  ✗ (판정 수정) / △ (경미한 지적)', G.items.filter(function (it) { return it.m.audit_mark === 'major'; }).length,
+  o.add(['  ' + GC_MARK_KO.major + ' / ' + GC_MARK_KO.minor, G.items.filter(function (it) { return it.m.audit_mark === 'major'; }).length,
     G.items.filter(function (it) { return it.m.audit_mark === 'minor'; }).length]);
   o.add(['참여 전문의 수 (판정 1건 이상)', G.phys.length]);
   o.add(['집계한 전문의 판정 수 (전문의 × 판정, 최신 1건)', G.counted.length]);
@@ -1054,17 +1055,25 @@ function gc_s1_(o, G) {
 }
 
 // [2] 검증자 특성
+/** 전문의의 세션 행에서 처음으로 값이 있는 컬럼 값 (세션은 처음 본 순서) */
+function gc_pick_(e, k) {
+  for (var i = 0; i < e.sessions.length; i++) { var r = e.sessions[i].row; if (r && !sm_blank_(r[k])) return r[k]; }
+  return '';
+}
+
+/** 전문의의 AI 사용 빈도 (ai_freq) 라벨 — 없으면 '' */
+function gc_aiFreq_(e) {
+  return sm_item_(gc_pick_(e, 'Eval_ai_freq'), gc_pick_(e, 'Eval_ai_freq_code'), GC_OPT.ai_freq).label;
+}
+
 function gc_s2_(o, G) {
   var E = G.phys;
-  var pick = function (e, k) {
-    for (var i = 0; i < e.sessions.length; i++) { var r = e.sessions[i].row; if (r && !sm_blank_(r[k])) return r[k]; }
-    return '';
-  };
+  var pick = gc_pick_;
   o.title('[2] 검증자 특성 — 판정 1건 이상 전문의 N = ' + E.length + ' (첫 세션 기준)');
   o.head(['변수', '수준', 'n', '%', '분모']);
   sm_cat_(o, '분과전문의 취득 후 경력 (board_years)', E, function (e) { return sm_item_(pick(e, 'Eval_board_years'), pick(e, 'Eval_board_years_code'), GC_OPT.board_years).label; }, GC_OPT.board_years);
   sm_cat_(o, '주 근무 기관 (setting)', E, function (e) { return sm_item_(pick(e, 'Eval_setting'), pick(e, 'Eval_setting_code'), GC_OPT.setting).label; }, GC_OPT.setting);
-  sm_cat_(o, '제2형 당뇨병 진료량 (t2d_volume)', E, function (e) { return sm_item_(pick(e, 'Eval_t2d_volume'), pick(e, 'Eval_t2d_volume_code'), GC_OPT.t2d_volume).label; }, GC_OPT.t2d_volume);
+  sm_cat_(o, 'AI 사용 빈도 (ai_freq)', E, gc_aiFreq_, GC_OPT.ai_freq);
   sm_cat_(o, '검증한 Part 수', E, function (e) { return String(sm_uniq_(e.sessions.map(function (s) { return s.part; }).filter(function (x) { return x; })).length); }, ['1', '2']);
   sm_cat_(o, '유입 경로 (Src)', E, function (e) { return sm_str_(pick(e, 'Src')); }, null, '(없음)');
   sm_cat_(o, '기기 (FormFactor)', E, function (e) { return sm_str_(pick(e, 'FormFactor')); }, ['mobile', 'tablet', 'desktop'], '(미기록)');
@@ -1131,6 +1140,27 @@ function gc_s4_(o, G) {
   };
   irow('전체', G.items);
   ['major', 'minor'].forEach(function (k) { irow(GC_MARK_KO[k], G.items.filter(function (it) { return it.m.audit_mark === k; })); });
+  o.gap();
+  gc_s4AiFreq_(o, G);
+}
+
+// [4-3] AI 사용 빈도별 AI 최종 판정 동의율 (자동화 편향 탐색) — [4] 와 같은 판정 집합 (테스트·파일럿 제외, 전문의 × 판정 최신 1건)
+function gc_s4AiFreq_(o, G) {
+  o.sub('[4-3] AI 사용 빈도별 AI 최종 판정 동의율 — 단위: 전문의 × 판정 (최신 1건), 사용 빈도는 전문의의 첫 응답');
+  o.head(['AI 사용 빈도 (ai_freq)', '코드', '전문의 n', '판정 n', 'AI 최종 동의 n', 'AI 최종 동의율', '95% CI 하한', '95% CI 상한']);
+  var V = G.counted;
+  var row = function (label, code, arr) {
+    var n = arr.length, a = arr.filter(function (v) { return v.v === v.item.final; }).length;
+    var ph = sm_uniq_(arr.map(function (v) { return v.ev.ident; })).length;
+    var ci = sm_wilson_(a, n);
+    o.add([label, code, ph, n, a, n ? r3_(a / n) : '', r3_(ci[0]), r3_(ci[1])]);
+  };
+  var freqOf = function (v) { return gc_aiFreq_(v.ev); };
+  GC_OPT.ai_freq.forEach(function (lab, i) { row(lab, i + 1, V.filter(function (v) { return freqOf(v) === lab; })); });
+  var other = V.filter(function (v) { return GC_OPT.ai_freq.indexOf(freqOf(v)) < 0; });
+  if (other.length) row('(미응답·기타)', '', other);
+  row('전체', '', V);
+  o.note('전문의 n = 그 수준에서 판정을 1건 이상 한 전문의 수(판정 0건이면 0). 판정은 전문의 안에서 묶여 있어(군집) Wilson CI 는 실제보다 좁을 수 있으므로, 전문의 수가 적을 때는 경향만 봅니다.');
   o.gap();
 }
 
@@ -1207,8 +1237,8 @@ function gc_s7_(o, G) {
   var R = G.rows.filter(function (j) { return !!j.item; });
   var col = function (arr, k) { return arr.map(function (j) { return sm_num_(j.o[k]); }).filter(sm_fin_); };
   var groups = [['전체', R],
-    ['✗ (판정 수정)', R.filter(function (j) { return j.item.m.audit_mark === 'major'; })],
-    ['△ (경미한 지적)', R.filter(function (j) { return j.item.m.audit_mark === 'minor'; })],
+    [GC_MARK_KO.major, R.filter(function (j) { return j.item.m.audit_mark === 'major'; })],
+    [GC_MARK_KO.minor, R.filter(function (j) { return j.item.m.audit_mark === 'minor'; })],
     ['AI 최종에 동의', R.filter(function (j) { return j.v === j.item.final; })],
     ['AI 최종에 비동의', R.filter(function (j) { return j.v !== j.item.final; })]];
   [['판정 화면 표시 시간 (초, ItemSec)', 'ItemSec'], ['판정 화면 active 시간 (초, ActiveSec)', 'ActiveSec'],
@@ -1391,7 +1421,7 @@ function gcCbDefs_(a) {
   a('Element', '채점 요소 (감점 기준) ID', '예: Q2.1-02');
   a('ItemId', '검증 대상 판정 ID', '<UnitKey>|C<조합>|<Element> (Phase 1: <UnitKey>|P1|<Element>)');
   J('TargetKey', '부합도 집계 대상 (CA PhaseLong.TargetKey 와 같은 형식)', '<UnitKey>|P1 또는 <UnitKey>|C<n>|P<2–5>');
-  a('AuditMark', 'AI 감사 표시', 'major = ✗ 판정 수정 / minor = △ 경미한 지적');
+  a('AuditMark', 'AI 감사 표시', 'major = ✗ 판정 보정 / minor = △ 근거 보완');
   a('AuditCategory', 'AI 감사 지적 분류', '문자열');
   a('RaterVerdict', 'AI Rater 원판정', '충족 met / 감점 deducted');
   a('AuditCorrected', 'AI 감사가 고친 판정 (✗ 만)', 'met / deducted / 빈칸');

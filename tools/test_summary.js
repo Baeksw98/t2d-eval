@@ -8,6 +8,11 @@
  * tools/mock_gas_server.js: the leading text-marker apostrophe is stripped on read), writes synthetic
  * Sessions / Responses / PhaseLong / Visits / Concordance rows DIRECTLY with the DATA_CONTRACT headers
  * (no doPost), runs buildSummary and checks hand-computed statistics. Prints PASS/FAIL lines; exit 1 on failure.
+ *
+ * Evaluator profiles mix the two site versions that coexist in the live sheet:
+ *   v3.3 (legacy) — Eval_major (residents), Eval_t2d_volume, Eval_ai_use, Eval_ai_trust
+ *   v3.4          — Eval_ai_freq only (residents: year only), incl. a v3.3 evaluator (E001) whose v3.4 continuation
+ *                   session (S2) answered ai_freq. Section 4 runs a v3.4-only sheet (no legacy rows may appear).
  */
 'use strict';
 const fs = require('fs');
@@ -156,7 +161,8 @@ const STEPC = ['Vignette', 'P1', 'Combo', 'P2', 'P3', 'P4', 'P5', 'Comment'];
 const SIX = ['P1', 'Combo', 'P2', 'P3', 'P4', 'P5'];
 const PH = ['P1', 'P2', 'P3', 'P4', 'P5'];
 const EVAL_COLS = ['Eval_year', 'Eval_year_code', 'Eval_major', 'Eval_major_code', 'Eval_specialty', 'Eval_board_years', 'Eval_board_years_code',
-  'Eval_t2d_volume', 'Eval_t2d_volume_code', 'Eval_ai_use', 'Eval_ai_use_code', 'Eval_ai_trust', 'Eval_ai_trust_code'];
+  'Eval_t2d_volume', 'Eval_t2d_volume_code', 'Eval_ai_use', 'Eval_ai_use_code', 'Eval_ai_trust', 'Eval_ai_trust_code',
+  'Eval_ai_freq', 'Eval_ai_freq_code'];   // v3.4 rows auto-add the last two columns after the legacy ones
 const H_VIS = ['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser', 'ReferrerOrigin', 'IsTest', 'AppVersion'];
 const H_SESS = ['FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
   'StudyType', 'SequenceIndex', 'SeqSource', 'Order', 'Status', 'CasesCompleted', 'LinkedSessionId', 'EvaluatorId', 'EvaluatorCode', 'DeviceId',
@@ -185,30 +191,33 @@ const H_LONG = ['ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'Eval
 const MODEL_NAME = { gpt: 'GPT-6.1 Sol', deepseek: 'DeepSeek-V4.1-Flash' };
 const ORDERS = { A: [['P051_deepseek', 'P011_gpt'], ['P011_gpt', 'P051_deepseek']], B: [['P011_deepseek', 'P051_gpt'], ['P051_gpt', 'P011_deepseek']] };
 const T2D = ['월 1명 미만', '월 1–10명', '월 11–30명', '월 31명 이상'];
-const AIUSE = ['사용한 적 없음', '월 1회 미만', '월 1회–주 1회', '주 2회 이상', '거의 매일'];
+const AIUSE = ['사용한 적 없음', '월 1회 미만', '월 1회–주 1회', '주 2회 이상', '거의 매일'];       // v3.3 ai_use
+const AIFREQ = ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일'];               // v3.4 ai_freq
 const BOARD = ['5년 미만', '5–9년', '10–19년', '20년 이상'];
 const MAJOR = ['내과', '가정의학과', '기타 (직접 입력)'];
 const HARM = ['없음', '경미한 위해 가능성', '중대한 위해 가능성'];
 const WOULD = ['그대로 처방', '일부 수정하여 처방', '처방할 조합 없음'];
 const TRUST = ['1 전혀 신뢰하지 않음', '2', '3', '4', '5 매우 신뢰함'];
+// v3.3 evaluators carry major/t2d/aiUse/trust; v3.4 evaluators carry aiFreq only. E001 started on v3.3 (S1) and
+// continued on v3.4 (S2: aiFreq 3, no legacy values).
 const EV = {
-  E001: { code: 'E001', id: 'uuid-e001', name: '김 가나', role: '레지던트', year: 'R1', major: 1, t2d: 3, aiUse: 4, trust: 4 },
+  E001: { code: 'E001', id: 'uuid-e001', name: '김 가나', role: '레지던트', year: 'R1', major: 1, t2d: 3, aiUse: 4, trust: 4, contFreq: 3 },
   E002: { code: 'E002', id: 'uuid-e002', name: '이다라', role: '레지던트', year: 'R2', major: 2, t2d: 2, aiUse: 2, trust: 3 },
   E003: { code: 'E003', id: 'uuid-e003', name: '박마바', role: '전문의', specialty: '내분비대사내과', board: 3, t2d: 4, aiUse: 3, trust: 5 },
-  E004: { code: 'E004', id: 'uuid-e004', name: '최사아', role: '전문의', specialty: '가정의학과', board: 2, t2d: 3, aiUse: 5, trust: 4 },
-  E005: { code: 'E005', id: 'uuid-e005', name: '정자차', role: '인턴', t2d: 1, aiUse: 1, trust: 2 },
-  E006: { code: '', id: 'uuid-e006', name: '강카타', role: '레지던트', year: 'R3', major: 1, t2d: 2, aiUse: 4, trust: 3 },
-  E007: { code: 'E007', id: 'uuid-e007', name: '조파하', role: '인턴', t2d: 1, aiUse: 1, trust: 3 },
+  E004: { code: 'E004', id: 'uuid-e004', name: '최사아', role: '전문의', specialty: '가정의학과', board: 2, aiFreq: 5 },
+  E005: { code: 'E005', id: 'uuid-e005', name: '정자차', role: '인턴', aiFreq: 1 },
+  E006: { code: '', id: 'uuid-e006', name: '강카타', role: '레지던트', year: 'R3', aiFreq: 4 },
+  E007: { code: 'E007', id: 'uuid-e007', name: '조파하', role: '인턴', aiFreq: 2 },
   E009: { code: 'E009', id: 'uuid-e009', name: '윤가가', role: '전문의', specialty: '신장내과', board: 4, t2d: 4, aiUse: 5, trust: 5 },
   E010: { code: 'E010', id: 'uuid-e010', name: '장나나', role: '레지던트', year: 'R1', major: 1, t2d: 2, aiUse: 2, trust: null },
-  T001: { code: 'T001', id: 'uuid-t001', name: '테스트', role: '레지던트', year: 'R2', major: 1, t2d: 2, aiUse: 3, trust: 4 }
+  T001: { code: 'T001', id: 'uuid-t001', name: '테스트', role: '레지던트', year: 'R2', aiFreq: 5 }
 };
 const C = (s, rank, extra) => Object.assign({ s, rank, harm: 1, would: 1 }, extra || {});
 const LONG_COMMENT = '=HYPERLINK("http://x","위험") ' + '용량 과다 위험. '.repeat(20);
 const SESSIONS = [
   { sid: 'S1', ev: 'E001', type: 'A', seq: 0, status: 'completed', first: '2026-11-10T01:00:00Z', fin: '2026-11-10T01:30:00Z', dev: 'D1', src: 'qr', form: 'mobile', ordinal: 1, intent: 4, overall: '전반적으로 유용', app: '2026-11-18.ca-v1',
     cases: { P051_deepseek: C([3, 4, 3, 2, 4], 2, { harm: 2, harmPh: 'P3;P4', would: 2 }), P011_gpt: C([5, 4, 4, 5, 4], 1, { comment: '좋음', resets: 1, drawer: [2, 15], changes: { P2: 1 } }) } },
-  { sid: 'S2', ev: 'E001', type: 'B', seq: 0, status: 'completed', first: '2026-11-10T02:00:00Z', fin: '2026-11-10T02:30:00Z', dev: 'D1', src: 'qr', form: 'mobile', ordinal: 2, linked: 'S1', intent: 5, resumes: 1, noTrust: true, prior: true, app: '2026-11-18.ca-v1',
+  { sid: 'S2', ev: 'E001', type: 'B', seq: 0, status: 'completed', first: '2026-11-10T02:00:00Z', fin: '2026-11-10T02:30:00Z', dev: 'D1', src: 'qr', form: 'mobile', ordinal: 2, linked: 'S1', intent: 5, resumes: 1, v34: true, prior: true, app: '2026-11-19.ca-v3.4',
     cases: { P011_deepseek: C([3, 3, 4, 4, 2], 2, { would: 3 }), P051_gpt: C([4, 4, 4, 4, 3], 1) } },
   { sid: 'S3', ev: 'E002', type: 'A', seq: 1, status: 'in_progress', first: '2026-11-11T01:00:00Z', fin: '', dev: 'D2', src: 'link', form: 'desktop', ordinal: 1, intent: null,
     cases: { P011_gpt: C([4, 4, 3, 4, 5], 1, { comment: '+추가 설명 필요' }), P051_deepseek: C([4, 3, 3, 4, 4], 1, { would: 2, vis: { P2: 50 }, chars: { P2: 2000 }, comment: '-용량 확인 필요' }) } },
@@ -236,12 +245,16 @@ function evalFields(e, s) {
   const o = { EvaluatorName: e.name, EvaluatorRole: e.role, EvaluatorDetail: e.role + (e.year ? ' · ' + e.year : ''), ResidentYear: e.year || '',
     EvaluatorId: s.evId || e.id, EvaluatorCode: e.code, SessionOrdinal: s.ordinal, StudyType: s.type, SequenceIndex: s.seq };
   if (e.year) { o.Eval_year = e.year; o.Eval_year_code = Number(e.year.slice(1)); }
-  if (e.major) { o.Eval_major = MAJOR[e.major - 1]; o.Eval_major_code = e.major; }
   if (e.specialty) o.Eval_specialty = e.specialty;
   if (e.board) { o.Eval_board_years = BOARD[e.board - 1]; o.Eval_board_years_code = e.board; }
-  o.Eval_t2d_volume = T2D[e.t2d - 1]; o.Eval_t2d_volume_code = e.t2d;
-  o.Eval_ai_use = AIUSE[e.aiUse - 1]; o.Eval_ai_use_code = e.aiUse;
-  if (e.trust && !s.noTrust) { o.Eval_ai_trust = TRUST[e.trust - 1]; o.Eval_ai_trust_code = e.trust; }
+  // a v3.4 continuation of a v3.3 evaluator (s.v34) sends ai_freq and none of the legacy items
+  const freq = s.v34 ? e.contFreq : e.aiFreq;
+  if (freq) { o.Eval_ai_freq = AIFREQ[freq - 1]; o.Eval_ai_freq_code = freq; }
+  if (s.v34) return o;
+  if (e.major) { o.Eval_major = MAJOR[e.major - 1]; o.Eval_major_code = e.major; }
+  if (e.t2d) { o.Eval_t2d_volume = T2D[e.t2d - 1]; o.Eval_t2d_volume_code = e.t2d; }
+  if (e.aiUse) { o.Eval_ai_use = AIUSE[e.aiUse - 1]; o.Eval_ai_use_code = e.aiUse; }
+  if (e.trust) { o.Eval_ai_trust = TRUST[e.trust - 1]; o.Eval_ai_trust_code = e.trust; }
   return o;
 }
 
@@ -359,7 +372,8 @@ function buildStudy(SS) {
   const win = row(s0, r => String(r[0]).startsWith('데이터 기간'));
   ok('[0] data window first = pilot session (2026-11-09)', win[1] instanceof Date && win[1].toISOString() === '2026-11-09T01:00:00.000Z', String(win[1]));
   ok('[0] data window last = 2026-11-15T03:00Z', win[3] instanceof Date && win[3].toISOString() === '2026-11-15T03:00:00.000Z', String(win[3]));
-  eq('[0] AppVersion count (v1 = 2 sessions)', row(s0, r => r[1] === '2026-11-18.ca-v1')[2], 2);
+  eq('[0] AppVersion count (v1 = 1 session)', row(s0, r => r[1] === '2026-11-18.ca-v1')[2], 1);
+  eq('[0] AppVersion count (v3.4 continuation = 1 session)', row(s0, r => r[1] === '2026-11-19.ca-v3.4')[2], 1);
 
   // --- [1] flow ---
   const s1 = section(S, 1);
@@ -381,8 +395,30 @@ function buildStudy(SS) {
   const s2 = section(S, 2);
   const res2 = row(s2, r => r[1] === '레지던트');
   eq('[2] residents n', res2[2], 4); eq('[2] residents %', res2[3], 57.1);
-  eq('[2] ai_trust median (IQR)', row(s2, r => String(r[0]).startsWith('AI 신뢰 (ai_trust'))[2], '3.5 (3–4)');
-  eq('[2] ai_trust n (E010 blank)', row(s2, r => String(r[0]).startsWith('AI 신뢰 (ai_trust'))[4], 6);
+  // block of rows for one variable (label in col 0, continuation rows have '')
+  const block = (rows, label) => { const i = rows.findIndex(r => r[0] === label); if (i < 0) return []; let j = i + 1; while (j < rows.length && rows[j][0] === '') j++; return rows.slice(i, j); };
+  eq('[2] resident year label uses 연차', block(s2, '레지던트 연차').length, 3);
+  // ai_freq: THE AI-familiarity variable — v3.4 evaluators (E001 via its v3.4 continuation, E004, E005, E006); E002/E003/E010 never asked
+  const fq = block(s2, 'AI 사용 빈도 (ai_freq)');
+  eq('[2] ai_freq levels in scale order + (미질문)', fq.map(r => r[1]).join('|'), '사용한 적 없음|주 1–2회|주 3–6회|거의 매일|(미질문)');
+  eq('[2] ai_freq n per level', fq.map(r => r[2]).join('|'), '1|1|1|1|3');
+  eq('[2] ai_freq % uses answered denominator (4)', fq[0][3] + '/' + fq[0][4], '25/4');
+  eq('[2] ai_freq (미질문) row has no % / denominator', fq[4][3] + '|' + fq[4][4], '|');
+  ok('[2] ai_freq never takes ai_use labels (월 …)', !fq.some(r => /월/.test(String(r[1]))));
+  // legacy rows: shown because some included evaluators answered them, labelled, answered-only denominators
+  const lmj = block(s2, '레지던트 전공 (major) (v3.3 이전 문항)');
+  eq('[2] legacy major levels', lmj.map(r => r[1] + ':' + r[2]).join('|'), '내과:2|가정의학과:1|(미질문):1');
+  eq('[2] legacy major % (2/3)', lmj[0][3], 66.7);
+  const tv = block(s2, '제2형 당뇨병 진료량 (t2d_volume) (v3.3 이전 문항)');
+  eq('[2] legacy t2d_volume denominator = answered (E001, E002, E003, E010)', tv[0][4], 4);
+  eq('[2] legacy t2d_volume (미질문) = v3.4 evaluators', (tv.find(r => r[1] === '(미질문)') || [])[2], 3);
+  const au = block(s2, 'AI 도구 사용 빈도 (ai_use) (v3.3 이전 문항)');
+  eq('[2] legacy ai_use levels keep the v3.3 scale', au.filter(r => r[1] !== '(미질문)').map(r => r[1] + ':' + r[2]).join('|'), '월 1회 미만:2|월 1회–주 1회:1|주 2회 이상:1');
+  const trm = row(s2, r => String(r[0]).startsWith('AI 신뢰 (ai_trust'));
+  eq('[2] legacy ai_trust labelled', trm[0], 'AI 신뢰 (ai_trust, 1–5) (v3.3 이전 문항)');
+  eq('[2] ai_trust median (IQR) of E001 4, E002 3, E003 5', trm[2], '4 (3.5–4.5)');
+  eq('[2] ai_trust n (E010 blank, v3.4 evaluators not asked)', trm[4], 3);
+  ok('[2] legacy note present', s2.some(r => String(r[0]).indexOf('(v3.3 이전 문항)') >= 0 && String(r[0]).startsWith('※')));
 
   // --- [3] balance ---
   const s3 = section(S, 3);
@@ -420,7 +456,13 @@ function buildStudy(SS) {
 
   // --- [7] subgroups ---
   const s7 = section(S, 7);
-  eq('[7] trust band 4–5 evaluators (E001, E003, E004)', row(s7, r => r[1] === '4–5 (높음)')[2], 3);
+  eq('[7] legacy trust band 4–5 evaluators (E001, E003)', row(s7, r => r[1] === '4–5 (높음)')[2], 2);
+  ok('[7] legacy trust band variable labelled', s7.some(r => r[0] === 'AI 신뢰 (밴드) (v3.3 이전 문항)'));
+  const f7 = block(s7, 'AI 사용 빈도 (ai_freq)');
+  eq('[7] ai_freq subgroup levels', f7.map(r => r[1]).join('|'), '사용한 적 없음|주 1–2회|주 3–6회|거의 매일|(미질문)');
+  eq('[7] ai_freq 주 1–2회 = E001 (both sessions, 20 ratings)', f7[1][2] + '/' + f7[1][3], '1/20');
+  eq('[7] ai_freq (미질문) = E002 + E003 + E010 (25 ratings)', f7[4][2] + '/' + f7[4][3], '3/25');
+  ok('[7] no ai_use-only subgroup under ai_freq', !f7.some(r => /월/.test(String(r[1]))));
 
   // --- [8] combination choice ---
   const s8 = section(S, 8);
@@ -449,8 +491,12 @@ function buildStudy(SS) {
 
   // --- [10] intent / Spearman ---
   const s10 = section(S, 10);
+  // evaluator means: E001 73/20, E002 3.8, E003 3.7, E004 3.7, E005 4, E006 3.6, E010 4
+  const spf = row(s10, r => String(r[0]).startsWith('AI 사용 빈도 (ai_freq_code)'));
+  eq('[10] Spearman ai_freq vs mean: n (E001, E004, E005, E006)', spf[1], 4); eq('[10] Spearman ai_freq vs mean: rho', spf[2], -0.4);
   const sp1 = row(s10, r => String(r[0]).startsWith('AI 신뢰 (ai_trust_code)'));
-  eq('[10] Spearman trust vs mean: n', sp1[1], 6); eq('[10] Spearman trust vs mean: rho (ties)', sp1[2], -0.403);
+  eq('[10] legacy trust Spearman labelled', sp1[0], 'AI 신뢰 (ai_trust_code) vs 평가자 평균 점수 (v3.3 이전 문항)');
+  eq('[10] Spearman trust vs mean: n', sp1[1], 3); eq('[10] Spearman trust vs mean: rho', sp1[2], -0.5);
   const sp2 = row(s10, r => String(r[0]).startsWith('활용 의향'));
   eq('[10] Spearman intent vs mean: n', sp2[1], 5); eq('[10] Spearman intent vs mean: rho', sp2[2], -0.763);
   const it = row(s10, r => r[0] === '레지던트');
@@ -513,8 +559,14 @@ function buildStudy(SS) {
   const alS10 = AL.find(r => r[col('SessionId')] === 'S10');
   eq('AnalysisLong CaseSpeeder', alS10[col('CaseSpeeder')], 1); eq('AnalysisLong StraightlineFlag (<6 ratings) blank', alS10[col('StraightlineFlag')], '');
   const alS2 = AL.find(r => r[col('SessionId')] === 'S2');
-  eq('AnalysisLong AITrust carried from first session', alS2[col('AITrust_code')], 4);
-  eq('AnalysisLong T2DVolume_code', alS2[col('T2DVolume_code')], 3);
+  eq('AnalysisLong AITrust carried from first (v3.3) session', alS2[col('AITrust_code')], 4);
+  eq('AnalysisLong T2DVolume_code carried from first (v3.3) session', alS2[col('T2DVolume_code')], 3);
+  eq('AnalysisLong AIFreq_code from the v3.4 continuation, also on S1 rows', row(AL, r => r[col('SessionId')] === 'S1')[col('AIFreq_code')], 3);
+  eq('AnalysisLong AIFreq_code column sits after BoardYears', col('AIFreq_code'), col('BoardYears') + 1);
+  eq('AnalysisLong AIFreq_code v3.4 resident', row(AL, r => r[col('SessionId')] === 'S8')[col('AIFreq_code')], 4);
+  eq('AnalysisLong AIFreq_code blank for a v3.3-only evaluator (ai_use not mixed in)', row(AL, r => r[col('SessionId')] === 'S5')[col('AIFreq_code')], '');
+  eq('AnalysisLong AIUse_code kept for the v3.3 evaluator', row(AL, r => r[col('SessionId')] === 'S5')[col('AIUse_code')], 3);
+  eq('AnalysisLong Major blank for a v3.4 resident', row(AL, r => r[col('SessionId')] === 'S8')[col('Major')], '');
   eq('AnalysisLong PatientSeenPrior 1/0', alS2[col('PatientSeenPrior')], 1);
   const alH = AL.find(r => r[col('SessionId')] === 'S1' && r[col('CaseKey')] === 'P051_deepseek' && r[col('Phase')] === 'P4');
   eq('AnalysisLong HarmInPhase', alH[col('HarmInPhase')], 1); eq('AnalysisLong HarmCode', alH[col('HarmCode')], 2);
@@ -526,6 +578,13 @@ function buildStudy(SS) {
   ok('Codebook lists dynamic Case_harm_code in Responses', CB.some(r => r[0] === 'Responses' && r[1] === 'Case_harm_code' && r[4] === 'Y'));
   ok('Codebook lists Visits/Sessions/Responses/PhaseLong/RawJSON', ['Visits', 'Sessions', 'Responses', 'PhaseLong', 'RawJSON'].every(s => CB.some(r => r[0] === s)));
   ok('Codebook descriptions are filled', CB.slice(1).every(r => String(r[2]).length > 0));
+  const cbRow = (sheet, c) => CB.find(r => r[0] === sheet && r[1] === c) || [];
+  ok('Codebook defines Eval_ai_freq with its 5 coded options', /주 3–6회\(4\)/.test(cbRow('(문항 정의)', 'Eval_ai_freq')[3]));
+  ok('Codebook defines Eval_ai_freq_code', String(cbRow('(문항 정의)', 'Eval_ai_freq_code')[2]).indexOf('AI 사용 빈도') === 0);
+  ok('Codebook lists Sessions.Eval_ai_freq present', cbRow('Sessions', 'Eval_ai_freq')[4] === 'Y' && String(cbRow('Sessions', 'Eval_ai_freq')[2]).indexOf('AI 사용 빈도') === 0);
+  ['major', 't2d_volume', 'ai_use', 'ai_trust'].forEach(id => ok('Codebook marks Eval_' + id + ' as a v3.3 question', String(cbRow('(문항 정의)', 'Eval_' + id)[2]).indexOf('(v3.3 이전 문항)') >= 0));
+  ok('Codebook AnalysisLong.AIFreq_code coding', /4 주 3–6회/.test(cbRow('AnalysisLong', 'AIFreq_code')[3]));
+  ok('Codebook AnalysisLong.AIUse_code marked legacy', String(cbRow('AnalysisLong', 'AIUse_code')[2]).indexOf('(v3.3 이전 문항)') >= 0);
 
   if (DUMP) {
     fs.mkdirSync(DUMP, { recursive: true });
@@ -637,6 +696,39 @@ function buildStudy(SS) {
   eq('old column set: included evaluators', r.evaluators, 2);
   const S = read(env.SS, 'Summary');
   ok('old column set: Summary has all sections [0]–[15]', Array.from({ length: 16 }, (_, i) => i).every(i => S.some(x => String(x[0]).startsWith('[' + i + ']'))));
+})();
+
+// =====================================================================
+// 4) v3.4-only sheet: nobody answered a legacy question → no legacy rows anywhere, no (미질문) under ai_freq
+// =====================================================================
+(function v34Only() {
+  const saved = JSON.parse(JSON.stringify(EV));
+  Object.keys(EV).forEach((k, i) => {
+    const e = EV[k];
+    ['major', 't2d', 'aiUse', 'trust', 'contFreq'].forEach(f => delete e[f]);
+    e.aiFreq = (i % 5) + 1;
+  });
+  SESSIONS.forEach(s => { s._v34 = s.v34; delete s.v34; });
+  const env = makeEnv();
+  try {
+    buildStudy(env.SS);
+    let r;
+    try { r = env.ctx.buildSummary(false); ok('v3.4-only: no exception', true); }
+    catch (e) { ok('v3.4-only: no exception', false, e.stack); return; }
+    const S = read(env.SS, 'Summary');
+    ok('v3.4-only: no "(v3.3 이전 문항)" row in Summary', !S.some(x => String(x[0]).indexOf('(v3.3 이전 문항)') >= 0 && !String(x[0]).startsWith('※') && !/^\d+\. /.test(String(x[0]))));
+    ok('v3.4-only: no ai_trust rows / correlation', !S.some(x => /^AI 신뢰/.test(String(x[0]))));
+    const s2 = section(S, 2);
+    ok('v3.4-only: ai_freq has no (미질문) row', !s2.some(x => x[1] === '(미질문)'));
+    eq('v3.4-only: ai_freq denominator = all included evaluators', row(s2, x => x[0] === 'AI 사용 빈도 (ai_freq)')[4], r.evaluators);
+    eq('v3.4-only: Spearman ai_freq n', row(section(S, 10), x => String(x[0]).startsWith('AI 사용 빈도'))[1], r.evaluators);
+    const AL = read(env.SS, 'AnalysisLong'), c = n => AL[0].indexOf(n);
+    ok('v3.4-only: AnalysisLong legacy codes blank', AL.slice(1).every(x => x[c('T2DVolume_code')] === '' && x[c('AIUse_code')] === '' && x[c('AITrust_code')] === '' && x[c('Major')] === ''));
+    ok('v3.4-only: AnalysisLong AIFreq_code filled', AL.slice(1).every(x => x[c('AIFreq_code')] >= 1 && x[c('AIFreq_code')] <= 5));
+  } finally {
+    Object.keys(saved).forEach(k => { EV[k] = saved[k]; });
+    SESSIONS.forEach(s => { if (s._v34) s.v34 = s._v34; delete s._v34; });
+  }
 })();
 
 console.log(`\n${passes} passed, ${failures} failed`);

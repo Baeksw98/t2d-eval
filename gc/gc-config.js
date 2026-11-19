@@ -10,9 +10,9 @@ window.GC_CONFIG = {
   ENDPOINT: '',
 
   STUDY_ID: 'T2D-GC-2026',
-  APP_VERSION: '2026-11-19.gc-v1',
-  INSTRUMENT_VERSION: 'GC physician validation v1 (audit-flagged judgments)',
-  CONSENT_VERSION: 'gc-2026-11-19-v1',
+  APP_VERSION: '2026-11-19.gc-v2',
+  INSTRUMENT_VERSION: 'GC physician validation v2 (audit-flagged judgments)',
+  CONSENT_VERSION: 'gc-2026-11-19-v2',
   IRB_NO: '',
   STUDY_WAVE: 'main',
   INCENTIVE: '없음',
@@ -26,14 +26,17 @@ window.GC_CONFIG = {
     blocked: '이 검증은 내분비대사내과 분과전문의만 참여할 수 있습니다. 참여해 주셔서 감사합니다.'
   },
 
-  // 검증자 특성 (Table 1 용). 이어서 다른 Part 를 할 때는 다시 묻지 않습니다.
+  // 검증자 특성 (Table 1 용). 이어서 다른 Part 를 할 때는 다시 묻지 않습니다(앞 세션에 없던 문항만 묻습니다).
+  // short = 이어서 하기 화면의 요약 줄에 쓰는 짧은 이름.
+  // ai_freq 는 임상 수용성 평가(config.js COMMON_FIELDS)와 같은 id·문구·선택지·코드(1–5, 이 순서)입니다.
   PROFILE_FIELDS: [
-    { id: 'board_years', label: '분과전문의 취득 후 경력', type: 'choice', required: true,
+    { id: 'board_years', short: '분과전문의 경력', label: '분과전문의 취득 후 경력', type: 'choice', required: true,
       options: ['5년 미만', '5–9년', '10–19년', '20년 이상'] },
-    { id: 'setting', label: '주 근무 기관', type: 'choice', required: true,
+    { id: 'setting', short: '주 근무 기관', label: '주 근무 기관', type: 'choice', required: true,
       options: ['상급종합병원', '종합병원', '병원·의원', '기타'] },
-    { id: 't2d_volume', label: '최근 3개월 동안 직접 진료한 제2형 당뇨병 환자 수 (월 평균)', type: 'choice', layout: 'list', required: true,
-      options: ['월 100명 미만', '월 100–299명', '월 300명 이상'] }
+    { id: 'ai_freq', short: 'AI 사용 빈도', label: '진료·학습·연구에 생성형 AI(대화형 AI 챗봇 등)나 AI 진료 보조 도구를 얼마나 자주 사용하십니까?',
+      type: 'choice', layout: 'list', required: true,
+      options: ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일'] }
   ],
 
   // 판정마다: 동의 / 비동의. 비동의면 올바른 판정을 고릅니다. hint 는 비동의 후 고르는 버튼에 함께 보입니다.
@@ -46,7 +49,7 @@ window.GC_CONFIG = {
 
   // 마지막 화면 문항 (세션당 1회)
   END_ITEMS: [
-    { id: 'info_sufficient', label: 'AI 답변, AI Rater의 판정과 AI 감사 의견만으로 판정을 확정하기에 정보가 충분했다.',
+    { id: 'info_sufficient', label: 'CDSS 답변, AI 채점 판정과 AI 감사 의견만으로 판정을 확정하기에 정보가 충분했다.',
       type: 'choice', layout: 'list', required: true,
       options: ['1 · 전혀 그렇지 않다', '2 · 그렇지 않다', '3 · 보통이다', '4 · 그렇다', '5 · 매우 그렇다'] },
     { id: 'hitl_acceptable', label: 'AI 감사가 문제를 표시한 판정만 전문의가 확정하고 나머지는 AI 판정을 그대로 쓰는 방식은 타당하다.',

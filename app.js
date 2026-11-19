@@ -309,19 +309,42 @@
     };
   }
   function hiddenCommon(f) { return !!(f.firstSessionOnly && draft.linked && draft.fields[f.id]); }
-  function draftError() {
-    if (!draft.name.trim()) return '성명을 입력해 주세요.';
+  function fieldName(f) { return f.short || f.label; }
+  // 목적격 조사: 마지막 한글(끝의 괄호 설명 제외)에 받침이 있으면 '을', 없으면 '를'
+  function withObj(word) {
+    var w = String(word || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+    var ch = w.charCodeAt(w.length - 1);
+    if (ch >= 0xAC00 && ch <= 0xD7A3) return w + ((ch - 0xAC00) % 28 ? '을' : '를');
+    return w + '을(를)';
+  }
+  // 시작 전 확인: 빠진 항목을 이름으로 알려 주고(msg), 그 항목으로 이동할 수 있게 선택자(sel)를 돌려준다
+  function draftProblem() {
+    if (!draft.name.trim()) return { msg: '성명을 입력해 주세요.', sel: '#evName' };
     var role = roleById(draft.role);
-    if (!role) return '직군(인턴·레지던트·전문의)을 선택해 주세요.';
+    if (!role) return { msg: '직군(인턴·레지던트·전문의)을 선택해 주세요.', sel: '#roleSeg' };
     var all = role.fields.concat(COMMON);
     for (var i = 0; i < all.length; i++) {
       var f = all[i], v = String(draft.fields[f.id] || '').trim();
-      if (f.required && !v) return (COMMON.indexOf(f) >= 0 ? '진료·AI 경험 문항에 모두 답해 주세요.' : f.label + '을(를) 선택해 주세요.');
-      if (f.other && v === f.other && !String(draft.other[f.id] || '').trim()) return f.label + '을(를) 직접 입력해 주세요.';
+      var sel = f.type === 'select' ? '#fld_ev_' + f.id : '[data-field="' + f.id + '"]';
+      // 짧은 이름(short)이 없는 긴 질문은 이름 대신 강조 표시된 문항을 가리킨다
+      var named = f.short || f.label.length <= 24;
+      if (f.required && !v) return { msg: named ? withObj(fieldName(f)) + (f.type === 'text' ? ' 입력해 주세요.' : ' 선택해 주세요.') : '표시된 문항에 답해 주세요.', sel: sel };
+      if (f.other && v === f.other && !String(draft.other[f.id] || '').trim()) return { msg: withObj(fieldName(f)) + ' 직접 입력해 주세요.', sel: '[data-other="' + f.id + '"]' };
     }
-    if (!typeById(draft.type)) return '평가 유형(Type)을 선택해 주세요.';
-    if (!draft.consent) return '안내 사항 확인에 체크해 주세요.';
-    return '';
+    if (!typeById(draft.type)) return { msg: '평가 유형(Type)을 선택해 주세요.', sel: '#typeSeg' };
+    if (!draft.consent) return { msg: '안내 사항 확인에 체크해 주세요.', sel: '#evConsent' };
+    return null;
+  }
+  // 빠진 항목으로 화면을 옮기고 잠깐 강조한 뒤 그 항목에 초점
+  function showMissing(sel) {
+    var card = $('evaluatorCard'), el = card && card.querySelector(sel);
+    if (!el) return;
+    var box = el.closest('.field') || el;
+    try { box.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) { box.scrollIntoView(); }
+    box.classList.remove('missing'); void box.offsetWidth; box.classList.add('missing');
+    setTimeout(function () { box.classList.remove('missing'); }, 2400);
+    var target = el.matches('.seg') ? (el.querySelector('[tabindex="0"]') || el.querySelector('button')) : el;
+    try { target.focus({ preventScroll: true }); } catch (_) {}
   }
 
   var S = load();
@@ -631,8 +654,8 @@
   var starting = false;
   function startSession() {
     if (starting) return;
-    var err = draftError();
-    if (err) { toast(err); if (!draft.name.trim() && $('evName')) $('evName').focus(); return; }
+    var pb = draftProblem();
+    if (pb) { toast(pb.msg); showMissing(pb.sel); return; }
     tick();
     starting = true;
     S = newState(buildEvaluator(), draft.type, draft.linked);
@@ -1140,7 +1163,7 @@
   }
   function commonFieldsHTML() {
     return COMMON.map(function (f) {
-      if (hiddenCommon(f)) return '<p class="small muted">' + esc(f.label) + ' → 첫 평가 때 응답(<b>' + esc(draft.fields[f.id]) + '</b>)을 그대로 사용합니다.</p>';
+      if (hiddenCommon(f)) return '<p class="small muted">' + esc(fieldName(f)) + ': <b>' + esc(draft.fields[f.id]) + '</b> — 첫 평가 때 응답을 그대로 사용합니다.</p>';
       return fieldHTML(f, draft.fields[f.id] || '', draft.other[f.id], 'ev_');
     }).join('');
   }
@@ -1153,6 +1176,11 @@
     var legend = SCALE.map(function (s) { return '<div><b>' + s.v + '</b>' + esc(s.label) + '</div>'; }).join('');
     var roles = segHTML('data-role', ROLES.map(function (r) { return { value: r.id, label: r.label }; }), draft.role);
     var types = segHTML('data-type', TYPES.map(function (t) { return { value: t.id, label: t.label }; }), draft.type);
+    // 이어서 평가: 이전 세션에 없던 필수 항목(예: v3.3 에서 시작한 평가자의 AI 사용 빈도)은 무엇인지 알려 준다
+    var linkedRole = roleById(draft.role);
+    var linkedMissing = !draft.linked ? [] : (linkedRole ? linkedRole.fields : []).concat(COMMON).filter(function (f) {
+      return f.required && !String(draft.fields[f.id] || '').trim();
+    }).map(fieldName);
     elMain.innerHTML =
       '<section class="card hero">' +
         '<span class="eyebrow">AI 기반 T2D 임상 의사결정 지원 시스템</span>' +
@@ -1161,8 +1189,6 @@
         '<p class="desc">AI 임상 의사결정 지원 시스템(CDSS)이 생성한 제2형 당뇨병 외래 진료 권고안을 읽고, ' +
         '각 단계의 답변이 실제 임상 결정에 유의미한 참고가 되는지 평가해 주십시오.</p>' +
       '</section>' +
-
-      (draft.linked ? '<p class="notice info">이전 평가에 이어 <b>' + esc((typeById(draft.type) || {}).label || '') + '</b>를 평가합니다. 아래 평가자 정보를 확인하고 시작해 주세요.</p>' : '') +
 
       '<section class="card">' +
         '<h2 class="section-title">평가 방법</h2>' +
@@ -1190,17 +1216,19 @@
 
       '<section class="card" id="evaluatorCard">' +
         '<h2 class="section-title">평가자 정보</h2>' +
+        (draft.linked ? '<p class="notice info" style="margin-bottom:14px">이전 평가에 이어 <b>' + esc((typeById(draft.type) || {}).label || '') + '</b>를 평가합니다. ' +
+          (linkedMissing.length ? '아래 <b>' + esc(linkedMissing.join(', ')) + '</b> 문항에 답한 뒤 시작해 주세요.' : '아래 정보를 확인하고 시작해 주세요.') + '</p>' : '') +
         '<div class="field"><label for="evName">성명<span class="req">*</span></label>' +
           '<input class="input" id="evName" type="text" autocomplete="name" maxlength="40" placeholder="예: 홍길동" value="' + esc(draft.name) + '"></div>' +
         '<div class="field"><span class="label" id="roleLabel">직군<span class="req">*</span></span>' +
           '<div class="seg" role="radiogroup" aria-labelledby="roleLabel" id="roleSeg" style="grid-template-columns:repeat(' + ROLES.length + ',1fr)">' + roles + '</div></div>' +
         '<div id="roleFields">' + roleFieldsHTML() + '</div>' +
-        (COMMON.length ? '<h3 class="section-title" style="margin-top:20px">진료·AI 경험</h3><div id="commonFields">' + commonFieldsHTML() + '</div>' : '') +
+        (COMMON.length ? '<div id="commonFields">' + commonFieldsHTML() + '</div>' : '') +
         '<div class="field"><span class="label" id="typeLabel">평가 유형<span class="req">*</span></span>' +
           '<p class="small muted" style="margin:0">둘 중 하나를 골라 주세요. 각 Type은 서로 다른 AI 답변 2건(약 20–30분)이며, 끝난 뒤 다른 Type도 이어서 평가할 수 있습니다.</p>' +
           '<div class="seg" role="radiogroup" aria-labelledby="typeLabel" id="typeSeg" style="grid-template-columns:repeat(' + TYPES.length + ',1fr)">' + types + '</div></div>' +
         '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
-          '<span>본 평가의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 직군·경력, 진료·AI 사용 경험, 평가 점수와 의견, ' +
+          '<span>본 평가의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 직군·연차/경력, AI 사용 빈도, 평가 점수와 의견, ' +
           '응답 과정 정보(단계별 소요 시간, 접속 경로, 기기 종류). 분석과 발표에는 성명 대신 가명 코드를 사용합니다.' +
           (CFG.IRB_NO ? ' (IRB 승인번호: ' + esc(CFG.IRB_NO) + ')' : '') + '</span></label></div>' +
         '<button type="button" class="btn btn-accent btn-block" id="startBtn" style="margin-top:18px">' + (starting ? '평가 준비 중…' : '평가 시작') + '</button>' +
@@ -1215,7 +1243,12 @@
       });
       if (b.hasAttribute('data-role')) {
         var r = b.getAttribute('data-role');
-        if (draft.role !== r) { draft.role = r; draft.fields = {}; draft.other = {}; $('roleFields').innerHTML = roleFieldsHTML(); }
+        if (draft.role !== r) {
+          // 직군을 바꾸면 이전 직군의 항목만 지운다 (공통 문항·이어서 평가 때 가져온 응답은 유지)
+          var prevRole = roleById(draft.role);
+          (prevRole ? prevRole.fields : []).forEach(function (f) { delete draft.fields[f.id]; delete draft.other[f.id]; });
+          draft.role = r; $('roleFields').innerHTML = roleFieldsHTML();
+        }
       } else if (b.hasAttribute('data-type')) {
         draft.type = b.getAttribute('data-type');
       } else if (seg.hasAttribute('data-field')) {

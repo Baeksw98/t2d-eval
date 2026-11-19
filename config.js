@@ -8,29 +8,32 @@ window.T2D_CONFIG = {
   ENDPOINT: 'https://script.google.com/macros/s/AKfycbxPxzjMttjnyGlgwY_8AYRCMcMGN1_LLGsgShtMg0ZTcSPE3d52m3f4WALNJMuH0S1KUg/exec',
 
   STUDY_ID: 'T2D-CA-2026',
-  APP_VERSION: '2026-11-19.ca-v3.3',
+  APP_VERSION: '2026-11-19.ca-v3.4',
 
   // 연구 메타데이터 (응답과 함께 저장 → 논문 방법 기술·버전별 분석용)
   INSTRUMENT_VERSION: 'Delphi-final P1–P5 (5-point agreement)',  // 주 평가 문항(Delphi 확정본) 버전
-  CONSENT_VERSION: '2026-11-19-v2',  // 동의 문구를 바꾸면 올려 주세요
+  CONSENT_VERSION: '2026-11-19-v3',  // 동의 문구를 바꾸면 올려 주세요 (v3: 수집 항목 '직군·연차/경력, AI 사용 빈도')
   IRB_NO: '',                        // IRB 승인번호를 넣으면 동의 문구에 표시됩니다 (예: 'XXXX-2026-0123')
   STUDY_WAVE: 'main',                // 'pilot' 이면 주 분석에서 자동 제외 (링크에 ?wave=pilot 으로도 지정 가능)
   INCENTIVE: '없음',                  // 참여 보상 (CHERRIES 보고 항목)
 
   // ------------------------------------------------------------
   // 평가자 직군 — 직군을 고르면 그 직군의 추가 항목(fields)이 나타납니다.
+  //  · 인턴: 추가 항목 없음 / 레지던트: 연차만 / 전문의: 주 분야 + 전문의 경력 (v3.4, PI 결정)
   //  · 직군 추가: 항목 하나를 더 넣으면 됩니다 (예: { id: 'fellow', label: '전임의', fields: [...] }).
   //  · field type: 'choice'(버튼), 'select'(목록, groups 로 묶음 가능), 'text'(직접 입력)
   //  · select 의 other: 이 문구를 고르면 직접 입력칸이 나타납니다.
+  //  · short: 오류 안내에 쓰는 짧은 이름 (예: 'AI 사용 빈도' → "AI 사용 빈도를 선택해 주세요."). 없으면 label 을 씁니다.
   //  · 응답 시트에는 EvaluatorRole / EvaluatorDetail 과 Eval_<field id> 컬럼으로 저장됩니다(백엔드가 자동으로 컬럼 추가).
+  //  · 이미 쓰인 field id 의 선택지·의미를 바꾸지 마세요(기존 응답과 코드가 섞입니다). 바꿀 때는 새 id 를 씁니다.
+  //    v3.3 까지 쓰던 id: major(레지던트 전공), t2d_volume, ai_use, ai_trust — 시트·요약에는 이전 응답으로 남아 있습니다.
   // ------------------------------------------------------------
   EVALUATOR_ROLES: [
     { id: 'intern', label: '인턴', fields: [] },
     {
       id: 'resident', label: '레지던트',
       fields: [
-        { id: 'year', label: '레지던트 년차', type: 'choice', options: ['R1', 'R2', 'R3'], required: true },
-        { id: 'major', label: '전공 과', type: 'choice', options: ['내과', '가정의학과'], other: '기타 (직접 입력)', required: true }
+        { id: 'year', label: '레지던트 연차', type: 'choice', options: ['R1', 'R2', 'R3'], required: true }
       ]
     },
     {
@@ -51,25 +54,19 @@ window.T2D_CONFIG = {
   ],
 
   // ------------------------------------------------------------
-  // 모든 직군 공통 배경 문항 (평가자 특성 표 Table 1 용, 한 번 탭)
+  // 모든 직군 공통 배경 문항 (평가자 특성 표 Table 1 용) — v3.4 부터 AI 사용 빈도 1문항
+  //  · ai_freq 는 v3.3 의 ai_use(5단계, 월 단위)와 척도가 달라 새 id 를 씁니다(코드를 섞지 않기 위해).
+  //    GC(/gc/gc-config.js)의 같은 문항과 id·문구·선택지·코드(1–5)가 같아야 합니다.
   //  · firstSessionOnly: 다른 Type 을 이어서 평가할 때는 다시 묻지 않고 처음 응답을 그대로 사용
+  //    (이전 세션에 이 응답이 없으면 — 예: v3.3 에서 시작한 평가자 — 이어서 평가할 때 묻습니다)
   //  · layout 'list': 선택지가 길어 세로로 표시
   // ------------------------------------------------------------
   COMMON_FIELDS: [
     {
-      id: 't2d_volume', label: '최근 3개월 동안 제2형 당뇨병 환자의 약물 치료 결정에 직접 참여한 환자 수는 월 평균 대략 몇 명입니까? (외래·병동 포함)',
-      type: 'choice', layout: 'list', required: true,
-      options: ['월 1명 미만', '월 1–10명', '월 11–30명', '월 31명 이상']
-    },
-    {
-      id: 'ai_use', label: '진료·학습·연구 목적으로 생성형 AI(대화형 AI 챗봇 등)나 AI 임상 의사결정 지원 도구를 얼마나 자주 사용하십니까?',
-      type: 'choice', layout: 'list', required: true,
-      options: ['사용한 적 없음', '월 1회 미만', '월 1회–주 1회', '주 2회 이상', '거의 매일']
-    },
-    {
-      id: 'ai_trust', label: '현재 AI 임상 의사결정 지원 도구가 제시하는 진료 권고를 어느 정도 신뢰하십니까?',
+      id: 'ai_freq', short: 'AI 사용 빈도',
+      label: '진료·학습·연구에 생성형 AI(대화형 AI 챗봇 등)나 AI 진료 보조 도구를 얼마나 자주 사용하십니까?',
       type: 'choice', layout: 'list', required: true, firstSessionOnly: true,
-      options: ['1 · 전혀 신뢰하지 않음', '2 · 별로 신뢰하지 않음', '3 · 보통', '4 · 대체로 신뢰함', '5 · 매우 신뢰함']
+      options: ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일']
     }
   ],
 

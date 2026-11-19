@@ -5,7 +5,18 @@ AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별
 - 평가 대상: 가상 환자 2명(P051, P011) × AI 2종(DeepSeek-V4.1-Flash, GPT-6.1 Sol) = AI 답변 4건을 **Type A / Type B 로 2건씩** 나눔
   - Type A: P051·DeepSeek + P011·GPT / Type B: P011·DeepSeek + P051·GPT (각 Type 에 두 환자·두 모델이 한 번씩)
   - 평가자가 시작 화면에서 Type 을 고름 (링크에 `?type=A` / `?type=B` 를 붙이면 미리 선택). 완료 후 같은 정보로 다른 Type 이어서 평가 가능
-- 평가자 정보: 성명 + 직군(인턴 / 레지던트 → 년차 R1–R3 / 전문의 → 주 분야). 직군·항목은 `config.js` 의 `EVALUATOR_ROLES` 에서 추가·수정
+- 평가자 정보 (v3.4): 성명 + 직군 + 모든 직군 공통 **AI 사용 빈도** 1문항. 인턴은 추가 항목 없이 바로 시작합니다.
+
+  | 직군 | 직군별 항목 | 공통 문항 |
+  |---|---|---|
+  | 인턴 | 없음 | AI 사용 빈도 (`ai_freq`): 사용한 적 없음 / 주 1회 미만 / 주 1–2회 / 주 3–6회 / 거의 매일 (코드 1–5) |
+  | 레지던트 | 연차 (R1–R3) | 〃 |
+  | 전문의 | 주 분야(세부전문), 전문의 취득 후 경력 | 〃 |
+
+  - 직군·항목은 `config.js` 의 `EVALUATOR_ROLES` / `COMMON_FIELDS` 에서 수정합니다. 이미 응답이 쌓인 문항 id 의 선택지는 바꾸지 말고 새 id 를 쓰세요(코드가 섞임).
+  - AI 사용 빈도는 첫 평가 때만 묻고, 다른 Type 을 이어서 평가할 때는 그 응답을 그대로 씁니다(이전 세션에 응답이 없으면 그때 묻습니다).
+  - 동의 문구의 수집 항목도 "성명, 직군·연차/경력, AI 사용 빈도, …"로 맞췄습니다(`CONSENT_VERSION` `2026-11-19-v3`; 응답 시트 `ConsentVersion` 으로 구분).
+  - v3.3 까지 묻던 진료량(`t2d_volume`)·AI 도구 사용 빈도(`ai_use`, 월 단위)·AI 신뢰(`ai_trust`)·레지던트 전공(`major`)은 v3.4 에서 뺐습니다. 이미 받은 응답은 시트에 그대로 있고, Summary 에는 응답한 평가자가 있을 때만 "(v3.3 이전 문항)"으로 표시됩니다. `ai_use` 와 `ai_freq` 는 척도가 달라 합치지 않습니다.
 - 블라인드: 평가자에게 모델명을 보여주지 않음
 - 제시 순서: Type 안에서 두 순서를 서버가 균형 배정 (응답이 들어온 세션 수가 적은 순서부터)
 - 케이스 흐름: 환자 정보 → Phase 1 평가 → 선호 조합 1개 선택 → (선택 조합 기준) Phase 2·3·4·5 평가 → 자유 의견(선택)
@@ -98,7 +109,7 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 
 | 시트 | 1행 단위 | 주요 컬럼 |
 |---|---|---|
-| **Responses** | 평가자 × AI 답변(케이스) | 성명, 직군(`EvaluatorRole`), 직군 상세(`EvaluatorDetail`, 예: 레지던트 · R2 / 전문의 · 내분비대사내과), `Eval_year`·`Eval_specialty`, `StudyType`(A/B), 제시 순서, 환자, 모델, `P1_Referral`, `ComboChoice`(1–3), `ComboIsAIFirst`, `P2`–`P5` 점수, 케이스 의견, 단계별 소요 시간(초), 첫 응답까지 시간(TTFR), 점수 변경 횟수, 스크롤 도달률(%), 단계 재방문 수, 환자 정보 열람 횟수·시간 |
+| **Responses** | 평가자 × AI 답변(케이스) | 성명, 직군(`EvaluatorRole`), 직군 상세(`EvaluatorDetail`, 예: 레지던트 · R2 / 전문의 · 내분비대사내과), `Eval_year`·`Eval_specialty`·`Eval_board_years`, AI 사용 빈도 `Eval_ai_freq`(+`_code` 1–5), `StudyType`(A/B), 제시 순서, 환자, 모델, `P1_Referral`, `ComboChoice`(1–3), `ComboIsAIFirst`, `P2`–`P5` 점수, 케이스 의견, 단계별 소요 시간(초), 첫 응답까지 시간(TTFR), 점수 변경 횟수, 스크롤 도달률(%), 단계 재방문 수, 환자 정보 열람 횟수·시간 |
 | **PhaseLong** | 평가자 × 케이스 × Phase | 점수, 4점 이상 여부(`Acceptable_4plus`), 체류 시간(`VisibleSec`, `ActiveOnlySec`), 첫 응답까지 시간, 변경 횟수 — CVI·혼합모형 분석용 long format |
 | **Sessions** | 평가 세션 1건 (Type 1개) | 직군·Type, 이어서 평가한 경우 이전 세션(`LinkedSessionId`), 상태(started/in_progress/completed), 시작·종료 시각, **총 평가 시간(분)**, 비활성(idle)·백그라운드(hidden) 시간, 재접속 횟수, 전체 의견, 기기 종류·화면 크기·브라우저 |
 | **RawJSON** | 수신 요청 1건 | 원문 JSON, 서버 처리 시간(ms), 오류 메시지 (감사 추적용) |
@@ -120,6 +131,14 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 4. 평가자 구성 (직군 · 세부 · Type 별 인원)
 5. 직군별 Phase I-CVI
 
+(실제 Summary 는 [0]–[15] 절로 구성됩니다 — `gas/src/summary.gs` 머리말 참고. 평가자 특성 표 [2] 와 하위군 [7] 의 AI 친숙도 변수는 `ai_freq` 입니다.)
+
+**v3.4 (평가자 정보 간소화) 반영 시 재배포 여부**
+- 사이트: `config.js`·`app.js`·`index.html`·`styles.css` 를 GitHub Pages 에 올리면 끝입니다. 이전 버전에서 평가를 진행 중이던 분은 새로고침해도 그대로 이어서 진행·저장됩니다(그 세션은 이전 문항 응답을 계속 보냄).
+- CA Apps Script: **응답 수집에는 재배포가 필요 없습니다.** 현재 배포된 백엔드가 `Eval_ai_freq`·`Eval_ai_freq_code` 컬럼을 자동으로 추가합니다.
+  Summary·AnalysisLong·Codebook 에 AI 사용 빈도를 반영하려면 `gas/Code.gs` 전체를 Apps Script 에 붙여넣고 **저장**하세요(10분 요약 트리거와 메뉴는 저장된 코드로 실행됨). 응답 수집 코드(core)는 바뀌지 않았으므로 웹 앱 새 버전 배포는 선택 사항입니다.
+  붙여넣지 않으면 Summary 는 계속 이전 형식으로 만들어지며(오류 없음), v3.4 평가자는 이전 문항 행에 "(미응답)"으로 잡히고 AI 사용 빈도는 표에 나오지 않습니다(시트 원자료에는 저장됨).
+
 ---
 
 ## 5. AI 답변·환자 자료를 바꿀 때
@@ -140,7 +159,8 @@ python3 tools/build_data.py data/parsed_raw.json data/cases.js
 ```bash
 node tools/mock_gas_server.js 8787        # gas/Code.gs 를 그대로 실행하는 모의 서버 + 사이트
 # 브라우저: http://localhost:8787/
-node tools/e2e.js http://localhost:8787/ ./shots mobile    # 4케이스 자동 완주 + 화면 캡처
+node tools/e2e.js http://localhost:8787/ ./shots mobile 테스트평가자 all   # 인턴·레지던트·전문의 경로를 각각 완주 + 화면 캡처 (desktop 도 가능)
+node tools/test_summary.js                                # Summary·AnalysisLong·Codebook 단위 테스트 (v3.3·v3.4 응답 혼합)
 curl http://localhost:8787/__sheets                       # 저장된 시트 내용 확인
 ```
 
@@ -172,7 +192,7 @@ curl http://localhost:8787/__sheets                       # 저장된 시트 내
 CA Summary [14] 에 연결하려면 `GC_Concordance` 의 `TargetKey`·`ConcordanceScore` 두 열을 CA 스프레드시트의 `Concordance` 시트에 붙여 넣습니다.
 
 ```bash
-python3 tools/build_gas.py                 # gas/Code.gs (CA, 변경 없음) + gas/GcCode.gs (GC)
+python3 tools/build_gas.py                 # gas/Code.gs (CA) + gas/GcCode.gs (GC) 둘 다 생성
 node tools/test_gc.js                      # GC 백엔드 단위 테스트 (+ CA test_summary.js)
 node tools/mock_gas_server.js 8791         # CA 웹 앱 /exec, GC 웹 앱 /gc-exec (각자 별도 시트)
 node tools/e2e_gc.js http://localhost:8791 ./shots-gc      # GC 사이트 자동 완주 + 시트·요약 검증

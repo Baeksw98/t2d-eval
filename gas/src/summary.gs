@@ -18,6 +18,11 @@
  *
  * 포함 규칙은 sm_rules_() (Summary [0] 에도 그대로 출력). 모든 컬럼은 헤더 이름으로 찾고,
  * 없는 컬럼은 빈 값으로 본다(이전 버전 시트 호환). 출력 시트마다 setValues 는 1회, 모든 문자열은 cell_() 경유.
+ *
+ * 평가자 배경 문항 (사이트 v3.4 = APP_VERSION 2026-11-19.ca-v3.4 부터)
+ *  · AI 친숙도 변수 = ai_freq (사용한 적 없음 / 주 1회 미만 / 주 1–2회 / 주 3–6회 / 거의 매일, 코드 1–5). 전 직군 공통.
+ *  · v3.3 까지의 문항 major · t2d_volume · ai_use · ai_trust 는 응답한 평가자가 있을 때만 '(v3.3 이전 문항)'으로 표시.
+ *    ai_use(월 단위 5단계)와 ai_freq(주 단위 5단계)는 척도가 달라 코드를 합치지 않는다.
  */
 
 var SM_ALONG = 'AnalysisLong';
@@ -39,16 +44,19 @@ var SM_OPT = {
   board_years: ['5년 미만', '5–9년', '10–19년', '20년 이상'],
   t2d_volume: ['월 1명 미만', '월 1–10명', '월 11–30명', '월 31명 이상'],
   ai_use: ['사용한 적 없음', '월 1회 미만', '월 1회–주 1회', '주 2회 이상', '거의 매일'],
+  ai_freq: ['사용한 적 없음', '주 1회 미만', '주 1–2회', '주 3–6회', '거의 매일'],
   harm: ['없음', '경미한 위해 가능성', '중대한 위해 가능성'],
   would_prescribe: ['그대로 처방', '일부 수정하여 처방', '처방할 조합 없음']
 };
 var SM_KEYW = { harm: ['없음', '경미', '중대'], would_prescribe: ['그대로', '수정', '없음'] };
 var SM_ROLE_ORDER = ['인턴', '레지던트', '전문의'];
 var SM_TRUST_BANDS = ['1–2 (낮음)', '3 (중간)', '4–5 (높음)'];
+var SM_LEGACY = ' (v3.3 이전 문항)';          // v3.4 에서 뺀 배경 문항(major · t2d_volume · ai_use · ai_trust) 표시
+var SM_NOT_ASKED = '(미질문)';                // 그 버전에서 묻지 않은 문항: % 분모에서 빼고 인원만 표시
 var SM_AL_COLS = ['EvaluatorCode', 'EvaluatorId', 'SessionId', 'SessionOrdinal', 'StudyType', 'SequenceIndex', 'CaseOrder',
   'GlobalCaseOrder', 'PatientId', 'PatientSeenPrior', 'Model', 'ModelName', 'CaseKey', 'ComboRankAI', 'ComboKey',
   'RankCueVisible', 'Phase', 'TargetKey', 'Score', 'Acceptable', 'FirstScore', 'Changed', 'Role', 'ResidentYear', 'Major',
-  'Specialty', 'BoardYears', 'T2DVolume_code', 'AIUse_code', 'AITrust_code', 'Src', 'Site', 'Wave', 'FormFactor',
+  'Specialty', 'BoardYears', 'AIFreq_code', 'T2DVolume_code', 'AIUse_code', 'AITrust_code', 'Src', 'Site', 'Wave', 'FormFactor',
   'InAppBrowser', 'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Chars', 'CharsPerSec', 'ScrollAtFirstRating', 'HarmCode',
   'HarmInPhase', 'WouldPrescribeCode', 'IntentUseCode', 'SpeederFlag', 'CaseSpeeder', 'StraightlineFlag',
   'HiddenHeavyFlag', 'RatedBeforeReadFlag', 'IncludedInAnalysis', 'ExclusionReason', 'IsTest'];
@@ -348,7 +356,8 @@ function sm_attemptCmp_(a, b) {
   return sm_cmpNum_(a.doneAt, b.doneAt) || sm_cmpNum_(a.firstSeen, b.firstSeen) || a.ord - b.ord;
 }
 
-/** 평가자 특성: 첫 포함 세션 값, 비어 있으면 같은 평가자의 다른 세션 값 (예: ai_trust 는 첫 세션에서만 질문) */
+/** 평가자 특성: 첫 포함 세션 값, 비어 있으면 같은 평가자의 다른 세션 값
+ *  (ai_freq 는 첫 세션에서만 질문 · v3.3 에서 시작한 평가자는 이어서 평가한 v3.4 세션에서 응답) */
 function sm_profile_(e) {
   var list = [e.first].concat(e.incSessions, e.sessions);
   var pick = function (k) {
@@ -365,6 +374,7 @@ function sm_profile_(e) {
   e.t2d = sm_item_(pick('Eval_t2d_volume'), pick('Eval_t2d_volume_code'), SM_OPT.t2d_volume);
   e.aiUse = sm_item_(pick('Eval_ai_use'), pick('Eval_ai_use_code'), SM_OPT.ai_use);
   e.aiTrust = sm_item_(pick('Eval_ai_trust'), pick('Eval_ai_trust_code'), null);
+  e.aiFreq = sm_item_(pick('Eval_ai_freq'), pick('Eval_ai_freq_code'), SM_OPT.ai_freq);
   e.src = sm_str_(pick('Src'));
   e.site = sm_str_(pick('Site'));
   e.form = sm_str_(pick('FormFactor'));
@@ -450,7 +460,10 @@ function sm_rules_() {
       '개 이상이 모두 같은 점수; HiddenHeavyFlag(케이스) = CaseHiddenSec > ' + R.hiddenFrac + ' × CaseWallSec; RatedBeforeReadFlag(Phase) = 첫 응답 시점 스크롤 < ' +
       R.scrollMin + '%. 판정에 필요한 값이 없으면 빈칸(판정 불가).',
     '표시 시간 = active + idle (다른 앱·탭으로 가려진 hidden 제외). 사분위수는 R type 7 방식. 비율은 소수 셋째 자리, 평균은 둘째 자리, % 는 첫째 자리.',
-    '평가자 특성(직군·진료량·AI 사용·AI 신뢰 등)은 평가자의 첫 포함 세션 값이며, 비어 있으면 같은 평가자의 다른 세션 값을 씁니다.'
+    '평가자 특성(직군·연차·경력·AI 사용 빈도 등)은 평가자의 첫 포함 세션 값이며, 비어 있으면 같은 평가자의 다른 세션 값을 씁니다.',
+    '배경 문항은 사이트 v3.4(2026-11-19)부터 직군별 항목(레지던트 연차 / 전문의 주 분야·경력) + AI 사용 빈도(ai_freq) 1문항입니다. ' +
+      'v3.3 까지의 문항(레지던트 전공 major, 진료량 t2d_volume, AI 도구 사용 빈도 ai_use, AI 신뢰 ai_trust)은 응답한 평가자가 있을 때만 "(v3.3 이전 문항)"으로 표시하며, ' +
+      '척도가 다른 ai_use 코드는 ai_freq 에 합치지 않습니다. 버전 때문에 묻지 않은 문항은 "' + SM_NOT_ASKED + '" 행으로 인원만 표시하고 % 분모에서 뺍니다.'
   ];
 }
 
@@ -594,22 +607,44 @@ function sm_s2_(o, D) {
   o.head(['변수', '수준', 'n', '%', '분모']);
   sm_cat_(o, '직군', E, function (e) { return e.role; }, SM_ROLE_ORDER);
   var res = E.filter(function (e) { return e.kind === 'resident'; });
-  sm_cat_(o, '레지던트 년차', res, function (e) { return e.year; }, SM_OPT.year);
-  sm_cat_(o, '레지던트 전공', res, function (e) { return e.major; }, SM_OPT.major);
+  sm_cat_(o, '레지던트 연차', res, function (e) { return e.year; }, SM_OPT.year);
   var sp = E.filter(function (e) { return e.kind === 'specialist'; });
   sm_cat_(o, '전문의 주 분야', sp, function (e) { return e.specialty; }, null);
-  sm_cat_(o, '전문의 연차 (board_years)', sp, function (e) { return e.board.label; }, SM_OPT.board_years);
-  sm_cat_(o, '제2형 당뇨병 진료량 (t2d_volume)', E, function (e) { return e.t2d.label; }, SM_OPT.t2d_volume);
-  sm_cat_(o, 'AI 도구 사용 빈도 (ai_use)', E, function (e) { return e.aiUse.label; }, SM_OPT.ai_use);
+  sm_cat_(o, '전문의 경력 (board_years)', sp, function (e) { return e.board.label; }, SM_OPT.board_years);
+  sm_catAsked_(o, 'AI 사용 빈도 (ai_freq)', E, function (e) { return e.aiFreq.label; }, SM_OPT.ai_freq, true);
+  // v3.3 까지의 문항: 응답한 평가자가 1명이라도 있을 때만 (기록 보존). 분모 = 그 문항에 응답한 평가자
+  var has = function (list, fn) { return list.some(function (e) { return sm_str_(fn(e)) !== ''; }); };
+  var major = function (e) { return e.major; }, t2d = function (e) { return e.t2d.label; }, aiUse = function (e) { return e.aiUse.label; };
+  if (has(res, major)) sm_catAsked_(o, '레지던트 전공 (major)' + SM_LEGACY, res, major, SM_OPT.major);
+  if (has(E, t2d)) sm_catAsked_(o, '제2형 당뇨병 진료량 (t2d_volume)' + SM_LEGACY, E, t2d, SM_OPT.t2d_volume);
+  if (has(E, aiUse)) sm_catAsked_(o, 'AI 도구 사용 빈도 (ai_use)' + SM_LEGACY, E, aiUse, SM_OPT.ai_use);
   var tr = E.map(function (e) { return e.aiTrust.code; }).filter(sm_fin_);
-  o.add(['AI 신뢰 (ai_trust, 1–5)', '중앙값 (Q1–Q3)', tr.length ? sm_medIqrText_(tr) : '', '', tr.length]);
-  sm_cat_(o, 'AI 신뢰 분포', E, function (e) { return sm_fin_(e.aiTrust.code) ? String(e.aiTrust.code) : ''; }, ['1', '2', '3', '4', '5']);
+  if (tr.length) {
+    o.add(['AI 신뢰 (ai_trust, 1–5)' + SM_LEGACY, '중앙값 (Q1–Q3)', sm_medIqrText_(tr), '', tr.length]);
+    sm_catAsked_(o, 'AI 신뢰 분포' + SM_LEGACY, E, function (e) { return sm_fin_(e.aiTrust.code) ? String(e.aiTrust.code) : ''; }, ['1', '2', '3', '4', '5']);
+  }
   sm_cat_(o, '유입 경로 (Src)', E, function (e) { return e.src; }, null, '(없음)');
   if (E.some(function (e) { return e.site; })) sm_cat_(o, '기관 (Site)', E, function (e) { return e.site; }, null, '(없음)');
   sm_cat_(o, '기기 (FormFactor)', E, function (e) { return e.form; }, ['mobile', 'tablet', 'desktop'], '(미기록)');
   sm_cat_(o, '인앱 브라우저 (InAppBrowser)', E, function (e) { return e.inApp; }, null, '(일반 브라우저)');
-  o.note('% = 분모 대비 백분율. 레지던트 항목은 직군 = 레지던트, 전문의 항목은 직군 = 전문의 평가자만 분모로 씁니다. AI 신뢰 1 = 전혀 신뢰하지 않음 … 5 = 매우 신뢰함.');
+  o.note('% = 분모 대비 백분율. 레지던트 항목은 직군 = 레지던트, 전문의 항목은 직군 = 전문의 평가자만 분모로 씁니다.');
+  o.note('AI 사용 빈도(ai_freq)는 사이트 v3.4 부터 모든 직군에 묻는 문항입니다. ' + SM_NOT_ASKED + ' = 이 문항이 생기기 전(v3.3 이전)에만 참여한 평가자로, % 분모에서 뺍니다.');
+  if (has(res, major) || has(E, t2d) || has(E, aiUse) || tr.length) {
+    o.note('"(v3.3 이전 문항)" = v3.4 에서 뺀 문항으로, 그 전에 응답한 평가자 기록을 보존하려고 표시합니다. 분모 = 그 문항에 응답한 평가자, ' +
+      SM_NOT_ASKED + ' = v3.4 이후 참여해 묻지 않은 평가자. ai_use(월 단위)는 ai_freq(주 단위)와 척도가 달라 합치지 않습니다. AI 신뢰 1 = 전혀 신뢰하지 않음 … 5 = 매우 신뢰함.');
+  }
   o.gap();
+}
+
+/** 버전에 따라 묻지 않은 문항: 응답한 평가자만 분모로 집계하고, 묻지 않은 인원은 '(미질문)' 행(n 만)으로 덧붙인다.
+ *  alwaysRow: 응답자가 0명이어도 '(해당 없음)' 행을 남긴다 (현재 문항용). */
+function sm_catAsked_(o, label, list, fn, order, alwaysRow) {
+  var asked = list.filter(function (x) { return sm_str_(fn(x)) !== ''; });
+  if (!asked.length && !alwaysRow) return;
+  if (asked.length) sm_cat_(o, label, asked, fn, order);
+  else o.add([label, '(해당 없음)', 0, '', 0]);
+  var n = list.length - asked.length;
+  if (n) o.add(['', SM_NOT_ASKED, n, '', '']);
 }
 
 function sm_cat_(o, label, list, fn, order, blank) {
@@ -812,16 +847,21 @@ function sm_s7_(o, D) {
   o.head(hdr);
   var P = sm_scored_(D.inc.phases);
   var band = function (c) { return !sm_fin_(c) ? '' : c <= 2 ? SM_TRUST_BANDS[0] : c === 3 ? SM_TRUST_BANDS[1] : SM_TRUST_BANDS[2]; };
-  [
+  var E = D.inc.evals;
+  var anyEv = function (fn) { return E.some(function (e) { return sm_str_(fn(e)) !== ''; }); };
+  var vars = [
     ['직군', function (p) { return p.sess.ev.role; }, SM_ROLE_ORDER],
-    ['제2형 당뇨병 진료량', function (p) { return p.sess.ev.t2d.label; }, SM_OPT.t2d_volume],
-    ['AI 도구 사용 빈도', function (p) { return p.sess.ev.aiUse.label; }, SM_OPT.ai_use],
-    ['AI 신뢰 (밴드)', function (p) { return band(p.sess.ev.aiTrust.code); }, SM_TRUST_BANDS],
-    ['기기 (FormFactor, 세션)', function (p) { return sm_str_(sm_sf_(p.sess, 'FormFactor')); }, ['mobile', 'tablet', 'desktop']]
-  ].forEach(function (v) {
+    ['AI 사용 빈도 (ai_freq)', function (p) { return p.sess.ev.aiFreq.label; }, SM_OPT.ai_freq.concat([SM_NOT_ASKED]), SM_NOT_ASKED]
+  ];
+  // v3.3 까지의 문항: 응답한 평가자가 있을 때만
+  if (anyEv(function (e) { return e.t2d.label; })) vars.push(['제2형 당뇨병 진료량' + SM_LEGACY, function (p) { return p.sess.ev.t2d.label; }, SM_OPT.t2d_volume.concat([SM_NOT_ASKED]), SM_NOT_ASKED]);
+  if (anyEv(function (e) { return e.aiUse.label; })) vars.push(['AI 도구 사용 빈도 (ai_use)' + SM_LEGACY, function (p) { return p.sess.ev.aiUse.label; }, SM_OPT.ai_use.concat([SM_NOT_ASKED]), SM_NOT_ASKED]);
+  if (anyEv(function (e) { return band(e.aiTrust.code); })) vars.push(['AI 신뢰 (밴드)' + SM_LEGACY, function (p) { return band(p.sess.ev.aiTrust.code); }, SM_TRUST_BANDS.concat([SM_NOT_ASKED]), SM_NOT_ASKED]);
+  vars.push(['기기 (FormFactor, 세션)', function (p) { return sm_str_(sm_sf_(p.sess, 'FormFactor')); }, ['mobile', 'tablet', 'desktop']]);
+  vars.forEach(function (v) {
     var g = {}, keys = [];
     P.forEach(function (p) {
-      var k = sm_str_(v[1](p)) || '(미응답)';
+      var k = sm_str_(v[1](p)) || v[3] || '(미응답)';
       if (!sm_has_(g, k)) { g[k] = []; keys.push(k); }
       g[k].push(p);
     });
@@ -836,7 +876,10 @@ function sm_s7_(o, D) {
       o.add(row);
     });
   });
-  o.note('단위 = Phase 평정. 평가자 특성은 첫 포함 세션 기준, 기기는 각 세션 기준. 작은 하위군은 해석에 주의하세요.');
+  var legacyShown = vars.some(function (v) { return v[0].indexOf(SM_LEGACY) >= 0; });
+  o.note('단위 = Phase 평정. 평가자 특성은 첫 포함 세션 기준, 기기는 각 세션 기준. 작은 하위군은 해석에 주의하세요. ' +
+    SM_NOT_ASKED + ' = 그 버전에서 묻지 않은 평가자(AI 사용 빈도는 v3.3 이전에만 참여한 평가자' +
+    (legacyShown ? ', "(v3.3 이전 문항)"은 v3.4 이후 참여한 평가자' : '') + ').');
   o.gap();
 }
 
@@ -937,10 +980,15 @@ function sm_s10_(o, D) {
   o.gap();
   o.head(['Spearman 순위 상관 (평가자 단위)', 'n (평가자)', 'rho']);
   var E = D.inc.evals, ms = E.map(function (e) { return e.meanScore; });
-  var a = sm_spearman_(E.map(function (e) { return e.aiTrust.code; }), ms);
+  var f = sm_spearman_(E.map(function (e) { return e.aiFreq.code; }), ms);
   var b = sm_spearman_(E.map(function (e) { return e.intent; }), ms);
-  o.add(['AI 신뢰 (ai_trust_code) vs 평가자 평균 점수', a.n, r3_(a.rho)]);
+  o.add(['AI 사용 빈도 (ai_freq_code) vs 평가자 평균 점수', f.n, r3_(f.rho)]);
   o.add(['활용 의향 (End_intent_use_code) vs 평가자 평균 점수', b.n, r3_(b.rho)]);
+  // v3.3 까지의 AI 신뢰 문항: 응답한 평가자가 있을 때만
+  if (E.some(function (e) { return sm_fin_(e.aiTrust.code); })) {
+    var a = sm_spearman_(E.map(function (e) { return e.aiTrust.code; }), ms);
+    o.add(['AI 신뢰 (ai_trust_code) vs 평가자 평균 점수' + SM_LEGACY, a.n, r3_(a.rho)]);
+  }
   o.note('평가자 평균 점수 = 분석 포함 Phase 점수(P1–P5)의 평균. 활용 의향은 평가자의 포함 세션 값 평균. 동점은 평균 순위. n < 3 이면 계산하지 않습니다.');
   o.gap();
 }
@@ -1154,7 +1202,7 @@ function sm_analysisLong_(D) {
       CaseKey: c.key, ComboRankAI: c.rank, ComboKey: c.comboKey, RankCueVisible: sm_b01_(o.RankCueVisible),
       Phase: p.P, TargetKey: p.target, Score: p.score, Acceptable: p.acc, FirstScore: p.firstScore, Changed: p.changed,
       Role: e.role, ResidentYear: e.year, Major: e.major, Specialty: e.specialty, BoardYears: e.board.label,
-      T2DVolume_code: e.t2d.code, AIUse_code: e.aiUse.code, AITrust_code: e.aiTrust.code,
+      AIFreq_code: e.aiFreq.code, T2DVolume_code: e.t2d.code, AIUse_code: e.aiUse.code, AITrust_code: e.aiTrust.code,
       Src: sm_str_(sm_sf_(s, 'Src')), Site: sm_str_(sm_sf_(s, 'Site')), Wave: s.wave,
       FormFactor: sm_str_(sm_sf_(s, 'FormFactor')), InAppBrowser: sm_str_(sm_sf_(s, 'InAppBrowser')),
       VisibleSec: p.vis, ActiveOnlySec: p.activeOnly, TTFRSec: p.ttfr, Chars: p.chars, CharsPerSec: r2_(p.cps),
@@ -1200,13 +1248,15 @@ function sm_codebook_(D) {
 }
 
 var SM_ITEMS = {
-  year: ['Eval_', '레지던트 년차', 'R1, R2, R3', true],
-  major: ['Eval_', '레지던트 전공', '내과, 가정의학과, 기타 (직접 입력)', true],
+  year: ['Eval_', '레지던트 연차', 'R1, R2, R3', true],
   specialty: ['Eval_', '전문의 주 분야 (세부전문)', '목록 + 기타 (직접 입력); 코드 의미 없음', true],
-  board_years: ['Eval_', '전문의 취득 후 연차', '5년 미만, 5–9년, 10–19년, 20년 이상', true],
-  t2d_volume: ['Eval_', '제2형 당뇨병 환자 진료량', '월 1명 미만, 월 1–10명, 월 11–30명, 월 31명 이상', true],
-  ai_use: ['Eval_', 'AI 도구 사용 빈도', '사용한 적 없음, 월 1회 미만, 월 1회–주 1회, 주 2회 이상, 거의 매일', true],
-  ai_trust: ['Eval_', 'AI 신뢰 수준 (첫 세션에서 응답, 이어서 평가 시 승계)', '1 전혀 신뢰하지 않음 … 5 매우 신뢰함', true],
+  board_years: ['Eval_', '전문의 취득 후 경력', '5년 미만, 5–9년, 10–19년, 20년 이상', true],
+  ai_freq: ['Eval_', 'AI 사용 빈도 — 진료·학습·연구에 생성형 AI 나 AI 진료 보조 도구를 쓰는 빈도 (v3.4 부터, 모든 직군, 첫 세션에서 응답·이어서 평가 시 승계)',
+    '사용한 적 없음(1), 주 1회 미만(2), 주 1–2회(3), 주 3–6회(4), 거의 매일(5)', true],
+  major: ['Eval_', '레지던트 전공' + SM_LEGACY, '내과, 가정의학과, 기타 (직접 입력)', true],
+  t2d_volume: ['Eval_', '제2형 당뇨병 환자 진료량' + SM_LEGACY, '월 1명 미만, 월 1–10명, 월 11–30명, 월 31명 이상', true],
+  ai_use: ['Eval_', 'AI 도구 사용 빈도' + SM_LEGACY + ' — ai_freq 와 척도가 달라 합치지 않음', '사용한 적 없음, 월 1회 미만, 월 1회–주 1회, 주 2회 이상, 거의 매일', true],
+  ai_trust: ['Eval_', 'AI 신뢰 수준' + SM_LEGACY + ' (첫 세션에서 응답, 이어서 평가 시 승계)', '1 전혀 신뢰하지 않음 … 5 매우 신뢰함', true],
   harm: ['Case_', '환자 위해 가능성', '없음(1), 경미한 위해 가능성(2), 중대한 위해 가능성(3)', true],
   harm_phases: ['Case_', '위해 가능 Phase (위해 ≥ 2 일 때, 선택)', 'P1, COMBO, P2–P5 복수 선택, 세미콜론 구분 (예: P3;P4)', false],
   would_prescribe: ['Case_', '이 답변의 조합을 처방할 의향', '그대로 처방(1), 일부 수정하여 처방(2), 처방할 조합 없음(3)', true],
@@ -1295,7 +1345,7 @@ function sm_cbDefs_() {
   a('EvaluatorName', '평가자 성명 — 개인정보, AnalysisLong 에는 없음', '문자열');
   a('EvaluatorRole', '직군', '인턴 / 레지던트 / 전문의');
   a('EvaluatorDetail', '직군 상세 표시 (예: 레지던트 · R2)', '문자열');
-  a('ResidentYear', '레지던트 년차', 'R1 / R2 / R3');
+  a('ResidentYear', '레지던트 연차', 'R1 / R2 / R3');
   a('StudyType', '평가 Type (AI 답변 2건 묶음)', 'A / B');
   a('SequenceIndex', 'Type 안의 제시 순서 번호', '정수 (0부터)');
   a('SeqSource', '제시 순서 배정 출처', 'server / local (서버 미응답 시 기기 임의 배정)');
@@ -1429,13 +1479,15 @@ function sm_cbDefs_() {
   A('FirstScore', '처음 고른 점수', '1–5');
   A('Changed', '첫 점수 이후 응답을 바꿨는지', '1/0');
   A('Role', '직군 (평가자 첫 포함 세션 기준)', '인턴 / 레지던트 / 전문의');
-  A('ResidentYear', '레지던트 년차', 'R1–R3');
-  A('Major', '레지던트 전공 (Eval_major)', '문자열');
+  A('ResidentYear', '레지던트 연차', 'R1–R3');
+  A('Major', '레지던트 전공 (Eval_major)' + SM_LEGACY + ' — v3.4 이후 참여자는 빈칸', '문자열');
   A('Specialty', '전문의 주 분야 (Eval_specialty)', '문자열');
-  A('BoardYears', '전문의 취득 후 연차 (Eval_board_years)', '문자열');
-  A('T2DVolume_code', '제2형 당뇨병 진료량 코드', '1 월 1명 미만 … 4 월 31명 이상');
-  A('AIUse_code', 'AI 도구 사용 빈도 코드', '1 사용한 적 없음 … 5 거의 매일');
-  A('AITrust_code', 'AI 신뢰 코드', '1 전혀 신뢰하지 않음 … 5 매우 신뢰함');
+  A('BoardYears', '전문의 취득 후 경력 (Eval_board_years)', '문자열');
+  A('AIFreq_code', 'AI 사용 빈도 코드 (Eval_ai_freq_code, v3.4 부터 · 모든 직군) — v3.3 이전에만 참여한 평가자는 빈칸',
+    '1 사용한 적 없음, 2 주 1회 미만, 3 주 1–2회, 4 주 3–6회, 5 거의 매일');
+  A('T2DVolume_code', '제2형 당뇨병 진료량 코드' + SM_LEGACY + ' — v3.4 이후 참여자는 빈칸', '1 월 1명 미만 … 4 월 31명 이상');
+  A('AIUse_code', 'AI 도구 사용 빈도 코드' + SM_LEGACY + ' — AIFreq_code 와 척도가 다름(합치지 말 것)', '1 사용한 적 없음, 2 월 1회 미만, 3 월 1회–주 1회, 4 주 2회 이상, 5 거의 매일');
+  A('AITrust_code', 'AI 신뢰 코드' + SM_LEGACY + ' — v3.4 이후 참여자는 빈칸', '1 전혀 신뢰하지 않음 … 5 매우 신뢰함');
   A('Src', '유입 경로 (세션)', '문자열');
   A('Site', '기관 (세션)', '문자열');
   A('Wave', '수집 차수 (세션)', 'pilot = 파일럿');

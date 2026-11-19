@@ -256,7 +256,7 @@
   // Intro draft (before a session exists)
   function emptyDraft() {
     return {
-      eligible: '', name: '', fields: {}, part: URL_PART, consent: false, consent_at: null, consent_inherited: false,
+      eligible: '', name: '', fields: {}, missing: [], part: URL_PART, consent: false, consent_at: null, consent_inherited: false,
       linked: null, done_parts: [], evaluator_id: null, prev_patients: [], pending: [], introBucket: emptyBucket()
     };
   }
@@ -265,7 +265,10 @@
       var d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
       if (!d || !d.linked) return null;
       var base = emptyDraft();
+      var oldDraft = !Array.isArray(d.missing);   // v1 페이지가 저장한 초안: missing 이 없음 → 아래에서 다시 계산
       Object.keys(base).forEach(function (k) { if (d[k] === undefined) d[k] = base[k]; });
+      if (!d.fields || typeof d.fields !== 'object') d.fields = {};
+      if (oldDraft) d.missing = unansweredProfile(d.fields);
       d.introBucket = emptyBucket();
       if (!partById(d.part) || d.done_parts.indexOf(d.part) >= 0) d.part = '';
       return d;
@@ -276,6 +279,15 @@
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (_) {}
   }
   var draft = emptyDraft();
+  // 답이 비어 있는 필수 검증자 정보 문항 id (이어서 검증할 때 이 문항만 묻는다)
+  function unansweredProfile(fields) {
+    return PROFILE.filter(function (f) { return f.required && !String((fields || {})[f.id] || '').trim(); }).map(function (f) { return f.id; });
+  }
+  function missingNames() {
+    return (draft.linked && draft.missing ? draft.missing : []).map(function (id) {
+      var f = PROFILE_BY_ID[id]; return f ? (f.short || f.label) : '';
+    }).filter(Boolean);
+  }
 
   function buildEvaluator() {
     var fields = {}, codes = {};
@@ -293,7 +305,14 @@
     if (!draft.name.trim()) return ['성명을 입력해 주세요.', '#evName'];
     for (var i = 0; i < PROFILE.length; i++) {
       var f = PROFILE[i];
-      if (f.required && !String(draft.fields[f.id] || '').trim()) return ['검증자 정보 문항에 모두 답해 주세요.', '[data-field="' + f.id + '"]'];
+      if (f.required && !String(draft.fields[f.id] || '').trim()) {
+        // 안전장치: 이어서 검증하는 화면에 이 문항이 없으면(이전 버전 초안 등) 묻는 문항에 넣고 다시 그린다
+        if (draft.linked && (!draft.missing || draft.missing.indexOf(f.id) < 0)) {
+          draft.missing = (draft.missing || []).concat([f.id]);
+          saveDraft(); render();
+        }
+        return ['검증자 정보 문항에 모두 답해 주세요.', '[data-field="' + f.id + '"]'];
+      }
     }
     if (!partById(draft.part) || draft.done_parts.indexOf(draft.part) >= 0) return ['검증할 Part를 선택해 주세요.', '.part-grid'];
     if (!draft.consent) return ['연구 참여 동의에 체크해 주세요.', '#evConsent'];
@@ -945,11 +964,18 @@
     return '<span class="vd v-' + esc(id) + (extra ? ' ' + extra : '') + '">' + esc(vLabel(id)) +
       (extra && extra.indexOf('struck') >= 0 ? '<span class="sr-only"> (보정 전)</span>' : '') + '</span>';
   }
-  function mkHTML(mark, short) {
-    var major = mark === 'major';
-    return '<span class="mk ' + (major ? 'major' : 'minor') + '"><span aria-hidden="true">' + (major ? '✗' : '△') + '</span> ' +
-      (short ? (major ? '보정' : '유지') : (major ? '중대한 오류' : '미세한 오류')) + '</span>';
+  // AI 감사 표시: △ = 판정은 유지하되 근거 보완이 필요하다는 의견 / ✗ = 판정이 틀렸다고 보고 바로잡음
+  var MARK = {
+    minor: { sym: '△', label: '근거 보완', meaning: '판정은 유지하되, 근거(인용·사유)에 보완이 필요하다는 의견입니다.' },
+    major: { sym: '✗', label: '판정 보정', meaning: 'AI 채점의 판정이 틀렸다고 보고 판정을 바로잡았습니다.' }
+  };
+  function markOf(mark) { return mark === 'major' ? MARK.major : MARK.minor; }
+  function mkHTML(mark) {
+    var m = markOf(mark);
+    return '<span class="mk ' + (mark === 'major' ? 'major' : 'minor') + '"><span aria-hidden="true">' + m.sym + '</span> ' + m.label + '</span>';
   }
+  // AI 감사가 판정을 바꿨는지 (✗ 의 보정 판정이 AI 채점 판정과 다름) — 화면 ④ 의 '감사에서 바뀜'
+  function changedByAudit(item) { return !!item.audit.corrected && item.audit.corrected !== item.rater.verdict; }
   function answerParts(out, combo, q) {
     if (!combo) {
       var p1 = out.phase_1 || {};
@@ -1030,21 +1056,65 @@
       '<p>' + (ap.text ? markHTML(ap.text, rq, aq) : '<span class="muted">(답변 없음)</span>') + '</p>';
   }
 
-  function pathHTML(item) {
-    var changed = item.audit.mark === 'major' && item.audit.corrected && item.audit.corrected !== item.rater.verdict;
-    return '<div class="gc-path' + (changed ? ' changed' : '') + '" role="group" aria-label="판정 경과">' +
-      '<div class="gp-step"><small>AI 채점</small>' + vdHTML(item.rater.verdict, changed ? 'struck' : '') + '</div>' +
-      '<span class="gp-arrow" aria-hidden="true">→</span>' +
-      '<div class="gp-step"><small>AI 감사</small>' + mkHTML(item.audit.mark, true) + '</div>' +
-      '<span class="gp-arrow" aria-hidden="true">→</span>' +
-      '<div class="gp-step gp-final"><small>AI 최종 판정</small>' + vdHTML(item.final) + '</div>' +
-    '</div>';
+  // ---- 판정 화면: 채점 항목(맥락) → ① CDSS 답변 → ② AI 채점 사유 → ③ AI 감사 의견 → ④ 최종 판정 ----
+  // 판정 화면을 읽는 순서 (시작 화면·답변 안내 화면에서 같은 모양으로 보여 줌)
+  var READ_ORDER = ['CDSS 답변', 'AI 채점 사유', 'AI 감사 의견', '최종 판정'];
+  // 문장 안의 작은 단계 번호 배지 (①–④ 글자 대신: 글꼴과 관계없이 단계 머리의 번호와 같은 모양)
+  function nbHTML(n) { return '<span class="gc-nb">' + n + '</span>'; }
+  function readOrderHTML() {
+    return '<ol class="gc-order" aria-label="판정 화면 읽는 순서">' + READ_ORDER.map(function (t, i) {
+      return '<li><span class="gc-step-no" aria-hidden="true">' + (i + 1) + '</span>' + esc(t) + '</li>';
+    }).join('') + '</ol>';
   }
-  function criterionHTML(item) {
-    return '<section class="card gc-crit"><h2 class="section-title">감점 기준</h2>' +
-      '<div class="gc-clamp' + (ui.critOpen ? ' open' : '') + '" id="gcCrit">' + esc(item.criterion) + '</div>' +
-      '<button type="button" class="gc-more-btn" data-act="crit" aria-expanded="' + ui.critOpen + '" aria-controls="gcCrit">' +
-        (ui.critOpen ? '접기' : '전체 보기') + '</button></section>';
+  // 단계 머리: 번호 배지 + 제목(h2) + 오른쪽 요약 칩. 스크린리더에는 'N단계.' 가 앞에 읽힘
+  function stepHeadHTML(n, title, sub, aside) {
+    return '<header class="gc-step-head">' +
+      '<span class="gc-step-no" aria-hidden="true">' + n + '</span>' +
+      '<div class="gc-step-tt"><h2 class="gc-step-title" id="gcS' + n + 'h"><span class="sr-only">' + n + '단계. </span>' + title + '</h2>' +
+        (sub ? '<p class="gc-step-sub">' + sub + '</p>' : '') + '</div>' +
+      (aside ? '<div class="gc-step-aside">' + aside + '</div>' : '') +
+    '</header>';
+  }
+  function stepHTML(n, cls, inner) {
+    return '<li class="gc-step gc-s' + n + '" id="gcStep' + n + '" data-step="' + n + '">' +
+      '<section class="card ' + cls + '" aria-labelledby="gcS' + n + 'h">' + inner + '</section></li>';
+  }
+  // 인용문 위치 안내: 'here' → ① 답변에 표시 / 같은 조합의 다른 답(① 아래 '인용된 다른 답'에 함께 표시) / 찾지 못함
+  function locNote(loc) {
+    return loc === 'here' ? nbHTML(1) + ' 답변에 표시' : loc ? '답 ' + esc(loc) + '에 있음 · ' + nbHTML(1) + '에 함께 표시' : '답변 원문에서 그대로 찾을 수 없음';
+  }
+  // ②·③이 인용한 문장이 이 판정의 답이 아닌 같은 조합(또는 Phase 1)의 다른 답에 있으면 그 답 번호들 (답 순서대로)
+  // → ① 에서 바로 보여 준다 (전체 답변 펼침에서 찾지 않아도 되게)
+  //    반환: { qs: ['5.4', …], r: AI 채점 인용이 있음, a: AI 감사 근거가 있음 }
+  function citedOtherQs(out, item, rq, aq) {
+    var hit = {}, by = { r: false, a: false };
+    [['r', rq], ['a', aq]].forEach(function (src) {
+      (src[1] || []).forEach(function (q) {
+        var loc = findQuote(out, item, q);
+        if (loc && loc !== 'here') { hit[loc] = 1; by[src[0]] = true; }
+      });
+    });
+    return { qs: (item.combo ? ALL_Q : ['1.1', '1.2']).filter(function (q) { return hit[q]; }), r: by.r, a: by.a };
+  }
+  // 데이터의 'Rater' 는 화면 용어 'AI 채점' 으로 (화면 어디에도 Rater 라는 말이 없음)
+  function screenTerms(s) {
+    return String(s == null ? '' : s).replace(/Rater(는|가)?/g, function (_, p) {
+      return 'AI 채점' + (p === '는' ? '은' : p === '가' ? '이' : '');
+    });
+  }
+
+  // 채점 항목 (맥락): 요소 ID·제목, 감점 기준(접힘). 충족·감점의 뜻은 ④ 와 비동의 버튼에 있음
+  function elementCardHTML(item) {
+    return '<section class="card gc-elem" aria-labelledby="gcTitle">' +
+      '<div class="gc-elem-top"><span class="gc-elem-id">' + esc(item.element) + '</span><span class="gc-elem-k">채점 항목</span></div>' +
+      '<h1 class="gc-title" id="gcTitle">' + esc(item.title) + '</h1>' +
+      '<div class="gc-crit">' +
+        '<h2 class="gc-crit-k">감점 기준</h2>' +
+        '<div class="gc-clamp' + (ui.critOpen ? ' open' : '') + '" id="gcCrit">' + esc(item.criterion) + '</div>' +
+        '<button type="button" class="gc-more-btn" data-act="crit" aria-expanded="' + ui.critOpen + '" aria-controls="gcCrit">' +
+          (ui.critOpen ? '접기' : '전체 보기') + '</button>' +
+      '</div>' +
+    '</section>';
   }
   function fullAnswerHTML(item, out, cb, rq, aq) {
     var row = function (q) {
@@ -1057,79 +1127,84 @@
     return '<div class="gc-full"><h3 class="mini">처방 (조합 ' + item.combo + ')</h3>' + rxListHTML(cb.prescription) +
       PHASE_GROUPS.map(function (g) { return '<h3 class="mini">' + esc(g[0]) + '</h3>' + g[1].map(row).join(''); }).join('') + '</div>';
   }
-  function answerCardHTML(item, out, cb) {
+  // ① CDSS 답변: 이 조합의 이 답 (AI 채점 인용 = 노란 표시, AI 감사 근거 = 초록 점선)
+  //    + ②·③이 인용한 문장이 같은 조합의 다른 답에 있으면 그 답도 바로 아래에 (표시한 채로)
+  function answerStepHTML(item, out, cb) {
     var rq = item.rater.quotes, aq = evidenceQuotes(item);
     var ap = answerParts(out, item.combo, item.question);
-    var hasR = hasMark(ap, rq), hasA = hasMark(ap, aq);
-    var where = item.combo ? '조합 ' + item.combo : 'Phase 1';
-    return '<section class="card gc-answer">' +
-      '<div class="gc-ans-head"><span class="ai-label">CDSS 답변</span>' +
-        '<span class="gc-ans-where">' + esc(where) + ' · 답 ' + esc(item.question) + ' ' + esc(Q_LABEL[item.question] || '') + '</span></div>' +
-      (item.question_text ? '<p class="gc-qtext"><span class="gc-qtext-k">채점표에서 이 답을 보는 관점</span>' + esc(item.question_text) + '</p>' : '') +
+    var co = citedOtherQs(out, item, rq, aq), others = co.qs;
+    var oParts = others.map(function (q) { return answerParts(out, item.combo, q); });
+    var hasR = hasMark(ap, rq) || oParts.some(function (p) { return hasMark(p, rq); });
+    var hasA = hasMark(ap, aq) || oParts.some(function (p) { return hasMark(p, aq); });
+    var where = (item.combo ? '조합 ' + item.combo : 'Phase 1') + ' · 답 ' + item.question + ' ' + (Q_LABEL[item.question] || '');
+    var citedK = co.r && co.a ? 'AI 채점·감사가 인용한 다른 답' : co.r ? 'AI 채점이 인용한 다른 답' : 'AI 감사가 근거로 든 다른 답';
+    var cited = others.length ? '<div class="gc-cited"><h3 class="mini">' + citedK + '</h3>' +
+      others.map(function (q, i) {
+        return '<div class="gc-cited-row" data-q="' + esc(q) + '"><div class="gc-full-q"><b>답 ' + esc(q) + '</b> ' + esc(Q_LABEL[q] || '') + '</div>' +
+          answerBodyHTML(oParts[i], rq, aq) + '</div>';
+      }).join('') + '</div>' : '';
+    return stepHTML(1, 'gc-answer', stepHeadHTML(1, 'CDSS 답변', esc(where)) +
+      // 채점표의 질문은 응답자에게 묻는 말이 아니라 인용임을 분명히 (질문은 아래 dock 의 ④ 하나뿐)
+      (item.question_text ? '<p class="gc-qtext"><span class="gc-qtext-k">채점표 질문 (이 답을 보는 관점)</span>「' + esc(item.question_text) + '」</p>' : '') +
       (cb ? drugChipsHTML(cb) : '') +
       '<div class="gc-ans-body">' + answerBodyHTML(ap, rq, aq) + '</div>' +
+      cited +
       ((hasR || hasA) ? '<p class="gc-hl-legend">' +
-        (hasR ? '<span><mark class="gc-hl r">노란 표시</mark> = AI 채점이 인용한 부분</span>' : '') +
-        (hasA ? '<span><mark class="gc-hl a">초록 점선</mark> = AI 감사가 근거로 든 부분</span>' : '') + '</p>' : '') +
+        (hasR ? '<span><mark class="gc-hl r">노란 표시</mark> ' + nbHTML(2) + ' AI 채점이 인용한 부분</span>' : '') +
+        (hasA ? '<span><mark class="gc-hl a">초록 점선</mark> ' + nbHTML(3) + ' AI 감사가 근거로 든 부분</span>' : '') + '</p>' : '') +
       '<details class="gc-more" data-track="full_answer"><summary>' + (cb ? '이 조합 전체 답변·처방 보기' : 'Phase 1 전체 답변 보기') + '</summary>' +
-        fullAnswerHTML(item, out, cb, rq, aq) + '</details>' +
-    '</section>';
+        fullAnswerHTML(item, out, cb, rq, aq) + '</details>');
   }
-  function raterCardHTML(item, out) {
+  // ② AI 채점: 판정 + 감점 유형 + 사유(본문) + 인용
+  function raterStepHTML(item, out) {
     var r = item.rater;
+    var why = r.verdict === 'deducted' ? '왜 감점했나' : r.verdict === 'met' ? '왜 충족으로 봤나' : '판정 사유';
     var quotes = r.quotes.length ? '<ul class="gc-quotes">' + r.quotes.map(function (q) {
       var loc = findQuote(out, item, q);
-      var note = loc === 'here' ? '위 답변에 표시' : loc ? '답 ' + loc + '에 있음 · 전체 답변에서 표시' : '답변 원문에서 그대로 찾을 수 없음';
-      return '<li><q>' + esc(q) + '</q><span class="qloc' + (loc ? '' : ' miss') + '">' + esc(note) + '</span></li>';
+      return '<li><q>' + esc(q) + '</q><span class="qloc' + (loc ? '' : ' miss') + '">' + locNote(loc) + '</span></li>';
     }).join('') + '</ul>' : '<p class="small muted">인용한 답변 문장 없음</p>';
-    return '<section class="card gc-rater">' +
-      '<div class="gc-card-head"><h2 class="gc-who">AI 채점 <small>AI Rater</small></h2>' + vdHTML(r.verdict) + '</div>' +
+    return stepHTML(2, 'gc-rater', stepHeadHTML(2, 'AI 채점 · ' + why, '', vdHTML(r.verdict)) +
       (r.verdict === 'deducted' && r.type ? '<p class="gc-cat"><span>감점 유형</span>' + esc(r.type) + '</p>' : '') +
-      '<h3 class="mini">인용한 답변</h3>' + quotes +
-      '<h3 class="mini">판정 사유</h3><p class="gc-text">' + esc(r.reason || '—') + '</p>' +
-    '</section>';
+      '<h3 class="mini">판정 사유</h3><p class="gc-why">' + esc(screenTerms(r.reason) || '—') + '</p>' +
+      '<h3 class="mini">근거로 인용한 답변</h3>' + quotes);
   }
-  function auditCardHTML(item, out) {
+  // ③ AI 감사 의견: 표시의 뜻(쉬운 말) + 의견 + 오류 유형 + 근거
+  function auditStepHTML(item, out) {
     var a = item.audit, major = a.mark === 'major';
-    var row = (major && a.corrected) ?
-      '<div class="gc-compare" role="group" aria-label="AI 감사의 판정 보정">' +
-        '<div class="cmp-from"><small>AI 채점</small>' + vdHTML(item.rater.verdict, a.corrected !== item.rater.verdict ? 'struck' : '') + '</div>' +
-        '<span class="cmp-arrow" aria-hidden="true">→</span>' +
-        '<div class="cmp-to"><small>보정 판정</small>' + vdHTML(a.corrected) + '</div></div>' :
-      '<p class="gc-keep">' + vdHTML(item.rater.verdict) + '<span>판정은 그대로 유지합니다. 인용이나 사유에 결함이 있다는 표시입니다.</span></p>';
+    var meaning = (major && !changedByAudit(item)) ? '중대한 문제를 지적했지만 판정은 바꾸지 않았습니다.' : markOf(a.mark).meaning;
     var ev = a.evidence.length ? '<h3 class="mini">감사 근거</h3><ul class="gc-evidence">' + a.evidence.map(function (e) {
       var p = parseEvidence(e);
-      if (!p.quote) return '<li>' + esc(e) + '</li>';
+      if (!p.quote) return '<li>' + esc(screenTerms(e)) + '</li>';
       var loc = out ? findQuoteAnyCombo(out, item, p.quote) : null;
-      var note = !loc ? '' : loc.combo !== item.combo ? '조합 ' + loc.combo + '의 답 ' + loc.q + '에 있는 문장 · 이 화면(조합 ' + item.combo + ')의 답변에는 없음'
-        : loc.q === 'here' ? '위 답변에 표시' : '답 ' + loc.q + '에 있음 · 전체 답변에서 표시';
-      return '<li>' + (p.label ? '<span class="ev-src">' + esc(p.label) + '</span>' : '') + '<q>' + esc(p.quote) + '</q>' +
-        (note ? '<span class="qloc' + (loc.combo !== item.combo ? ' other' : '') + '">' + esc(note) + '</span>' : '') + '</li>';
+      var other = !!loc && loc.combo !== item.combo;
+      var note = !loc ? '' : other ? esc('조합 ' + loc.combo + '의 답 ' + loc.q + '에 있는 문장 · 이 화면(조합 ' + item.combo + ')의 답변에는 없음') : locNote(loc.q);
+      return '<li>' + (p.label ? '<span class="ev-src">' + esc(screenTerms(p.label)) + '</span>' : '') + '<q>' + esc(p.quote) + '</q>' +
+        (note ? '<span class="qloc' + (other ? ' other' : '') + '">' + note + '</span>' : '') + '</li>';
     }).join('') + '</ul>' : '';
-    return '<section class="card gc-audit ' + (major ? 'major' : 'minor') + '">' +
-      '<div class="gc-card-head"><h2 class="gc-who">AI 감사</h2>' + mkHTML(a.mark) + '</div>' +
-      row +
-      (a.category ? '<p class="gc-cat"><span>오류 유형</span>' + esc(a.category) + '</p>' : '') +
-      '<h3 class="mini">감사 의견</h3><p class="gc-text">' + esc(a.explanation || '—') + '</p>' + ev +
-    '</section>';
+    return stepHTML(3, 'gc-audit ' + (major ? 'major' : 'minor'), stepHeadHTML(3, 'AI 감사 의견', '', mkHTML(a.mark)) +
+      '<p class="gc-mark-mean">' + esc(meaning) + '</p>' +
+      '<p class="gc-why">' + esc(screenTerms(a.explanation) || '—') + '</p>' +
+      (a.category ? '<p class="gc-cat"><span>오류 유형</span>' + esc(screenTerms(a.category)) + '</p>' : '') + ev);
   }
-  function finalLineHTML(item) {
-    var a = item.audit;
-    var why = (a.mark === 'major' && a.corrected && a.corrected !== item.rater.verdict)
-      ? 'AI 감사가 AI 채점의 「' + vLabel(item.rater.verdict) + '」을 「' + vLabel(a.corrected) + '」으로 보정했습니다.'
-      : 'AI 채점의 판정을 AI 감사가 그대로 유지했습니다.';
-    return '<section class="gc-final v-' + esc(item.final) + '" aria-label="AI 최종 판정">' +
-      '<span class="gc-final-k">AI 최종 판정</span>' + vdHTML(item.final, 'big') +
-      (verdictById(item.final) && verdictById(item.final).hint ? '<span class="gc-final-def">= ' + esc(verdictById(item.final).hint) + '</span>' : '') +
-      '<span class="gc-final-why">' + esc(why) + '</span></section>';
+  // ④ 그래서 최종 판정: AI 채점 판정 → 감사 반영 후 최종 판정 (전문의가 동의 여부를 고르는 대상)
+  function finalStepHTML(item) {
+    var changed = changedByAudit(item), v = verdictById(item.final);
+    var badge = changed ? '<span class="gc-chg yes">감사에서 바뀜</span>' : '<span class="gc-chg no">변경 없음</span>';
+    return stepHTML(4, 'gc-final' + (changed ? ' changed' : ''), stepHeadHTML(4, '그래서 최종 판정은', '', badge) +
+      '<div class="gc-ba" role="group" aria-label="AI 채점 판정에서 최종 판정으로">' +
+        '<div class="gc-ba-from"><small>AI 채점 판정</small>' + vdHTML(item.rater.verdict, changed ? 'struck' : '') + '</div>' +
+        '<span class="gc-ba-arrow" aria-hidden="true">→</span>' +
+        '<div class="gc-ba-to"><small>감사 반영 후 최종 판정</small>' + vdHTML(item.final, 'big') + '</div>' +
+      '</div>' +
+      (v && v.hint ? '<p class="gc-final-def">「' + esc(v.label) + '」 = ' + esc(v.hint) + '</p>' : ''));
   }
   function basisHTML(item) {
     if (!item.basis) return '';
     var notes = [];
     var main = String(item.basis).replace(/〔([^〕]*)〕/g, function (_, t) { notes.push(t); return ''; }).trim();
     var lines = main.split(/\s+\/\s+/).filter(function (x) { return x.trim(); });
-    return '<details class="card gc-basis" data-track="basis"><summary>채점표 적용 근거</summary><div class="gc-basis-body">' +
-      '<p class="small muted">이 환자·조합에 이 채점 요소를 어떻게 적용했는지에 대한 채점표의 설명입니다.</p>' +
+    return '<details class="card gc-basis" data-track="basis"><summary>채점표 적용 근거 <span class="gc-ref">참고</span></summary><div class="gc-basis-body">' +
+      '<p class="small muted">이 환자·조합에 이 채점 항목을 어떻게 적용했는지에 대한 채점표의 설명입니다.</p>' +
       lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') +
       notes.map(function (n) { return '<p class="gc-note"><span>채점표 감사 메모</span>' + esc(n) + '</p>'; }).join('') +
     '</div></details>';
@@ -1194,7 +1269,7 @@
       return '<p class="notice" style="margin-top:18px">연구 참여 동의는 처음 검증 때 하신 동의를 그대로 사용합니다.</p>';
     }
     return '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
-      '<span>본 검증의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 분과전문의 경력·근무 기관·진료 환자 수, ' +
+      '<span>본 검증의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 분과전문의 경력·근무 기관·AI 사용 빈도, ' +
       '판정과 의견, 응답 과정 정보(판정별 소요 시간, 접속 경로, 기기 종류). 분석과 발표에는 성명 대신 가명 코드를 사용합니다.' +
       (CFG.IRB_NO ? ' (IRB 승인번호: ' + esc(CFG.IRB_NO) + ')' : '') + '</span></label></div>';
   }
@@ -1212,14 +1287,18 @@
     '</section>';
   }
   function continuationCardHTML() {
-    var rows = PROFILE.map(function (f) {
-      return '<li><span class="muted">' + esc(f.label) + '</span> — <b>' + esc(draft.fields[f.id] || '—') + '</b></li>';
+    // 앞 세션에 답이 있는 문항은 요약만, 없는 문항(앞 세션 이후 추가된 문항)만 여기서 묻는다
+    var have = PROFILE.filter(function (f) { return !draft.missing || draft.missing.indexOf(f.id) < 0; });
+    var ask = PROFILE.filter(function (f) { return draft.missing && draft.missing.indexOf(f.id) >= 0; });
+    var rows = have.map(function (f) {
+      return '<li><span class="muted">' + esc(f.short || f.label) + '</span> — <b>' + esc(draft.fields[f.id] || '—') + '</b></li>';
     }).join('');
     return '<section class="card" id="evaluatorCard">' +
       '<h2 class="section-title">검증자 정보</h2>' +
       '<p><b>' + esc(draft.name) + '</b> 선생님</p>' +
       '<ul class="clean small gc-prof">' + rows + '</ul>' +
       '<p class="small muted" style="margin-top:6px">처음 검증 때 입력하신 정보를 그대로 사용합니다.</p>' +
+      (ask.length ? '<div id="profileFields" class="gc-prof-ask">' + ask.map(function (f) { return fieldHTML(f, draft.fields[f.id] || '', 'pf_'); }).join('') + '</div>' : '') +
       partPickerHTML() + consentHTML() + startBtnHTML() +
     '</section>';
   }
@@ -1235,21 +1314,23 @@
         '<p class="desc">AI가 CDSS 답변을 가이드라인 기준으로 채점한 결과 중, 다시 확인이 필요한 판정만 골라 분과전문의 선생님의 확인을 부탁드립니다.</p>' +
       '</section>' +
       (linked ? '<p class="notice info">이전 검증에 이어 ' + (lp ? '<b>' + esc(lp.label) + '</b>를 ' : '다른 Part를 ') +
-        '검증합니다. 선생님 정보와 동의는 처음 응답을 그대로 사용합니다.</p>' : '') +
+        '검증합니다. 선생님 정보와 동의는 처음 응답을 그대로 사용합니다.' +
+        (missingNames().length ? ' 새로 추가된 <b>' + esc(missingNames().join(', ')) + '</b> 문항만 답해 주세요.' : '') + '</p>' : '') +
       '<section class="card">' +
-        '<h2 class="section-title">어떻게 채점했나요</h2>' +
-        '<ol class="flow">' +
-          '<li><span><b>AI 채점</b> — AI 채점자(AI Rater)가 CDSS 답변을 가이드라인 기반 채점표의 요소마다 <b>충족</b> 또는 <b>감점</b>으로 판정했습니다. ' +
-            '<b>충족</b> = 감점 사유 없음(감점 기준에 해당하지 않음), <b>감점</b> = 감점 기준에 해당함. 채점 요소의 제목은 대개 “… 누락”처럼 감점 사유를 적은 것입니다.</span></li>' +
-          '<li><span><b>AI 감사</b> — 별도의 AI 감사가 모든 판정을 하나씩 다시 확인했습니다.</span></li>' +
-          '<li><span><b>선별</b> — AI 감사가 <b>△ 미세한 오류</b> 또는 <b>✗ 중대한 오류</b>로 표시한 판정만 보여 드립니다. 문제없다고 확인된 판정은 AI 판정을 그대로 씁니다.</span></li>' +
-          '<li><span><b>전문의 확인</b> — 판정마다 <b>AI 최종 판정</b>에 동의하시는지 골라 주세요. 비동의하시면 올바른 판정을 골라 주시면 됩니다.</span></li>' +
-        '</ol>' +
+        '<h2 class="section-title">어떻게 진행되나요</h2>' +
+        // 번호 배지는 판정 화면의 ①–④ 에만 쓴다 (진행 과정은 번호 없는 목록)
+        '<ul class="clean gc-proc">' +
+          '<li><b>AI 채점</b> — CDSS 답변을 채점표 항목마다 <b>충족</b>(감점 기준에 해당하지 않음) 또는 <b>감점</b>으로 판정했습니다.</li>' +
+          '<li><b>AI 감사</b> — 모든 판정을 다시 확인해, 문제가 있는 판정에 △ 또는 ✗를 표시했습니다. 이 판정만 보여 드립니다.</li>' +
+        '</ul>' +
+        '<p class="gc-howto-k gc-todo"><b>선생님께서 하실 일</b> — 판정마다 아래 순서로 읽고 <b>' + nbHTML(4) + '최종 판정</b>에 동의·비동의를 골라 주세요. 비동의하시면 올바른 판정을 고릅니다.</p>' +
+        readOrderHTML() +
         '<div class="gc-legend">' +
-          '<div>' + mkHTML('minor') + '<span>판정은 맞지만 인용·사유에 결함이 있어, 원래 판정을 유지했습니다.</span></div>' +
-          '<div>' + mkHTML('major') + '<span>판정이 틀렸다고 보아, AI 감사가 판정을 바꿨습니다(보정 판정).</span></div>' +
+          '<div>' + mkHTML('minor') + '<span>' + esc(MARK.minor.meaning) + '</span></div>' +
+          '<div>' + mkHTML('major') + '<span>' + esc(MARK.major.meaning) + ' 최종 판정이 바뀝니다.</span></div>' +
         '</div>' +
         '<ul class="clean small muted" style="margin-top:14px">' +
+          '<li>채점 항목 제목은 대개 “… 누락”처럼 감점 사유를 적은 것입니다.</li>' +
           '<li>답변을 만든 AI 시스템의 이름은 공개하지 않으며 “답변 1·답변 2”로 표시합니다.</li>' +
           '<li>판정 화면 위쪽 <b>[환자 정보]</b> 버튼으로 환자 기록을 언제든 볼 수 있습니다.</li>' +
           '<li>창을 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.</li>' +
@@ -1302,8 +1383,9 @@
       '<div class="case-head"><span class="pill navy">답변 ' + (st.u + 1) + ' / ' + nUnits() + '</span>' +
         '<span class="pill">판정 ' + (nBefore + 1) + '–' + (nBefore + items.length) + ' / ' + totalItems() + '</span></div>' +
       '<h1 class="gc-h1">답변 ' + (st.u + 1) + ' — 확인할 판정 ' + items.length + '건</h1>' +
-      '<p class="lead">가상 환자 <b>' + esc(out.patient) + '</b>에 대한 CDSS 답변입니다. 이 답변의 AI 판정 중 AI 감사가 표시한 <b>' + items.length + '건</b>을 차례로 확인합니다.</p>' +
+      '<p class="lead">가상 환자 <b>' + esc(out.patient) + '</b>에 대한 CDSS 답변입니다. AI 감사가 표시한 판정 <b>' + items.length + '건</b>을 차례로 확인합니다.</p>' +
       seenNote(out.patient, st.u) +
+      '<section class="card tight gc-howto"><p class="gc-howto-k">판정마다 이 순서로 읽고 <b>' + nbHTML(4) + '최종 판정</b>에 동의하시는지 골라 주세요.</p>' + readOrderHTML() + '</section>' +
       '<section class="card gc-pt">' +
         '<div class="pt-head"><span class="pt-id">' + esc(p.id) + '</span><span class="gc-pt-line">' + patientLine(p) + '</span></div>' +
         '<p class="small" style="margin-top:6px"><span class="muted">내원 이유</span> ' + esc(p.visit_reason) + '</p>' +
@@ -1325,27 +1407,25 @@
     var st = curStep(), item = curItem(), key = S.order[st.u];
     var out = DATA.outputs[key];
     var cb = item.combo ? out.combinations[item.combo - 1] : null;
-    var ord = itemOrder(st.u, st.i), tot = totalItems();
+    // 위에서 아래로: 채점 항목(맥락) → ① CDSS 답변 → ② AI 채점 사유 → ③ AI 감사 의견 → ④ 최종 판정 → (참고) 채점표 적용 근거
     elMain.innerHTML =
       '<div class="case-head">' +
-        '<span class="pill navy">판정 ' + ord + ' / ' + tot + '</span>' +
         '<span class="pill">답변 ' + (st.u + 1) + ' · 환자 ' + esc(item.patient) + '</span>' +
         '<span class="pill teal">' + (item.combo ? '조합 ' + item.combo : 'Phase 1') + ' · 답 ' + esc(item.question) + '</span>' +
       '</div>' +
-      '<section class="card gc-elem">' +
-        '<div class="gc-elem-top"><span class="gc-elem-id">' + esc(item.element) + '</span><span class="gc-elem-k">채점 요소</span></div>' +
-        '<h1 class="gc-title">' + esc(item.title) + '</h1>' +
-        pathHTML(item) +
-      '</section>' +
-      criterionHTML(item) +
-      answerCardHTML(item, out, cb) +
-      raterCardHTML(item, out) +
-      auditCardHTML(item, out) +
-      finalLineHTML(item) +
+      elementCardHTML(item) +
+      '<ol class="gc-steps" aria-label="판정 근거 (읽는 순서)">' +
+        answerStepHTML(item, out, cb) + raterStepHTML(item, out) + auditStepHTML(item, out) + finalStepHTML(item) +
+      '</ol>' +
       basisHTML(item);
-    // 감점 기준이 4줄 이하로 끝나면 '전체 보기' 버튼은 숨김
+    // 감점 기준이 접힌 줄 수 안에 다 들어가면 '전체 보기' 버튼은 숨김
     var crit = $('gcCrit'), btn = elMain.querySelector('[data-act="crit"]');
     if (crit && btn && !ui.critOpen && crit.scrollHeight <= crit.clientHeight + 2) btn.hidden = true;
+  }
+  function scrollToFinal() {
+    var t = $('gcStep4');
+    if (!t) return;
+    t.scrollIntoView({ block: 'start', behavior: reduceMotion() ? 'auto' : 'smooth' });
   }
 
   function renderDock() {
@@ -1366,7 +1446,8 @@
       var item = curItem(), j = jm(item), ord = itemOrder(st.u, st.i), tot = totalItems();
       var hint = j.agree === null ? '동의 여부를 골라 주세요' : (j.agree === false && !j.alt_verdict ? '올바른 판정을 골라 주세요' : '');
       html += '<div class="dock-kicker"><span>판정 ' + ord + ' / ' + tot + '</span><span class="req-hint">' + hint + '</span></div>' +
-        '<p class="dock-statement gc-ask" id="gcAsk">AI 최종 판정 ' + vdHTML(item.final) + '에 동의하십니까?</p>' +
+        '<p class="dock-statement gc-ask" id="gcAsk"><button type="button" class="gc-ask-step" data-act="to-final" title="4단계 최종 판정으로 이동">' +
+          nbHTML(4) + '최종 판정</button> ' + vdHTML(item.final) + '에 동의하십니까?</p>' +
         '<div class="gc-choice" role="group" aria-labelledby="gcAsk">' +
           '<button type="button" class="ch agree" data-agree="1" aria-pressed="' + (j.agree === true) + '">동의</button>' +
           '<button type="button" class="ch disagree" data-agree="0" aria-pressed="' + (j.agree === false) + '">비동의</button>' +
@@ -1401,6 +1482,7 @@
     var act = b.getAttribute('data-act');
     if (act === 'next') goNext();
     else if (act === 'back') goBack();
+    else if (act === 'to-final') scrollToFinal();
   });
   elDock.addEventListener('input', function (e) {
     if (e.target.id !== 'gcComment' || !onItem()) return;
@@ -1538,6 +1620,8 @@
       draft.eligible = 'yes';
       draft.name = prev.evaluator.name;
       PROFILE.forEach(function (f) { draft.fields[f.id] = (prev.evaluator.fields || {})[f.id] || ''; });
+      // 앞 세션에 없던 문항(예: 이후에 추가된 문항)은 이어서 하기 화면에서 묻는다
+      draft.missing = unansweredProfile(draft.fields);
       draft.part = nextPart;
       draft.consent = true; draft.consent_at = (prev.consent || {}).at || nowIso(); draft.consent_inherited = true;
       draft.linked = prev.session_id;
