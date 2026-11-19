@@ -124,7 +124,7 @@ const server = http.createServer((req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*' };
   if (url.pathname === '/exec') {
     if (req.method === 'GET') {
-      const out = ctx.doGet({});
+      const out = ctx.doGet({ parameter: Object.fromEntries(url.searchParams) });
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); res.end(out.getContent()); return;
     }
     if (req.method === 'OPTIONS') { res.writeHead(405, cors); res.end(); return; }  // GAS has no preflight support

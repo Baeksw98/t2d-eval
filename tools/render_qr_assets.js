@@ -12,7 +12,7 @@ const path = require('path');
   const browser = await chromium.launch(proxy ? { proxy: { server: proxy, bypass: 'localhost,127.0.0.1' } } : {});
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, deviceScaleFactor: 2, viewport: { width: 800, height: 1200 } });
   const page = await ctx.newPage();
-  for (const [t, name] of [['a', 'type-a'], ['b', 'type-b'], ['s', 'select']]) {
+  for (const [t, name] of [['s', 'select']]) {
     await page.goto(`${base}/qr/?mode=card&t=${t}`, { waitUntil: 'networkidle' });
     await page.evaluate(() => document.fonts.ready);
     await (await page.$('.card-img')).screenshot({ path: path.join(out, `${name}-card.png`) });

@@ -37,7 +37,7 @@ Conventions
 `FirstSeenAt, ServerUpdatedAt, SessionId, IsTest, EvaluatorName, EvaluatorRole, EvaluatorDetail, ResidentYear,
 StudyType, SequenceIndex, SeqSource, Order, Status, CasesCompleted, LinkedSessionId,
 EvaluatorId, EvaluatorCode, DeviceId, VisitId, SessionOrdinal,
-Src, Site, Wave, TypePreselected, InAppBrowser, ReferrerOrigin,
+Src, Site, Wave, TypePreselected, TypeHint, InAppBrowser, ReferrerOrigin,
 ConsentVersion, ConsentAt, ConsentInherited, InstrumentVersion, Incentive,
 StartedAt, FinishedAt, TotalActiveMin, TotalIdleMin, TotalHiddenMin, TotalWallMin, IntroSec, FinalSec,
 Resumes, Interruptions, SendFailures, FurthestCase, FurthestStep, LastActivityAt, PartialRatingsN,
@@ -48,6 +48,7 @@ Language, TimeZone, UserAgent, AppVersion, DataVersion, BackendVersion`
 - `EvaluatorId`: client UUID; new for a fresh evaluator, inherited by a linked continuation session.
 - `EvaluatorCode`: server pseudonym `E001…`, one per EvaluatorKey = SHA-256(normalised name + role id).
 - `SessionOrdinal`: 1 = first Type for this evaluator, 2 = continuation.
+- `TypeHint`: the Type marked '추천' on the start screen when the evaluator chose (blank = no hint shown). Evaluators choose the Type themselves from one common QR.
 - `FurthestCase` (1-based) / `FurthestStep` (vignette|p1|combo|p2|p3|p4|p5|comment|final) from `progress` pings.
 
 ### Responses (one row per session × case)

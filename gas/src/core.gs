@@ -88,7 +88,7 @@ function sessHeaders_() {
     'FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
     'StudyType', 'SequenceIndex', 'SeqSource', 'Order', 'Status', 'CasesCompleted', 'LinkedSessionId',
     'EvaluatorId', 'EvaluatorCode', 'DeviceId', 'VisitId', 'SessionOrdinal',
-    'Src', 'Site', 'Wave', 'TypePreselected', 'InAppBrowser', 'ReferrerOrigin',
+    'Src', 'Site', 'Wave', 'TypePreselected', 'TypeHint', 'InAppBrowser', 'ReferrerOrigin',
     'ConsentVersion', 'ConsentAt', 'ConsentInherited', 'InstrumentVersion', 'Incentive',
     'StartedAt', 'FinishedAt', 'TotalActiveMin', 'TotalIdleMin', 'TotalHiddenMin', 'TotalWallMin',
     'IntroSec', 'FinalSec', 'Resumes', 'Interruptions', 'SendFailures',
@@ -111,6 +111,31 @@ function rawHeaders_() {
 // HTTP ENTRY POINTS
 // ============================================================
 function doGet(e) {
+  var q = (e && e.parameter) || {};
+  if (q.action === 'type_counts') {
+    // 시작 화면 '추천' 표시용: 실제(비테스트) 세션 중 진행 중·완료(+최근 2시간 내 시작) 세션 수를 Type 별로
+    try {
+      var sh = ss_().getSheetByName(SHEET.SESS);
+      var counts = {};
+      if (sh && sh.getLastRow() >= 2) {
+        var hm = headerMap_(sh).map;
+        var data = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+        var now = Date.now();
+        data.forEach(function (r) {
+          if (!hm.StudyType || isTrue_(r[hm.IsTest - 1])) return;
+          var st = String(r[hm.Status - 1]), first = hm.FirstSeenAt ? r[hm.FirstSeenAt - 1] : '';
+          var recent = first instanceof Date && now - first.getTime() < 2 * 3600 * 1000;
+          if (st === 'in_progress' || st === 'completed' || (st === 'started' && recent)) {
+            var t = String(r[hm.StudyType - 1] || '');
+            if (t) counts[t] = (counts[t] || 0) + 1;
+          }
+        });
+      }
+      return json_({ ok: true, counts: counts });
+    } catch (err) {
+      return json_({ ok: false, error: String(err && err.message || err) });
+    }
+  }
   return json_({ ok: true, service: 'clinical-acceptability', backend: BACKEND_VERSION, time: new Date().toISOString() });
 }
 
@@ -324,7 +349,7 @@ function upsertSession_(ss, db, p, status) {
   var en = p.entry || {}, cs = p.consent || {};
   if (p.entry) {
     row.Src = short_(en.src); row.Site = short_(en.site); row.Wave = short_(en.wave || p.wave);
-    row.TypePreselected = !!en.type_preselected; row.InAppBrowser = short_(en.in_app); row.ReferrerOrigin = short_(en.referrer_origin, 120);
+    row.TypePreselected = !!en.type_preselected; row.TypeHint = short_(en.type_hint, 8); row.InAppBrowser = short_(en.in_app); row.ReferrerOrigin = short_(en.referrer_origin, 120);
   }
   if (p.consent) { row.ConsentVersion = short_(cs.version); row.ConsentAt = short_(cs.at, 40); row.ConsentInherited = !!cs.inherited; }
   if (p.instrument_version) row.InstrumentVersion = short_(p.instrument_version, 120);

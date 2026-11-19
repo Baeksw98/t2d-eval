@@ -85,8 +85,30 @@
   })();
   var ENTRY = {
     src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
-    type_preselected: !!URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
+    type_preselected: !!URL_TYPE, type_hint: '', in_app: IN_APP, referrer_origin: REF_ORIGIN
   };
+  // 참여가 적은 Type 안내 (서버 집계, 실패하면 표시 없음)
+  var typeHint = '', typeHintAsked = false;
+  function fetchTypeHint() {
+    if (typeHintAsked || !CFG.ENDPOINT || CFG.TYPE_HINT === false) return;
+    typeHintAsked = true;
+    var ctrl = new AbortController(); var tm = setTimeout(function () { ctrl.abort(); }, 6000);
+    fetch(CFG.ENDPOINT + '?action=type_counts', { signal: ctrl.signal, redirect: 'follow' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok || !j.counts) return;
+        var ids = TYPES.map(function (t) { return t.id; });
+        var counts = ids.map(function (id) { return Number(j.counts[id] || 0); });
+        var min = Math.min.apply(null, counts), max = Math.max.apply(null, counts);
+        if (min === max) return;   // 같으면 추천 없음
+        typeHint = ids[counts.indexOf(min)];
+        ENTRY.type_hint = typeHint;
+        if (!S && $('typeSeg')) {
+          var b = $('typeSeg').querySelector('[data-type="' + typeHint + '"]');
+          if (b && !b.querySelector('.hint')) b.insertAdjacentHTML('beforeend', '<small class="hint">추천</small>');
+        }
+      }).catch(function () {}).finally(function () { clearTimeout(tm); });
+  }
   var DEVICE_ID = (function () {
     var k = 't2d-ca:device';
     try { var v = localStorage.getItem(k); if (!v) { v = uuid(); localStorage.setItem(k, v); } return v; } catch (_) { return uuid(); }
@@ -1114,7 +1136,8 @@
         '<div id="roleFields">' + roleFieldsHTML() + '</div>' +
         (COMMON.length ? '<h3 class="section-title" style="margin-top:20px">진료·AI 경험</h3><div id="commonFields">' + commonFieldsHTML() + '</div>' : '') +
         '<div class="field"><span class="label" id="typeLabel">평가 유형<span class="req">*</span></span>' +
-          '<p class="small muted" style="margin:0">연구진이 안내한 Type을 선택해 주세요. 각 Type은 AI 답변 2건입니다.</p>' +
+          '<p class="small muted" style="margin:0">둘 중 하나를 골라 주세요. 각 Type은 서로 다른 AI 답변 2건(약 20–30분)이며, 끝난 뒤 다른 Type도 이어서 평가할 수 있습니다.' +
+          (CFG.TYPE_HINT === false ? '' : ' <b>추천</b> 표시는 지금까지 참여가 적은 쪽입니다.') + '</p>' +
           '<div class="seg" role="radiogroup" aria-labelledby="typeLabel" id="typeSeg" style="grid-template-columns:repeat(' + TYPES.length + ',1fr)">' + types + '</div></div>' +
         '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
           '<span>본 평가의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 직군·경력, 진료·AI 사용 경험, 평가 점수와 의견, ' +
@@ -1185,6 +1208,8 @@
     });
     $('startBtn').addEventListener('click', startSession);
     elDock.innerHTML = '';
+    if (typeHint) { var hb = $('typeSeg').querySelector('[data-type="' + typeHint + '"]'); if (hb) hb.insertAdjacentHTML('beforeend', '<small class="hint">추천</small>'); }
+    fetchTypeHint();
     sendView();
   }
 

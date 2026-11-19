@@ -8,7 +8,7 @@ window.T2D_CONFIG = {
   ENDPOINT: 'https://script.google.com/macros/s/AKfycbxPxzjMttjnyGlgwY_8AYRCMcMGN1_LLGsgShtMg0ZTcSPE3d52m3f4WALNJMuH0S1KUg/exec',
 
   STUDY_ID: 'T2D-CA-2026',
-  APP_VERSION: '2026-11-19.ca-v3',
+  APP_VERSION: '2026-11-19.ca-v3.1',
 
   // 연구 메타데이터 (응답과 함께 저장 → 논문 방법 기술·버전별 분석용)
   INSTRUMENT_VERSION: 'Delphi-final P1–P5 (5-point agreement)',  // 주 평가 문항(Delphi 확정본) 버전
@@ -110,12 +110,15 @@ window.T2D_CONFIG = {
   //  · 각 Type 에 가상 환자 2명(P051, P011)과 AI 2종(DeepSeek, GPT)이 한 번씩 섞여 들어갑니다.
   //  · sequences: 같은 Type 안의 제시 순서. 서버가 응답이 들어온 세션 수가 가장 적은 순서부터 배정합니다
   //    (서버 미연결 시 무작위).
-  //  · 링크에 ?type=A 또는 ?type=B 를 붙이면 해당 Type 이 미리 선택됩니다.
+  //  · 평가자는 시작 화면에서 Type 을 직접 고릅니다 (QR 은 하나). ?type=A 처럼 링크로 미리 지정하는 것도 여전히 가능합니다.
   // ------------------------------------------------------------
   STUDY_TYPES: [
     { id: 'A', label: 'Type A', sequences: [['P051_deepseek', 'P011_gpt'], ['P011_gpt', 'P051_deepseek']] },
     { id: 'B', label: 'Type B', sequences: [['P011_deepseek', 'P051_gpt'], ['P051_gpt', 'P011_deepseek']] }
   ],
+
+  // 평가자가 Type 을 직접 고를 때, 지금까지 참여가 적은 Type 에 '추천' 표시 (선택은 자유). 끄려면 false
+  TYPE_HINT: true,
 
   // 예상 소요 시간 안내 문구 (Type 1개 = AI 답변 2건)
   ESTIMATED_MINUTES: '20–30분'

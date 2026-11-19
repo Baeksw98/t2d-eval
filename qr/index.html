@@ -90,11 +90,8 @@
 (function () {
   'use strict';
   var HOST = 'eval.asclep.org';
-  var LINKS = [
-    { id: 'a', tab: 'Type A', title: '임상 수용성 평가 · Type A', path: '/a', img: 'type-a' },
-    { id: 'b', tab: 'Type B', title: '임상 수용성 평가 · Type B', path: '/b', img: 'type-b' },
-    { id: 's', tab: '직접 선택', title: '임상 수용성 평가', path: '/', img: 'select' }
-  ];
+  // QR 은 하나: 평가 시작 화면으로 바로 들어가고, Type A·B 는 평가자가 직접 고른다
+  var LINKS = [{ id: 's', tab: '', title: '임상 수용성 평가', path: '/', img: 'select' }];
   var params = new URLSearchParams(location.search);
   var mode = params.get('mode') || '';
   var cur = LINKS.filter(function (l) { return l.id === params.get('t'); })[0] || LINKS[0];
@@ -145,7 +142,7 @@
   function message(l) {
     return '[임상 수용성 평가 참여 안내]\n' +
       '안녕하세요. AI 기반 제2형 당뇨병 외래 진료 권고안에 대한 임상 수용성 평가에 참여 부탁드립니다.\n\n' +
-      '• 소요 시간: 약 20–30분 (AI 답변 2건)\n' +
+      '• 소요 시간: 약 20–30분 (AI 답변 2건, 시작 화면에서 Type A·B 중 선택)\n' +
       '• 휴대폰으로 바로 참여할 수 있습니다\n' +
       '• 중간에 닫아도 같은 기기에서 다시 열면 이어서 진행됩니다\n\n' +
       '▶ 참여 링크' + (l.id === 's' ? '' : ' (' + l.tab + ')') + ': ' + fullUrl(l, 'kakao') + '\n\n' +
@@ -155,7 +152,7 @@
   // ---------- printable outputs ----------
   if (mode === 'poster' || mode === 'card') {
     document.body.classList.add('print');
-    var list = params.get('t') ? [cur] : LINKS.slice(0, 2);
+    var list = [cur];
     app.innerHTML = list.map(function (l) {
       if (mode === 'card') {
         return '<div class="card-img">' +
@@ -171,7 +168,7 @@
         '<img src="' + l.img + '.svg" alt="QR">' +
         '<div class="url">' + esc(shortUrl(l)) + '</div>' +
         '<ol class="steps"><li>휴대폰 기본 카메라로 위 QR 코드를 비추세요.</li>' +
-        '<li>성명과 직군(인턴·레지던트·전문의)을 입력하세요.</li>' +
+        '<li>성명과 직군(인턴·레지던트·전문의)을 입력하고, 평가 유형(Type A·B)을 고르세요.</li>' +
         '<li>AI 답변 2건을 읽고 Phase별로 1–5점 평가합니다 (약 20–30분).</li></ol>' +
         '<div class="foot">중간에 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.</div></section>';
     }).join('');
@@ -184,12 +181,6 @@
       '<header class="top"><div class="top-inner"><span class="mark"></span><div><strong>임상 수용성 평가 · QR 안내</strong>' +
         '<small>화면에 띄우거나 카카오톡으로 보내 참여를 안내하세요</small></div></div></header>' +
       '<main>' +
-        '<section class="card span2"><div class="seg" role="tablist" aria-label="링크 종류">' +
-          LINKS.map(function (l) { return '<button role="tab" data-t="' + l.id + '" aria-selected="' + (l === cur) + '">' + esc(l.tab) + '</button>'; }).join('') +
-        '</div><p class="muted" style="margin:10px 0 0">' +
-          (cur.id === 's' ? '평가자가 시작 화면에서 Type A·B 중 하나를 직접 고릅니다.' : '이 QR로 들어온 평가자는 <b>' + esc(cur.tab) + '</b>가 미리 선택된 상태로 시작합니다.') +
-        '</p></section>' +
-
         '<section class="card qr-wrap">' +
           '<p class="qr-title">' + esc(cur.title) + '</p>' +
           qrSvg(cur, 'qr-img') +
@@ -216,24 +207,18 @@
           '<ul class="muted">' +
             '<li><b>카카오톡:</b> [QR 이미지 보내기] 또는 [링크 보내기] → 공유 목록에서 카카오톡 선택. PC에서는 [문구 복사] 후 대화창에 붙여넣기.</li>' +
             '<li><b>회의·강의실:</b> [화면에 크게 띄우기] → 참가자가 카메라로 스캔.</li>' +
-            '<li><b>인쇄:</b> <a href="poster-a4.pdf" target="_blank" rel="noopener">A4 안내문 PDF</a> (Type A·B 각 1쪽).</li>' +
-            '<li>Type A·B 인원을 비슷하게 나누려면, 그룹을 반으로 나눠 서로 다른 QR을 안내하세요.</li>' +
+            '<li><b>인쇄:</b> <a href="poster-a4.pdf" target="_blank" rel="noopener">A4 안내문 PDF</a></li>' +
+            '<li>평가자는 시작 화면에서 <b>Type A·B 중 하나를 직접</b> 고릅니다. 참여가 적은 쪽에는 "추천" 표시가 붙고, 끝나면 다른 Type도 이어서 평가할 수 있습니다.</li>' +
           '</ul>' +
         '</section>' +
       '</main>';
 
-    app.querySelector('.seg').addEventListener('click', function (e) {
-      var b = e.target.closest('button[data-t]'); if (!b) return;
-      cur = LINKS.filter(function (l) { return l.id === b.getAttribute('data-t'); })[0];
-      try { history.replaceState(null, '', '?t=' + cur.id + (site ? '&site=' + site : '')); } catch (_) {}
-      render();
-    });
     document.getElementById('present').addEventListener('click', present);
     document.getElementById('copyLink').addEventListener('click', function () { copy(fullUrl(cur, 'link'), '링크를 복사했습니다'); });
     document.getElementById('dl').addEventListener('click', function () { qrCardBlob(cur).then(function (b) { saveBlob(b, cardName()); }); });
     document.getElementById('applySite').addEventListener('click', function () {
       site = document.getElementById('siteCode').value.replace(/[^0-9A-Za-z_\-]/g, '').slice(0, 20);
-      try { history.replaceState(null, '', '?t=' + cur.id + (site ? '&site=' + site : '')); } catch (_) {}
+      try { history.replaceState(null, '', site ? '?site=' + site : location.pathname); } catch (_) {}
       render(); toast(site ? '기관·세션 코드 "' + site + '"가 QR과 링크에 반영되었습니다' : '기관·세션 코드를 지웠습니다');
     });
     document.getElementById('copyMsg').addEventListener('click', function () { copy(document.getElementById('msg').value, '안내 문구를 복사했습니다'); });
