@@ -22,7 +22,7 @@
 // ============================================================
 // CONFIG
 // ============================================================
-var SPREADSHEET_ID = '';            // 시트에서 [확장 프로그램 → Apps Script]로 만든 경우 비워 둠. script.google.com 에서 따로 만든 경우 시트 ID 입력
+var SPREADSHEET_ID = '1-R-BZKkhyaTSHvHssM5sazwjq-KKQqfjzIqAhFMbS10';            // 시트에서 [확장 프로그램 → Apps Script]로 만든 경우 비워 둠. script.google.com 에서 따로 만든 경우 시트 ID 입력
 var BACKEND_VERSION = '2026-11-19.ca-backend-v4';
 var EXPECTED_STUDY_ID = 'T2D-CA-2026';
 
