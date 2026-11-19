@@ -8,7 +8,7 @@ window.T2D_CONFIG = {
   ENDPOINT: 'https://script.google.com/macros/s/AKfycbxPxzjMttjnyGlgwY_8AYRCMcMGN1_LLGsgShtMg0ZTcSPE3d52m3f4WALNJMuH0S1KUg/exec',
 
   STUDY_ID: 'T2D-CA-2026',
-  APP_VERSION: '2026-11-19.ca-v3.1',
+  APP_VERSION: '2026-11-19.ca-v3.2',
 
   // 연구 메타데이터 (응답과 함께 저장 → 논문 방법 기술·버전별 분석용)
   INSTRUMENT_VERSION: 'Delphi-final P1–P5 (5-point agreement)',  // 주 평가 문항(Delphi 확정본) 버전
@@ -116,9 +116,6 @@ window.T2D_CONFIG = {
     { id: 'A', label: 'Type A', sequences: [['P051_deepseek', 'P011_gpt'], ['P011_gpt', 'P051_deepseek']] },
     { id: 'B', label: 'Type B', sequences: [['P011_deepseek', 'P051_gpt'], ['P051_gpt', 'P011_deepseek']] }
   ],
-
-  // 평가자가 Type 을 직접 고를 때, 지금까지 참여가 적은 Type 에 '추천' 표시 (선택은 자유). 끄려면 false
-  TYPE_HINT: true,
 
   // 예상 소요 시간 안내 문구 (Type 1개 = AI 답변 2건)
   ESTIMATED_MINUTES: '20–30분'

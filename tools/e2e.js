@@ -80,9 +80,16 @@ const path = require('path');
     await page.waitForSelector('.combo-card');
     if (ci === 0) { await snap(`c${ci + 1}_combo`); await snap(`c${ci + 1}_combo_full`, true); }
     const comboPick = (ci % 3) + 1;
-    await page.click(`.combo-card[data-combo="${comboPick}"] .combo-name`);
-    if (ci === 0) await snap(`c${ci + 1}_combo_selected`);
-    await clickNext();
+    await page.waitForTimeout(500);
+    // opening the prescription details must NOT select the card
+    await page.click(`.combo-card[data-combo="${comboPick}"] .cc-rx summary`);
+    if ((await page.evaluate(() => window.__T2D_APP__.state().stepIdx)) !== 2) errors.push('details toggle advanced the step');
+    await page.click(`.combo-card[data-combo="${comboPick}"] .cc-drugs`);   // tap the box → fly to top → Phase 2
+    if (ci === 0) { await page.waitForTimeout(330); await snap(`c${ci + 1}_combo_flying`); }
+    await page.waitForFunction(() => window.__T2D_APP__.state().stepIdx === 3);
+    await page.waitForTimeout(900);
+    if (ci === 0) await snap(`c${ci + 1}_p2_arrived`);
+    if (await page.$('.combo-card.fly')) errors.push('flying clone left behind');
     for (const k of ['p2', 'p3', 'p4', 'p5']) {
       await page.waitForSelector('.likert button[data-rate]');
       if (ci === 0) await snap(`c${ci + 1}_${k}`);
@@ -122,10 +129,12 @@ const path = require('path');
       await page.waitForSelector('.combo-card');
       page.once('dialog', d => d.accept());
       const other = comboPick === 3 ? 1 : comboPick + 1;
-      await page.click(`.combo-card[data-combo="${other}"] .combo-name`);
+      await page.waitForTimeout(500);
+      await page.click(`.combo-card[data-combo="${other}"] .cc-drugs`);
+      await page.waitForFunction(() => window.__T2D_APP__.state().stepIdx === 3);
       const r = await page.evaluate(() => window.__T2D_APP__.state().cases[0].ratings);
       if (r.p2 !== null || r.p5 !== null) errors.push('combo change did not reset p2-p5');
-      await clickNext();
+      await page.waitForTimeout(900);
       for (const k of ['p2', 'p3', 'p4', 'p5']) {
         await page.waitForSelector('.likert button[data-rate]');
         await page.click(`.likert button[data-rate="${{ p2: 5, p3: 4, p4: 3, p5: 2 }[k]}"]`);

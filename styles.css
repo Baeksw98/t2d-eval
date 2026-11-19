@@ -174,9 +174,6 @@ p { margin: 0; }
 .chip { min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--line-2); background: #fff; color: var(--navy); font-weight: 700; font-size: 14px; touch-action: manipulation; }
 .chip[aria-pressed="true"] { background: var(--teal-ink); border-color: var(--teal-ink); color: #fff; }
 .sub-items { border-left: 4px solid var(--teal-ink); }
-#typeSeg button { display: flex; align-items: center; justify-content: center; gap: 8px; }
-#typeSeg .hint { font-size: 11.5px; font-weight: 800; color: #fff; background: var(--orange-ink); border-radius: 999px; padding: 1px 8px; line-height: 1.6; }
-#typeSeg button[aria-checked="true"] .hint { background: #fff; color: var(--orange-ink); }
 .sub-tag { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: .04em; color: #fff; background: var(--teal-ink); border-radius: 6px; padding: 2px 8px; }
 .field label, .field .label { font-weight: 700; font-size: 14.5px; color: var(--navy); }
 .field .req { color: var(--orange-ink); margin-left: 2px; }
@@ -309,34 +306,77 @@ ul.clean li + li { margin-top: 4px; }
 .badge.cov { background: #eaf1fb; color: #1d3f6e; }
 .badge.nocov { background: var(--orange-soft); color: #a64c17; }
 
-/* Combination cards */
-.combo-grid { display: grid; gap: 12px; }
+/* Combination cards — '조합 N' boxes: drug chips, 효과·안전성·실행 가능성, prescription details */
+.combo-grid { display: grid; gap: 14px; }
 .combo-card {
-  position: relative; display: block; width: 100%; text-align: left; cursor: pointer;
-  background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); padding: 14px 14px 14px;
-  box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s;
+  position: relative; display: flex; flex-direction: column; gap: 12px; width: 100%; text-align: left; cursor: pointer;
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 16px; padding: 16px 16px 14px;
+  box-shadow: var(--shadow); transition: border-color .18s, box-shadow .18s, transform .18s;
 }
-.combo-card:hover { border-color: var(--line-2); }
+.combo-card:hover { border-color: #9fb3c8; box-shadow: 0 2px 4px rgba(16,33,52,.06), 0 10px 26px rgba(16,33,52,.10); }
+.combo-card:active { transform: scale(.995); }
 .combo-card[aria-checked="true"] { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(226,112,44,.16), var(--shadow); }
-.combo-top { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
+.cc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cc-no {
+  display: inline-flex; align-items: center; font-size: 15.5px; font-weight: 800; color: #fff; background: var(--navy);
+  border-radius: 9px; padding: 4px 12px; letter-spacing: .01em;
+}
 .radio-dot {
-  flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line-2); margin-top: 2px; background: #fff;
+  flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--line-2); background: #fff;
   display: grid; place-items: center;
 }
 .combo-card[aria-checked="true"] .radio-dot { border-color: var(--orange); }
 .combo-card[aria-checked="true"] .radio-dot::after { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--orange); }
-.combo-no { font-size: 12.5px; font-weight: 800; color: var(--orange-ink); letter-spacing: .04em; }
-.combo-name { font-weight: 800; font-size: 16.5px; color: var(--navy); line-height: 1.4; }
-.combo-cost { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
-
-.selected-banner {
-  border: 1.5px solid #f3cdb2; background: var(--orange-soft); border-radius: var(--radius); padding: 12px 14px;
+.cc-drugs { display: flex; flex-wrap: wrap; gap: 6px; }
+.drug {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); background: #f7f9fb;
+  border-radius: 999px; padding: 3px 4px 3px 11px; font-size: 13.5px; line-height: 1.4;
 }
+.drug b { font-weight: 700; color: var(--navy); }
+.drug em { font-style: normal; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 7px; }
+.drug.new em { background: var(--teal-ink); color: #fff; }
+.drug.keep em { background: #e7ecf1; color: #3c4d5d; }
+.drug.reduce em { background: #8f5d12; color: #fff; }
+.drug.stop { background: #fbf3f2; border-style: dashed; }
+.drug.stop b { color: #7b5a57; text-decoration: line-through; text-decoration-color: rgba(196,66,58,.6); }
+.drug.stop em { background: var(--red); color: #fff; }
+.cc-points { list-style: none; margin: 0; padding: 12px 0 0; display: grid; gap: 10px; border-top: 1px solid var(--line); }
+.pt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: 14.5px; line-height: 1.65; }
+.pt-label { display: inline-flex; align-items: flex-start; gap: 7px; font-size: 12.5px; font-weight: 800; padding-top: 2px; }
+.pt-label::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: currentColor; }
+.pt.eff .pt-label { color: var(--teal-ink); }
+.pt.safe .pt-label { color: #a2401a; }
+.pt.feas .pt-label { color: #2f5b8a; }
+.pt-text { color: var(--text); }
+.cc-rx summary { cursor: pointer; font-size: 13.5px; font-weight: 700; color: var(--teal-ink); padding: 10px 0; margin: -6px 0; }
+.cc-rx .rx-list { margin-top: 8px; }
+.cc-cta {
+  margin-top: auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding-top: 10px; border-top: 1px dashed var(--line); font-size: 14.5px; font-weight: 800; color: var(--orange-ink);
+}
+.cc-sel { margin-right: auto; font-size: 12.5px; font-weight: 800; color: #fff; background: var(--orange-ink); border-radius: 999px; padding: 2px 10px; }
+.combo-card.fly { box-shadow: 0 20px 60px rgba(16,33,52,.28); overflow: hidden; pointer-events: none; border-color: var(--orange); }
+.combo-toolbar { display: none; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* Selected-combination banner on Phase 2–5 */
+.selected-banner {
+  display: grid; gap: 10px; border: 1.5px solid #f3cdb2; background: var(--orange-soft); border-radius: 14px; padding: 12px 14px;
+}
+.sb-top { display: flex; align-items: center; gap: 10px; }
 .selected-banner .sb-label { font-size: 12.5px; font-weight: 800; color: #9c4815; letter-spacing: .03em; }
-.selected-banner .sb-name { font-weight: 800; color: var(--navy); font-size: 16px; margin-top: 2px; }
-.selected-banner details { margin-top: 8px; }
+.selected-banner .cc-no { font-size: 14px; padding: 3px 10px; }
+.selected-banner .drug { background: #fff; }
 .selected-banner summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var(--teal-ink); padding: 11px 0; margin: -6px 0; }
 .selected-banner .rx-list { margin-top: 8px; }
+
+/* Phase content entrance after choosing a combination */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.phase-head.enter, .items.enter > * { animation: rise .46s cubic-bezier(.2,.8,.2,1) both; }
+.phase-head.enter { animation-delay: .32s; }
+.items.enter > *:nth-child(1) { animation-delay: .40s; }
+.items.enter > *:nth-child(2) { animation-delay: .48s; }
+.items.enter > *:nth-child(3) { animation-delay: .56s; }
+.items.enter > *:nth-child(n+4) { animation-delay: .62s; }
 
 .same-patient { font-size: 14.5px; }
 
@@ -423,7 +463,11 @@ ul.clean li + li { margin-top: 4px; }
   .dock-nav { grid-template-columns: auto 1fr; }
   .card { padding: 22px 24px; }
   .item { padding: 16px 20px; }
-  .combo-grid.three { grid-template-columns: 1fr; }
+  /* combination step: full width, three boxes side by side, inline toolbar instead of the side panel */
+  .layout.combo-wide { grid-template-columns: minmax(0, 1fr); }
+  .layout.combo-wide .dock { display: none; }
+  .combo-toolbar.desk-only { display: flex; }
+  .combo-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
   .hero h1 { font-size: 28px; }
 }
 
@@ -466,4 +510,4 @@ ul.clean li + li { margin-top: 4px; }
 
 .char-count { font-size: 12.5px; color: var(--faint); text-align: right; }
 
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

@@ -85,30 +85,8 @@
   })();
   var ENTRY = {
     src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
-    type_preselected: !!URL_TYPE, type_hint: '', in_app: IN_APP, referrer_origin: REF_ORIGIN
+    type_preselected: !!URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
   };
-  // 참여가 적은 Type 안내 (서버 집계, 실패하면 표시 없음)
-  var typeHint = '', typeHintAsked = false;
-  function fetchTypeHint() {
-    if (typeHintAsked || !CFG.ENDPOINT || CFG.TYPE_HINT === false) return;
-    typeHintAsked = true;
-    var ctrl = new AbortController(); var tm = setTimeout(function () { ctrl.abort(); }, 6000);
-    fetch(CFG.ENDPOINT + '?action=type_counts', { signal: ctrl.signal, redirect: 'follow' })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (!j || !j.ok || !j.counts) return;
-        var ids = TYPES.map(function (t) { return t.id; });
-        var counts = ids.map(function (id) { return Number(j.counts[id] || 0); });
-        var min = Math.min.apply(null, counts), max = Math.max.apply(null, counts);
-        if (min === max) return;   // 같으면 추천 없음
-        typeHint = ids[counts.indexOf(min)];
-        ENTRY.type_hint = typeHint;
-        if (!S && $('typeSeg')) {
-          var b = $('typeSeg').querySelector('[data-type="' + typeHint + '"]');
-          if (b && !b.querySelector('.hint')) b.insertAdjacentHTML('beforeend', '<small class="hint">추천</small>');
-        }
-      }).catch(function () {}).finally(function () { clearTimeout(tm); });
-  }
   var DEVICE_ID = (function () {
     var k = 't2d-ca:device';
     try { var v = localStorage.getItem(k); if (!v) { v = uuid(); localStorage.setItem(k, v); } return v; } catch (_) { return uuid(); }
@@ -550,17 +528,16 @@
   function sumSteps(c, field) {
     return STEPS.reduce(function (acc, st) { var m = c.metrics.steps[st]; return acc + (m ? (m[field] || 0) : 0); }, 0);
   }
-  var RANK_CUE = /우선|후순위|대안|권장/;
   function contentChars(out, combo) {
     var cb = combo ? out.combinations[combo - 1] : null;
     var phaseChars = function (k) {
       if (!cb) return 0;
       var n = PHASES[k].items.reduce(function (a, it) { return a + textLen(cb.answers[it[0]]); }, 0);
-      return n + textLen(cb.name) + (k === 'p2' ? textLen(cb.prescription) : 0);
+      return n + textLen(drugLine(cb)) + (k === 'p2' ? textLen(cb.prescription) : 0);
     };
     return {
       vignette: textLen(DATA.patients[out.patient]), p1: textLen(out.phase_1),
-      combo: textLen(out.combinations.map(function (x) { return [x.name, x.prescription]; })),
+      combo: textLen(out.combinations.map(function (x) { return [drugLine(x), x.answers['2.1'], x.answers['2.2'], x.answers['2.3']]; })),
       p2: phaseChars('p2'), p3: phaseChars('p3'), p4: phaseChars('p4'), p5: phaseChars('p5')
     };
   }
@@ -574,7 +551,7 @@
       ratings: c.ratings, combo_choice: c.combo, combo_name: comboName,
       combo_rank_ai: c.combo, combo_key: c.combo ? c.key + '_C' + c.combo : '',
       combo_is_ai_first: c.combo === 1,
-      rank_cue_visible: out.combinations.some(function (x) { return RANK_CUE.test(x.name); }),
+      rank_cue_visible: false,   // AI가 붙인 조합 이름(순위 문구 포함)은 화면에 표시하지 않음
       global_case_order: (S.prev_cases || 0) + i + 1,
       patient_seen_prior: (S.prev_patients || []).indexOf(out.patient) >= 0,
       comment: c.comment,
@@ -801,6 +778,56 @@
     if (hadFocus) { var b = elDock.querySelector('[data-rate="' + v + '"]'); if (b) b.focus(); }
   }
 
+  // 조합 박스를 누르면: 선택 → 박스가 위쪽 '선택한 조합' 자리로 이동 → Phase 2 문항이 차례로 나타남
+  var arrivingFromCombo = false, flying = false;
+  function chooseCombo(n, cardEl) {
+    if (flying || staleTab || !S || S.screen !== 'case' || curStep() !== 'combo') return;
+    if (performance.now() < navLockUntil) return;
+    var c = curCase();
+    setCombo(n);
+    if (c.combo !== n) return;   // 점수 초기화 확인을 취소함
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var first = cardEl && cardEl.getBoundingClientRect();
+    var go = function () { tick(); arrivingFromCombo = true; S.stepIdx = STEPS.indexOf('p2'); enterStep(); };
+    if (reduce || !first || !cardEl.animate) { go(); return; }
+    flying = true;
+    var clone = cardEl.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll('[id]'), function (x) { x.removeAttribute('id'); });
+    clone.removeAttribute('role'); clone.setAttribute('aria-hidden', 'true'); clone.classList.add('fly');
+    var cs = clone.style;
+    cs.position = 'fixed'; cs.top = first.top + 'px'; cs.left = first.left + 'px';
+    cs.width = first.width + 'px'; cs.height = first.height + 'px'; cs.margin = '0'; cs.zIndex = '45';
+    document.body.appendChild(clone);
+    cardEl.style.visibility = 'hidden';
+    Array.prototype.forEach.call(elMain.querySelectorAll('.combo-card, .combo-toolbar, .case-head, h1, .lead'), function (el) {
+      if (el !== cardEl) el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+    });
+    Array.prototype.forEach.call(clone.querySelectorAll('.cc-points, .cc-rx, .cc-cta'), function (el) {
+      el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+    });
+    setTimeout(function () {
+      go();
+      var banner = $('selBanner');
+      if (!banner) { clone.remove(); flying = false; return; }
+      banner.style.opacity = '0';
+      var last = banner.getBoundingClientRect();
+      var anim = clone.animate([
+        { top: first.top + 'px', left: first.left + 'px', width: first.width + 'px', height: first.height + 'px' },
+        { top: last.top + 'px', left: last.left + 'px', width: last.width + 'px', height: last.height + 'px' }
+      ], { duration: 480, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+      var finished = false;
+      var done = function () {
+        if (finished) return; finished = true;
+        banner.style.transition = 'opacity .18s ease'; banner.style.opacity = '1';
+        var out = clone.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' });
+        out.onfinish = function () { clone.remove(); flying = false; };
+        setTimeout(function () { if (document.body.contains(clone)) clone.remove(); flying = false; }, 400);
+      };
+      anim.onfinish = done;
+      setTimeout(done, 900);   // 안전장치
+    }, 170);
+  }
+
   function setCombo(n) {
     if (staleTab) return;
     tick();
@@ -998,6 +1025,39 @@
   }
   function rxListHTML(list) { return '<div class="rx-list">' + list.map(rxHTML).join('') + '</div>'; }
 
+  // 조합은 AI가 붙인 이름 대신 '조합 N' + 약물 구성으로 통일해 표시 (모델 간 표현 차이·순위 문구 노출 방지)
+  function drugChipsHTML(cb) {
+    return '<div class="cc-drugs">' + cb.prescription.map(function (rx) {
+      var cls = DECISION_CLASS[rx.decision] || 'keep';
+      return '<span class="drug ' + cls + '"><b>' + esc(rx.drug) + '</b><em>' + esc(rx.decision) + '</em></span>';
+    }).join('') + '</div>';
+  }
+  function drugLine(cb) {
+    return cb.prescription.filter(function (rx) { return rx.decision !== '중단'; }).map(function (rx) { return rx.drug; }).join(' + ');
+  }
+  var POINTS = [['2.1', '효과', 'eff'], ['2.2', '안전성', 'safe'], ['2.3', '실행 가능성', 'feas']];
+  function comboCardHTML(cb, n, c) {
+    var on = c.combo === n;
+    var tab = (on || (c.combo == null && n === 1)) ? 0 : -1;
+    return '<article class="combo-card" role="radio" tabindex="' + tab + '" data-combo="' + n + '" aria-checked="' + on + '" aria-labelledby="cbno' + n + '">' +
+      '<header class="cc-head"><span class="cc-no" id="cbno' + n + '">조합 ' + n + '</span><span class="radio-dot" aria-hidden="true"></span></header>' +
+      drugChipsHTML(cb) +
+      '<ul class="cc-points">' + POINTS.map(function (pt) {
+        return '<li class="pt ' + pt[2] + '"><span class="pt-label">' + pt[1] + '</span><span class="pt-text">' + esc(cb.answers[pt[0]]) + '</span></li>';
+      }).join('') + '</ul>' +
+      '<details class="cc-rx"><summary>처방 상세 (용량·급여·월 비용)</summary>' + rxListHTML(cb.prescription) + '</details>' +
+      '<div class="cc-cta">' + (on ? '<span class="cc-sel">선택한 조합</span>' : '') + '이 조합으로 평가하기 <span aria-hidden="true">→</span></div>' +
+      '</article>';
+  }
+  function selectedBannerHTML(cb, n, expanded) {
+    return '<div class="selected-banner" id="selBanner">' +
+      '<div class="sb-top"><span class="sb-label">선택한 조합</span><span class="cc-no">조합 ' + n + '</span></div>' +
+      drugChipsHTML(cb) +
+      (expanded ? '<div class="sb-rx">' + rxListHTML(cb.prescription) + '</div>'
+        : '<details><summary>처방 상세 보기</summary>' + rxListHTML(cb.prescription) + '</details>') +
+      '</div>';
+  }
+
   function itemHTML(no, title, bodyHTML) {
     return '<article class="item"><div class="item-head"><span class="item-no">' + esc(no) + '</span>' +
       '<span class="item-title">' + esc(title) + '</span></div><div class="item-body">' + bodyHTML + '</div></article>';
@@ -1136,8 +1196,7 @@
         '<div id="roleFields">' + roleFieldsHTML() + '</div>' +
         (COMMON.length ? '<h3 class="section-title" style="margin-top:20px">진료·AI 경험</h3><div id="commonFields">' + commonFieldsHTML() + '</div>' : '') +
         '<div class="field"><span class="label" id="typeLabel">평가 유형<span class="req">*</span></span>' +
-          '<p class="small muted" style="margin:0">둘 중 하나를 골라 주세요. 각 Type은 서로 다른 AI 답변 2건(약 20–30분)이며, 끝난 뒤 다른 Type도 이어서 평가할 수 있습니다.' +
-          (CFG.TYPE_HINT === false ? '' : ' <b>추천</b> 표시는 지금까지 참여가 적은 쪽입니다.') + '</p>' +
+          '<p class="small muted" style="margin:0">둘 중 하나를 골라 주세요. 각 Type은 서로 다른 AI 답변 2건(약 20–30분)이며, 끝난 뒤 다른 Type도 이어서 평가할 수 있습니다.</p>' +
           '<div class="seg" role="radiogroup" aria-labelledby="typeLabel" id="typeSeg" style="grid-template-columns:repeat(' + TYPES.length + ',1fr)">' + types + '</div></div>' +
         '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
           '<span>본 평가의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 직군·경력, 진료·AI 사용 경험, 평가 점수와 의견, ' +
@@ -1208,8 +1267,6 @@
     });
     $('startBtn').addEventListener('click', startSession);
     elDock.innerHTML = '';
-    if (typeHint) { var hb = $('typeSeg').querySelector('[data-type="' + typeHint + '"]'); if (hb) hb.insertAdjacentHTML('beforeend', '<small class="hint">추천</small>'); }
-    fetchTypeHint();
     sendView();
   }
 
@@ -1240,29 +1297,20 @@
         itemHTML('1.2', '환자 평가', '<p>' + esc(ph1['1.2']) + '</p>') +
       '</div>';
     } else if (st === 'combo') {
-      html += caseHeadHTML('선호 조합 선택', 'AI가 이 환자에게 제시한 후보 약물 조합 3개입니다. 처방 내역을 살펴보고 <b>가장 선호하는 조합 1개</b>를 선택해 주세요. 선택한 조합으로 Phase 2–5를 평가합니다.');
+      html += caseHeadHTML('선호 조합 선택', 'AI가 이 환자에게 제시한 후보 약물 조합 3개입니다. 효과·안전성·실행 가능성을 비교해 <b>가장 선호하는 조합의 박스</b>를 눌러 주세요. 선택한 조합으로 Phase 2–5를 평가합니다.');
+      html += '<div class="combo-toolbar desk-only"><button type="button" class="btn btn-ghost" data-act="back">← 이전</button>' +
+        '<span class="muted small">박스를 누르면 바로 Phase 2로 넘어갑니다</span>' +
+        (c.combo ? '<button type="button" class="btn btn-primary" data-act="next">조합 ' + c.combo + '으로 계속 →</button>' : '<span></span>') + '</div>';
       html += '<div class="combo-grid three" role="radiogroup" aria-label="후보 약물 조합" id="comboGroup">' +
-        out.combinations.map(function (cb, i) {
-          var n = i + 1;
-          var tab = (c.combo === n || (c.combo == null && n === 1)) ? 0 : -1;
-          return '<div class="combo-card" role="radio" tabindex="' + tab + '" data-combo="' + n + '" aria-checked="' + (c.combo === n) + '"' +
-            ' aria-labelledby="cbno' + n + ' cbname' + n + '">' +
-            '<div class="combo-top"><span class="radio-dot" aria-hidden="true"></span><div>' +
-              '<div class="combo-no" id="cbno' + n + '">조합 ' + n + '</div><div class="combo-name" id="cbname' + n + '">' + esc(cb.name) + '</div></div></div>' +
-            rxListHTML(cb.prescription) +
-          '</div>';
-        }).join('') + '</div>';
+        out.combinations.map(function (cb, i) { return comboCardHTML(cb, i + 1, c); }).join('') + '</div>';
     } else if (PHASES[st]) {
       var cb = out.combinations[c.combo - 1];
       var a = cb.answers;
       html += caseHeadHTML('AI 답변 평가');
-      html += '<div class="selected-banner"><div class="sb-label">선택한 조합 · 조합 ' + c.combo + '</div>' +
-        '<div class="sb-name">' + esc(cb.name) + '</div>' +
-        (st === 'p2' ? '<div style="margin-top:10px">' + rxListHTML(cb.prescription) + '</div>'
-          : '<details><summary>처방 내역 보기</summary>' + rxListHTML(cb.prescription) + '</details>') +
-        '</div>';
-      html += phaseHeadHTML(st);
-      html += '<div class="items">' + PHASES[st].items.map(function (it) {
+      var enter = arrivingFromCombo && st === 'p2';
+      html += selectedBannerHTML(cb, c.combo, st === 'p2');
+      html += phaseHeadHTML(st).replace('class="phase-head"', 'class="phase-head' + (enter ? ' enter' : '') + '"');
+      html += '<div class="items' + (enter ? ' enter' : '') + '">' + PHASES[st].items.map(function (it) {
         var v = a[it[0]];
         var body;
         if (v && typeof v === 'object') {
@@ -1287,31 +1335,35 @@
         '<div class="char-count" id="ccCount">' + c.comment.length + ' / 3000</div></div></section>';
     }
     elMain.innerHTML = html;
+    arrivingFromCombo = false;
 
     if (st === 'combo') {
       var grp = $('comboGroup');
       grp.addEventListener('click', function (e) {
+        if (e.target.closest('details')) return;   // 처방 상세 펼치기는 선택이 아님
         var card = e.target.closest('.combo-card');
-        if (card) setCombo(Number(card.getAttribute('data-combo')));
+        if (card) chooseCombo(Number(card.getAttribute('data-combo')), card);
       });
       grp.addEventListener('keydown', function (e) {
         var card = e.target.closest('.combo-card');
-        if (!card) return;
+        if (!card || e.target.closest('details')) return;
         var n = Number(card.getAttribute('data-combo'));
-        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setCombo(n); return; }
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); chooseCombo(n, card); return; }
         var d = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 1 : (e.key === 'ArrowUp' || e.key === 'ArrowLeft') ? -1 : 0;
         if (!d) return;
         e.preventDefault();
-        var m = ((n - 1 + d + 3) % 3) + 1;
-        setCombo(m);
-        var sel = curCase().combo || m;   // 초기화 확인을 취소했다면 기존 선택에 포커스
-        var nx = grp.querySelector('[data-combo="' + sel + '"]');
-        if (nx) nx.focus();
+        var nx = grp.querySelector('[data-combo="' + (((n - 1 + d + 3) % 3) + 1) + '"]');
+        if (nx) { nx.setAttribute('tabindex', '0'); card.setAttribute('tabindex', '-1'); nx.focus(); }
+      });
+      var tb = elMain.querySelector('.combo-toolbar');
+      if (tb) tb.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-act]'); if (!b) return;
+        if (b.getAttribute('data-act') === 'back') goBack(); else goNext();
       });
     }
     if (st === 'combo') startComboObs(c);
     if (PHASES[st] && st !== 'p2') {
-      var det = elMain.querySelector('.selected-banner details');
+      var det = elMain.querySelector('#selBanner details');
       if (det) det.addEventListener('toggle', function () { if (det.open) { c.metrics.rx_details_opens = (c.metrics.rx_details_opens || 0) + 1; saveSoon(); } });
     }
     if (st === 'comment' && $('caseItems')) {
@@ -1420,7 +1472,7 @@
     };
     return '<dl class="kv">' +
       row('p1', 'Phase 1', score('p1')) +
-      row('combo', '선호 조합', c.combo ? '<b>조합 ' + c.combo + '</b> <span class="muted small">' + esc(out.combinations[c.combo - 1].name) + '</span>' : '<span class="muted">미선택</span>') +
+      row('combo', '선호 조합', c.combo ? '<b>조합 ' + c.combo + '</b> <span class="muted small">' + esc(drugLine(out.combinations[c.combo - 1])) + '</span>' : '<span class="muted">미선택</span>') +
       row('p2', 'Phase 2', score('p2')) +
       row('p3', 'Phase 3', score('p3')) +
       row('p4', 'Phase 4', score('p4')) +
@@ -1458,15 +1510,9 @@
           '<span>매우 그렇다 5</span></div>' +
         nav(st === 'p5' ? '다음: 의견 →' : '다음 →', val != null);
     } else if (st === 'combo') {
-      html += '<div class="dock-kicker"><span>선호 조합 선택</span><span class="req-hint">' + (c.combo == null ? '1개를 선택하세요' : '') + '</span></div>' +
-        '<p class="dock-statement" id="stmt">이 환자에게 가장 선호하는 조합은?</p>' +
-        '<div class="likert combo-pick" role="radiogroup" aria-labelledby="stmt">' +
-          [1, 2, 3].map(function (n) {
-            var tab = (c.combo === n || (c.combo == null && n === 1)) ? 0 : -1;
-            return '<button type="button" role="radio" tabindex="' + tab + '" data-combo="' + n + '" aria-checked="' + (c.combo === n) + '">조합 ' + n + '</button>';
-          }).join('') +
-        '</div>' +
-        nav('선택 완료 →', c.combo != null);
+      html += '<div class="dock-kicker"><span>선호 조합 선택</span><span class="req-hint">' + (c.combo == null ? '박스를 눌러 선택' : '') + '</span></div>' +
+        '<p class="dock-msg">가장 선호하는 조합의 박스를 누르면 바로 Phase 2 평가로 넘어갑니다.</p>' +
+        nav(c.combo ? '조합 ' + c.combo + '으로 계속 →' : '조합을 선택하세요', c.combo != null);
     } else if (st === 'comment') {
       var last = S.caseIdx === nCases() - 1;
       var okItems = itemsComplete(CASE_ITEMS, c.items || {});
@@ -1675,6 +1721,7 @@
     else if (S.screen === 'final') renderFinal();
     else if (S.screen === 'done') renderDone();
     elLayout.classList.toggle('no-dock', !elDock.innerHTML);
+    elLayout.classList.toggle('combo-wide', !!(S && S.screen === 'case' && !staleTab && S.order && curStep() === 'combo'));
     updateTopbar();
     updateDockSize();
   }
