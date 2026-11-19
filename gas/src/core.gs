@@ -193,7 +193,7 @@ function handleView_(body) {
     var en = p.entry || {};
     var sh = sheet_(ss_(), SHEET.VISITS, visitsHeaders_());
     sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
-      en.type_preselected ? 'preset' : '', short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
+      short_(en.type_param || ''), short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
       !!p.is_test, short_(p.app_version)].map(cell_));
     return json_({ ok: true });
   } catch (err) {

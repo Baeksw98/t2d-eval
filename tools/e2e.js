@@ -33,7 +33,7 @@ const path = require('path');
     await page.screenshot({ path: path.join(outDir, `${String(shot).padStart(2, '0')}_${kind}_${label}.png`), fullPage: full });
   };
 
-  await page.goto(base + '?reset=1');
+  await page.goto(base + (base.includes('?') ? '&' : '?') + 'reset=1');
   await page.waitForSelector('#evName');
   await snap('intro_top');
   await page.fill('#evName', evName);

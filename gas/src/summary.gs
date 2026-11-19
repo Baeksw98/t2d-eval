@@ -152,6 +152,17 @@ function sm_read_(ss, name) {
   return t;
 }
 
+/** 헤더 행만 읽기 (RawJSON 처럼 내용이 큰 시트는 Codebook 용 컬럼 목록만 필요) */
+function sm_readHeader_(ss, name) {
+  var t = { name: name, exists: false, cols: [], rows: [] };
+  var sh = ss.getSheetByName(name);
+  if (!sh) return t;
+  t.exists = true;
+  var lc = sh.getLastColumn();
+  if (lc > 0) t.cols = sh.getRange(1, 1, 1, lc).getValues()[0].map(sm_str_).filter(function (h) { return h !== ''; });
+  return t;
+}
+
 /** Concordance(가이드라인 부합도) 시트: 없으면 헤더만 만들어 둔다 */
 function sm_readConc_(ss) {
   if (!ss.getSheetByName(SM_CONC)) {
@@ -171,7 +182,7 @@ function sm_load_(ss, includeTests) {
     sessions: [], byId: {}, pool: [], cases: [], phases: [], evals: [], evByKey: {}, modelName: {},
     inc: { sessions: [], cases: [], phases: [], evals: [] },
     excl: { test: sm_zero_(), pilot: sm_zero_(), duplicate: sm_zero_() },
-    incompleteRows: 0, visits: [], caseVisMedian: NaN
+    incompleteRows: 0, visits: [], caseVisMedian: NaN, raw: sm_readHeader_(ss, SHEET.RAW)
   };
   D.S.rows.forEach(function (o) {
     var id = sm_str_(o.SessionId);
@@ -593,18 +604,18 @@ function sm_s2_(o, D) {
   var tr = E.map(function (e) { return e.aiTrust.code; }).filter(sm_fin_);
   o.add(['AI 신뢰 (ai_trust, 1–5)', '중앙값 (Q1–Q3)', tr.length ? sm_medIqrText_(tr) : '', '', tr.length]);
   sm_cat_(o, 'AI 신뢰 분포', E, function (e) { return sm_fin_(e.aiTrust.code) ? String(e.aiTrust.code) : ''; }, ['1', '2', '3', '4', '5']);
-  sm_cat_(o, '유입 경로 (Src)', E, function (e) { return e.src; }, null);
-  if (E.some(function (e) { return e.site; })) sm_cat_(o, '기관 (Site)', E, function (e) { return e.site; }, null);
-  sm_cat_(o, '기기 (FormFactor)', E, function (e) { return e.form; }, ['mobile', 'tablet', 'desktop']);
-  sm_cat_(o, '인앱 브라우저 (InAppBrowser)', E, function (e) { return e.inApp; }, null);
+  sm_cat_(o, '유입 경로 (Src)', E, function (e) { return e.src; }, null, '(없음)');
+  if (E.some(function (e) { return e.site; })) sm_cat_(o, '기관 (Site)', E, function (e) { return e.site; }, null, '(없음)');
+  sm_cat_(o, '기기 (FormFactor)', E, function (e) { return e.form; }, ['mobile', 'tablet', 'desktop'], '(미기록)');
+  sm_cat_(o, '인앱 브라우저 (InAppBrowser)', E, function (e) { return e.inApp; }, null, '(일반 브라우저)');
   o.note('% = 분모 대비 백분율. 레지던트 항목은 직군 = 레지던트, 전문의 항목은 직군 = 전문의 평가자만 분모로 씁니다. AI 신뢰 1 = 전혀 신뢰하지 않음 … 5 = 매우 신뢰함.');
   o.gap();
 }
 
-function sm_cat_(o, label, list, fn, order) {
+function sm_cat_(o, label, list, fn, order, blank) {
   var cnt = {}, keys = [];
   list.forEach(function (x) {
-    var k = sm_str_(fn(x)) || '(미응답)';
+    var k = sm_str_(fn(x)) || blank || '(미응답)';
     if (!sm_has_(cnt, k)) { cnt[k] = 0; keys.push(k); }
     cnt[k]++;
   });
@@ -1164,8 +1175,7 @@ function sm_codebook_(D) {
   var rows = [['Sheet', 'Column', 'Description', 'Type/Coding', 'InSheet']];
   var defs = sm_cbDefs_();
   var lists = sm_cbLists_();
-  var present = { Visits: D.V, Sessions: D.S, Responses: D.R, PhaseLong: D.L, Concordance: D.C };
-  present.RawJSON = { cols: (function () { return []; })(), exists: false };
+  var present = { Visits: D.V, Sessions: D.S, Responses: D.R, PhaseLong: D.L, RawJSON: D.raw, Concordance: D.C };
   var dyn = /^(Eval|Case|End)_/;
   Object.keys(lists).forEach(function (sheet) {
     var t = present[sheet], actual = t ? t.cols : [];
@@ -1316,6 +1326,7 @@ function sm_cbDefs_() {
   a('Interruptions', '화면 이탈(중단) 횟수', '정수');
   // Visits
   a('Visits.ReceivedAt', '서버가 방문 기록을 받은 시각', '날짜시간');
+  a('Visits.VisitId', '방문 ID (소개 화면 1회 조회; Sessions.VisitId 와 연결)', 'UUID');
   a('Visits.TypeParam', '링크로 Type 이 미리 지정되었는지 / 지정된 Type', 'preset · A · B · 빈칸');
   // Sessions
   a('FirstSeenAt', '서버가 세션을 처음 받은 시각', '날짜시간');
@@ -1678,11 +1689,11 @@ function sm_mode_(a) {
   return c[0][0] === 'true' ? true : c[0][0] === 'false' ? false : null;
 }
 
-/** 수준 정렬: 지정 순서 → 그 외 가나다 → (미응답) 마지막 */
+/** 수준 정렬: 지정 순서 → 그 외 가나다 → (미응답)·(없음) 같은 괄호 수준은 마지막 */
 function sm_orderKeys_(keys, order) {
   order = order || [];
   return keys.slice().sort(function (a, b) {
-    var ma = a === '(미응답)' || a === '(미기록)', mb = b === '(미응답)' || b === '(미기록)';
+    var ma = /^\(/.test(a), mb = /^\(/.test(b);
     if (ma !== mb) return ma ? 1 : -1;
     var ia = order.indexOf(a), ib = order.indexOf(b);
     if (ia >= 0 || ib >= 0) { if (ia < 0) return 1; if (ib < 0) return -1; return ia - ib; }

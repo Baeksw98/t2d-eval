@@ -14,7 +14,8 @@
   var URL_TEST = params.get('test') === '1';
   if (params.get('reset') === '1') {
     try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-    history.replaceState(null, '', location.pathname + (URL_TEST ? '?test=1' : ''));
+    var keep = new URLSearchParams(location.search); keep.delete('reset');   // src·site·wave·test 는 유지
+    history.replaceState(null, '', location.pathname + (keep.toString() ? '?' + keep.toString() : ''));
   }
 
   // ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@
   })();
   var ENTRY = {
     src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
-    type_preselected: !!URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
+    type_preselected: !!URL_TYPE, type_param: URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
   };
   var DEVICE_ID = (function () {
     var k = 't2d-ca:device';
