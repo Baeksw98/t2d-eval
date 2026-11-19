@@ -4,7 +4,7 @@
 
   var CFG = window.T2D_CONFIG;
   var DATA = window.T2D_DATA;
-  var STORE_KEY = 't2d-ca:' + CFG.STUDY_ID + ':v2';
+  var STORE_KEY = 't2d-ca:' + CFG.STUDY_ID + ':v3';
   var IDLE_MS = 180000;          // 3분 이상 조작이 없으면 idle 로 분류
   var START_TIMEOUT_MS = 15000;  // 순서 배정 요청 대기 한도 (Apps Script 첫 호출 지연 고려)
   var POST_TIMEOUT_MS = 30000;
@@ -72,6 +72,39 @@
   function roleById(id) { for (var i = 0; i < ROLES.length; i++) if (ROLES[i].id === id) return ROLES[i]; return null; }
   function typeById(id) { for (var i = 0; i < TYPES.length; i++) if (TYPES[i].id === id) return TYPES[i]; return null; }
   var URL_TYPE = typeById(String(params.get('type') || '').toUpperCase()) ? String(params.get('type')).toUpperCase() : '';
+  var COMMON = CFG.COMMON_FIELDS || [];
+  var CASE_ITEMS = CFG.CASE_ITEMS || [];
+  var END_ITEMS = CFG.END_ITEMS || [];
+  // 접속 경로(QR·카카오톡·링크)와 기관·차수 코드 — 개인정보 없음
+  function safeParam(k) { return String(params.get(k) || '').replace(/[^0-9A-Za-z_\-]/g, '').slice(0, 32); }
+  var UA = navigator.userAgent || '';
+  var IN_APP = /KAKAOTALK/i.test(UA) ? 'KAKAOTALK' : /NAVER/.test(UA) ? 'NAVER' : /\bLine\//.test(UA) ? 'LINE' :
+    /Instagram/i.test(UA) ? 'INSTAGRAM' : /FBAN|FBAV/.test(UA) ? 'FACEBOOK' : /; wv\)/.test(UA) ? 'WEBVIEW' : '';
+  var REF_ORIGIN = (function () {
+    try { var o = document.referrer ? new URL(document.referrer).origin : ''; return o === location.origin ? '' : o; } catch (_) { return ''; }
+  })();
+  var ENTRY = {
+    src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
+    type_preselected: !!URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
+  };
+  var DEVICE_ID = (function () {
+    var k = 't2d-ca:device';
+    try { var v = localStorage.getItem(k); if (!v) { v = uuid(); localStorage.setItem(k, v); } return v; } catch (_) { return uuid(); }
+  })();
+  var VISIT_ID = uuid();
+  function fieldCode(f, raw) {
+    if (f.type !== 'choice') return '';
+    var i = f.options.indexOf(raw);
+    if (i >= 0) return i + 1;
+    return (f.other && raw === f.other) ? f.options.length + 1 : '';
+  }
+  function textLen(x) {
+    if (x == null) return 0;
+    if (typeof x === 'string') return x.length;
+    if (typeof x === 'number') return String(x).length;
+    if (Array.isArray(x)) return x.reduce(function (a, y) { return a + textLen(y); }, 0);
+    return Object.keys(x).reduce(function (a, k) { return a + textLen(x[k]); }, 0);
+  }
   function nCases() { return (S && S.order) ? S.order.length : 2; }
   function totalSteps() { return nCases() * STEPS.length; }
   function typeSeqs() { var t = S && typeById(S.study_type); return t ? t.sequences : TYPES[0].sequences; }
@@ -135,7 +168,7 @@
   function emptyStepMetrics() {
     return {
       active_ms: 0, idle_ms: 0, hidden_ms: 0, wall_ms: 0, visits: 0, first_enter: null,
-      ttfr_ms: null, changes: 0, history: [], scroll_max: 0, drawer_opens: 0, drawer_ms: 0
+      ttfr_ms: null, changes: 0, history: [], scroll_max: 0, scroll_at_fr: null, drawer_opens: 0, drawer_ms: 0, interruptions: 0
     };
   }
   function emptyBucket() { return { active_ms: 0, idle_ms: 0, hidden_ms: 0, wall_ms: 0 }; }
@@ -173,7 +206,7 @@
       caseIdx: 0, stepIdx: 0,
       cases: [],
       overall_comment: '',
-      metrics: { intro: emptyBucket(), final: emptyBucket(), active_ms: 0, idle_ms: 0, hidden_ms: 0, wall_ms: 0, resumes: 0 },
+      metrics: { intro: emptyBucket(), final: emptyBucket(), active_ms: 0, idle_ms: 0, hidden_ms: 0, wall_ms: 0, resumes: 0, interruptions: 0, send_failures: 0 },
       device: deviceInfo(),
       outbox: [],
       net: { status: 'idle', last_error: '', last_ok: null }
@@ -247,33 +280,42 @@
 
   // Intro draft (before a session exists)
   function emptyDraft() {
-    return { name: '', role: '', fields: {}, other: {}, type: URL_TYPE, consent: false, linked: null, done_types: [], introBucket: emptyBucket() };
+    return {
+      name: '', role: '', fields: {}, other: {}, type: URL_TYPE, consent: false, consent_at: null, consent_inherited: false,
+      linked: null, done_types: [], evaluator_id: null, prev_cases: 0, prev_patients: [], introBucket: emptyBucket()
+    };
   }
   var draft = emptyDraft();
 
   // 평가자 정보 → 저장용 객체 (직군·추가 항목은 config.EVALUATOR_ROLES 기준)
   function buildEvaluator() {
     var role = roleById(draft.role);
-    var fields = {}, parts = [role.label];
-    role.fields.forEach(function (f) {
-      var v = String(draft.fields[f.id] || '').trim();
-      if (f.other && v === f.other) v = '기타: ' + String(draft.other[f.id] || '').trim();
+    var fields = {}, codes = {}, parts = [role.label];
+    var take = function (f, inDetail) {
+      var raw = String(draft.fields[f.id] || '').trim(), v = raw;
+      if (f.other && raw === f.other) v = '기타: ' + String(draft.other[f.id] || '').trim();
       fields[f.id] = v;
-      if (v) parts.push(v);
-    });
+      var cd = fieldCode(f, raw);
+      if (cd !== '') codes[f.id] = cd;
+      if (inDetail && v) parts.push(v);
+    };
+    role.fields.forEach(function (f) { take(f, true); });
+    COMMON.forEach(function (f) { take(f, false); });
     return {
-      name: draft.name.trim(), role: role.id, role_label: role.label, fields: fields,
+      name: draft.name.trim(), role: role.id, role_label: role.label, fields: fields, codes: codes,
       detail: parts.join(' · '),
       year: fields.year || ''   // 이전 버전 시트의 ResidentYear 컬럼 호환
     };
   }
+  function hiddenCommon(f) { return !!(f.firstSessionOnly && draft.linked && draft.fields[f.id]); }
   function draftError() {
     if (!draft.name.trim()) return '성명을 입력해 주세요.';
     var role = roleById(draft.role);
     if (!role) return '직군(인턴·레지던트·전문의)을 선택해 주세요.';
-    for (var i = 0; i < role.fields.length; i++) {
-      var f = role.fields[i], v = String(draft.fields[f.id] || '').trim();
-      if (f.required && !v) return f.label + '을(를) 선택해 주세요.';
+    var all = role.fields.concat(COMMON);
+    for (var i = 0; i < all.length; i++) {
+      var f = all[i], v = String(draft.fields[f.id] || '').trim();
+      if (f.required && !v) return (COMMON.indexOf(f) >= 0 ? '진료·AI 경험 문항에 모두 답해 주세요.' : f.label + '을(를) 선택해 주세요.');
       if (f.other && v === f.other && !String(draft.other[f.id] || '').trim()) return f.label + '을(를) 직접 입력해 주세요.';
     }
     if (!typeById(draft.type)) return '평가 유형(Type)을 선택해 주세요.';
@@ -334,11 +376,23 @@
   });
   document.addEventListener('visibilitychange', function () {
     tick();
-    if (!document.hidden) { T.lastInteract = performance.now(); flush(); }
+    if (document.hidden) {
+      if (S && S.screen === 'case' && !staleTab && S.order) {
+        var sm = stepMetrics(curCase(), curStep());
+        sm.interruptions = (sm.interruptions || 0) + 1;
+        S.metrics.interruptions = (S.metrics.interruptions || 0) + 1;
+      }
+      pauseComboDwell();
+      sendProgress();
+    } else {
+      T.lastInteract = performance.now();
+      resumeComboDwell();
+      flush();
+    }
     save();
   });
   var unloading = false;
-  window.addEventListener('pagehide', function () { unloading = true; tick(); save(); });
+  window.addEventListener('pagehide', function () { unloading = true; tick(); pauseComboDwell(); sendProgress(); save(); });
   window.addEventListener('pageshow', function () { unloading = false; });
   setInterval(function () { tick(); saveSoon(); }, 1000);
 
@@ -384,8 +438,49 @@
       session_id: S.session_id, is_test: S.is_test,
       evaluator: S.evaluator, study_type: S.study_type, linked_session_id: S.linked_session_id,
       sequence_index: S.seq_index, seq_source: S.seq_source, order: S.order,
-      n_sequences: typeSeqs().length
+      n_sequences: typeSeqs().length,
+      instrument_version: CFG.INSTRUMENT_VERSION || '', wave: (S.entry || ENTRY).wave,
+      evaluator_id: S.evaluator_id, device_id: S.device_id || DEVICE_ID, visit_id: S.visit_id || VISIT_ID,
+      session_ordinal: S.session_ordinal || 1, entry: S.entry || ENTRY, consent: S.consent || {},
+      incentive: CFG.INCENTIVE || ''
     };
+  }
+
+  // fire-and-forget 신호 (응답 보관함과 별개): 이탈 지점(progress)과 첫 화면 방문(view)
+  function beacon(p) {
+    if (!CFG.ENDPOINT) return;
+    var body = JSON.stringify(p);
+    try {
+      if (navigator.sendBeacon && navigator.sendBeacon(CFG.ENDPOINT, new Blob([body], { type: 'text/plain;charset=utf-8' }))) return;
+    } catch (_) {}
+    try { fetch(CFG.ENDPOINT, { method: 'POST', body: body, keepalive: true, mode: 'no-cors' }).catch(function () {}); } catch (_) {}
+  }
+  function countRatings() {
+    return (S.cases || []).reduce(function (a, c) {
+      return a + PHASE_KEYS.filter(function (k) { return c.ratings[k] != null; }).length + (c.combo ? 1 : 0);
+    }, 0);
+  }
+  var lastProgressAt = 0;
+  function sendProgress() {
+    if (!S || staleTab || !S.order || S.screen === 'done' || S.screen === 'intro') return;
+    var now = Date.now();
+    if (now - lastProgressAt < 10000) return;
+    lastProgressAt = now;
+    var p = basePayload('progress');
+    p.progress = {
+      furthest_case: (S.furthest || {}).case || 1, furthest_step: (S.furthest || {}).step || 'vignette',
+      partial_ratings_n: countRatings(), last_activity_at: nowIso()
+    };
+    beacon(p);
+  }
+  var viewSent = false;
+  function sendView() {
+    if (viewSent || !CFG.ENDPOINT) return;
+    viewSent = true;
+    beacon({
+      action: 'view', msg_id: uuid(), client_time: nowIso(), study_id: CFG.STUDY_ID, app_version: CFG.APP_VERSION,
+      is_test: URL_TEST, visit_id: VISIT_ID, device_id: DEVICE_ID, entry: ENTRY, form_factor: deviceInfo().form_factor
+    });
   }
 
   function enqueue(payload) {
@@ -416,6 +511,7 @@
       sess.net.status = 'ok'; sess.net.last_ok = nowIso(); sess.net.last_error = '';
     }, function (e) {
       sess.net.status = 'fail'; sess.net.last_error = String(e && e.message || e);
+      sess.metrics.send_failures = (sess.metrics.send_failures || 0) + 1;
     }).then(function () {
       if (sess !== S) return;   // '새 평가 시작'으로 대체된 세션: 플래그는 이미 초기화됨
       flushing = false;
@@ -430,17 +526,44 @@
   // Records
   // ---------------------------------------------------------------------------
   function sumSteps(c, field) {
-    return STEPS.reduce(function (acc, st) { var m = c.metrics.steps[st]; return acc + (m ? m[field] : 0); }, 0);
+    return STEPS.reduce(function (acc, st) { var m = c.metrics.steps[st]; return acc + (m ? (m[field] || 0) : 0); }, 0);
+  }
+  var RANK_CUE = /우선|후순위|대안|권장/;
+  function contentChars(out, combo) {
+    var cb = combo ? out.combinations[combo - 1] : null;
+    var phaseChars = function (k) {
+      if (!cb) return 0;
+      var n = PHASES[k].items.reduce(function (a, it) { return a + textLen(cb.answers[it[0]]); }, 0);
+      return n + textLen(cb.name) + (k === 'p2' ? textLen(cb.prescription) : 0);
+    };
+    return {
+      vignette: textLen(DATA.patients[out.patient]), p1: textLen(out.phase_1),
+      combo: textLen(out.combinations.map(function (x) { return [x.name, x.prescription]; })),
+      p2: phaseChars('p2'), p3: phaseChars('p3'), p4: phaseChars('p4'), p5: phaseChars('p5')
+    };
   }
   function buildCaseRecord(i) {
     var c = S.cases[i];
     var out = DATA.outputs[c.key];
     var comboName = c.combo ? out.combinations[c.combo - 1].name : '';
+    var cm = c.metrics;
     return {
       case_index: i + 1, case_key: c.key, patient_id: out.patient, model: out.model, model_name: out.model_name,
       ratings: c.ratings, combo_choice: c.combo, combo_name: comboName,
+      combo_rank_ai: c.combo, combo_key: c.combo ? c.key + '_C' + c.combo : '',
       combo_is_ai_first: c.combo === 1,
+      rank_cue_visible: out.combinations.some(function (x) { return RANK_CUE.test(x.name); }),
+      global_case_order: (S.prev_cases || 0) + i + 1,
+      patient_seen_prior: (S.prev_patients || []).indexOf(out.patient) >= 0,
       comment: c.comment,
+      items: c.items || {},
+      chars: contentChars(out, c.combo),
+      combo_exposure: {
+        seen: (cm.combo_seen || [false, false, false]).slice(),
+        dwell_ms: (cm.combo_dwell_ms || [0, 0, 0]).map(function (x) { return Math.round(x); })
+      },
+      rx_details_opens: cm.rx_details_opens || 0,
+      interruptions: sumSteps(c, 'interruptions'),
       started_at: c.started_at, completed_at: c.completed_at,
       metrics: {
         steps: c.metrics.steps,
@@ -463,7 +586,8 @@
       intro_ms: Math.round(S.metrics.intro.active_ms + S.metrics.intro.idle_ms),
       final_ms: Math.round(S.metrics.final.active_ms + S.metrics.final.idle_ms),
       resumes: m.resumes,
-      cases_completed: S.cases.filter(function (c) { return c.completed_at; }).length
+      cases_completed: S.cases.filter(function (c) { return c.completed_at; }).length,
+      interruptions: m.interruptions || 0, send_failures: m.send_failures || 0
     };
   }
 
@@ -474,17 +598,23 @@
     return order.map(function (key) {
       return {
         key: key, ratings: { p1: null, p2: null, p3: null, p4: null, p5: null },
-        combo: null, comment: '', started_at: null, completed_at: null,
-        metrics: { steps: {}, combo_resets: 0 }
+        combo: null, comment: '', items: {}, started_at: null, completed_at: null,
+        metrics: { steps: {}, combo_resets: 0, combo_seen: [false, false, false], combo_dwell_ms: [0, 0, 0], rx_details_opens: 0 }
       };
     });
   }
 
   var navLockUntil = 0;
+  function markFurthest(caseNo, step) {
+    var rank = (caseNo - 1) * STEPS.length + (step === 'final' ? STEPS.length : STEPS.indexOf(step));
+    if (!S.furthest || rank > (S.furthest.rank || 0)) S.furthest = { case: caseNo, step: step, rank: rank };
+  }
   function enterStep() {
     elToast.hidden = true;
     closeDrawer();
+    stopComboObs();
     navLockUntil = performance.now() + NAV_LOCK_MS;
+    markFurthest(S.caseIdx + 1, curStep());
     var c = curCase();
     if (!c.started_at) c.started_at = nowIso();
     var m = stepMetrics(c, curStep());
@@ -507,6 +637,13 @@
     starting = true;
     S = newState(buildEvaluator(), draft.type, draft.linked);
     S.done_types = draft.done_types || [];
+    S.evaluator_id = draft.evaluator_id || uuid();
+    S.device_id = DEVICE_ID; S.visit_id = VISIT_ID; S.entry = ENTRY;
+    S.consent = { version: CFG.CONSENT_VERSION || '', at: draft.consent_at || nowIso(), inherited: !!draft.consent_inherited };
+    S.session_ordinal = S.done_types.length + 1;
+    S.prev_cases = draft.prev_cases || 0;
+    S.prev_patients = (draft.prev_patients || []).slice();
+    S.end_items = {};
     S.metrics.intro = draft.introBucket;
     S.metrics.active_ms += draft.introBucket.active_ms;
     S.metrics.idle_ms += draft.introBucket.idle_ms;
@@ -556,7 +693,16 @@
     var c = curCase(), st = curStep();
     if (PHASES[st]) return c.ratings[st] != null;
     if (st === 'combo') return c.combo != null;
+    if (st === 'comment') return itemsComplete(CASE_ITEMS, c.items || {});
     return true;
+  }
+  function itemVisible(f, vals) {
+    if (!f.showIf) return true;
+    var dep = vals[f.showIf.item];
+    return !!(dep && Number(dep.code) >= (f.showIf.minCode || 1));
+  }
+  function itemsComplete(list, vals) {
+    return list.every(function (f) { return !f.required || !itemVisible(f, vals) || (vals[f.id] && vals[f.id].value); });
   }
 
   function goNext() {
@@ -565,7 +711,7 @@
     tick();
     if (S.screen === 'case') {
       if (!stepComplete()) {
-        toast(curStep() === 'combo' ? '선호하는 조합을 선택해 주세요.' : '1–5점 중 하나를 선택해 주세요.');
+        toast(curStep() === 'combo' ? '선호하는 조합을 선택해 주세요.' : curStep() === 'comment' ? '보조 문항에 모두 답해 주세요.' : '1–5점 중 하나를 선택해 주세요.');
         return;
       }
       if (S.stepIdx < STEPS.length - 1) {
@@ -587,6 +733,7 @@
         toast('케이스 ' + S.caseIdx + ' 평가가 저장되었습니다.');
       } else {
         S.screen = 'final';
+        markFurthest(nCases(), 'final');
         enqueue(p);
         navLockUntil = performance.now() + NAV_LOCK_MS;
         save(); render(); window.scrollTo(0, 0);
@@ -594,12 +741,14 @@
       return;
     }
     if (S.screen === 'final') {
+      if (!itemsComplete(END_ITEMS, S.end_items || {})) { toast('보조 문항에 답해 주세요.'); return; }
       S.finished_at = nowIso();
       S.screen = 'done';
       var fp = basePayload('finish');
       fp.device = S.device;
       fp.session = sessionSummary();
       fp.overall_comment = S.overall_comment;
+      fp.end_items = S.end_items || {};
       fp.cases = S.cases.map(function (_, i) { return buildCaseRecord(i); });
       save(); render(); window.scrollTo(0, 0);
       enqueue(fp);
@@ -620,7 +769,7 @@
     var c = curCase();
     if (c.ratings[key] === v) return;
     var m = stepMetrics(c, key);
-    if (m.ttfr_ms == null) m.ttfr_ms = Math.round(m.active_ms + m.idle_ms) - (m.ttfr_base || 0);
+    if (m.ttfr_ms == null) { recordScroll(); m.ttfr_ms = Math.round(m.active_ms + m.idle_ms) - (m.ttfr_base || 0); m.scroll_at_fr = m.scroll_max; }
     else m.changes += 1;
     m.history.push([v, Math.round(m.active_ms + m.idle_ms)]);
     c.ratings[key] = v;
@@ -651,7 +800,7 @@
       c.metrics.combo_resets += 1;
     }
     var m = stepMetrics(c, 'combo');
-    if (m.ttfr_ms == null) m.ttfr_ms = Math.round(m.active_ms + m.idle_ms);
+    if (m.ttfr_ms == null) { recordScroll(); m.ttfr_ms = Math.round(m.active_ms + m.idle_ms); m.scroll_at_fr = m.scroll_max; }
     else m.changes += 1;
     m.history.push([n, Math.round(m.active_ms + m.idle_ms)]);
     c.combo = n;
@@ -866,30 +1015,55 @@
       return '<button type="button" role="radio" tabindex="' + tab + '" ' + attr + '="' + esc(it.value) + '" aria-checked="' + on + '">' + esc(it.label) + '</button>';
     }).join('');
   }
+  // 공통 문항 렌더러: choice(버튼·세로 목록) / select / multi(복수 선택) / text
+  function fieldHTML(f, cur, otherVal, prefix) {
+    var id = esc((prefix || '') + f.id);
+    var lab = '<span class="label" id="lbl_' + id + '">' + esc(f.label) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
+    if (f.type === 'choice') {
+      var opts = f.options.map(function (o) { return { value: o, label: o }; });
+      if (f.other) opts.push({ value: f.other, label: f.other });
+      var list = f.layout === 'list';
+      return '<div class="field">' + lab + '<div class="seg' + (list ? ' list' : '') + '" role="radiogroup" aria-labelledby="lbl_' + id + '" data-field="' + esc(f.id) + '"' +
+        (list ? '' : ' style="grid-template-columns:repeat(' + opts.length + ',1fr)"') + '>' +
+        segHTML('data-value', opts, cur) + '</div>' +
+        (f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="직접 입력" value="' + esc(otherVal || '') + '">' : '') +
+        '</div>';
+    }
+    if (f.type === 'multi') {
+      var sel = String(cur || '').split(';').filter(Boolean);
+      return '<div class="field">' + lab + '<div class="chips" data-multi="' + esc(f.id) + '">' +
+        f.options.map(function (o) {
+          return '<button type="button" class="chip" data-value="' + esc(o[0]) + '" aria-pressed="' + (sel.indexOf(o[0]) >= 0) + '">' + esc(o[1]) + '</button>';
+        }).join('') + '</div></div>';
+    }
+    if (f.type === 'select') {
+      var o2 = '<option value="">' + esc(f.placeholder || '선택하세요') + '</option>' +
+        (f.groups || [{ label: '', options: f.options || [] }]).map(function (g) {
+          var o = g.options.map(function (x) { return '<option' + (cur === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+          return g.label ? '<optgroup label="' + esc(g.label) + '">' + o + '</optgroup>' : o;
+        }).join('') +
+        (f.other ? '<option' + (cur === f.other ? ' selected' : '') + '>' + esc(f.other) + '</option>' : '');
+      return '<div class="field">' + lab.replace('<span class="label"', '<label class="label" for="fld_' + id + '"').replace(/<\/span>$/, '</label>') +
+        '<select class="input" id="fld_' + id + '" data-field="' + esc(f.id) + '">' + o2 + '</select>' +
+        (f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="직접 입력" value="' + esc(otherVal || '') + '">' : '') +
+        '</div>';
+    }
+    return '<div class="field">' + lab + '<input class="input" type="text" maxlength="60" data-field="' + esc(f.id) + '" value="' + esc(cur || '') + '"></div>';
+  }
   function roleFieldsHTML() {
     var role = roleById(draft.role);
     if (!role || !role.fields.length) return '';
-    return role.fields.map(function (f) {
-      var cur = draft.fields[f.id] || '';
-      var lab = '<span class="label" id="lbl_' + esc(f.id) + '">' + esc(f.label) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
-      if (f.type === 'choice') {
-        return '<div class="field">' + lab + '<div class="seg" role="radiogroup" aria-labelledby="lbl_' + esc(f.id) + '" data-field="' + esc(f.id) + '" style="grid-template-columns:repeat(' + f.options.length + ',1fr)">' +
-          segHTML('data-value', f.options.map(function (o) { return { value: o, label: o }; }), cur) + '</div></div>';
-      }
-      if (f.type === 'select') {
-        var opts = '<option value="">' + esc(f.placeholder || '선택하세요') + '</option>' +
-          (f.groups || [{ label: '', options: f.options || [] }]).map(function (g) {
-            var o = g.options.map(function (x) { return '<option' + (cur === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
-            return g.label ? '<optgroup label="' + esc(g.label) + '">' + o + '</optgroup>' : o;
-          }).join('') +
-          (f.other ? '<option' + (cur === f.other ? ' selected' : '') + '>' + esc(f.other) + '</option>' : '');
-        return '<div class="field">' + lab.replace('<span class="label"', '<label class="label" for="fld_' + esc(f.id) + '"').replace(/<\/span>$/, '</label>') +
-          '<select class="input" id="fld_' + esc(f.id) + '" data-field="' + esc(f.id) + '">' + opts + '</select>' +
-          (f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="직접 입력" value="' + esc(draft.other[f.id] || '') + '">' : '') +
-          '</div>';
-      }
-      return '<div class="field">' + lab + '<input class="input" type="text" maxlength="60" data-field="' + esc(f.id) + '" value="' + esc(cur) + '"></div>';
+    return role.fields.map(function (f) { return fieldHTML(f, draft.fields[f.id] || '', draft.other[f.id], 'ev_'); }).join('');
+  }
+  function commonFieldsHTML() {
+    return COMMON.map(function (f) {
+      if (hiddenCommon(f)) return '<p class="small muted">' + esc(f.label) + ' → 첫 평가 때 응답(<b>' + esc(draft.fields[f.id]) + '</b>)을 그대로 사용합니다.</p>';
+      return fieldHTML(f, draft.fields[f.id] || '', draft.other[f.id], 'ev_');
     }).join('');
+  }
+  function findEvalField(id) {
+    var role = roleById(draft.role);
+    return (role ? role.fields : []).concat(COMMON).filter(function (f) { return f.id === id; })[0] || null;
   }
 
   function renderIntro() {
@@ -938,11 +1112,14 @@
         '<div class="field"><span class="label" id="roleLabel">직군<span class="req">*</span></span>' +
           '<div class="seg" role="radiogroup" aria-labelledby="roleLabel" id="roleSeg" style="grid-template-columns:repeat(' + ROLES.length + ',1fr)">' + roles + '</div></div>' +
         '<div id="roleFields">' + roleFieldsHTML() + '</div>' +
+        (COMMON.length ? '<h3 class="section-title" style="margin-top:20px">진료·AI 경험</h3><div id="commonFields">' + commonFieldsHTML() + '</div>' : '') +
         '<div class="field"><span class="label" id="typeLabel">평가 유형<span class="req">*</span></span>' +
           '<p class="small muted" style="margin:0">연구진이 안내한 Type을 선택해 주세요. 각 Type은 AI 답변 2건입니다.</p>' +
           '<div class="seg" role="radiogroup" aria-labelledby="typeLabel" id="typeSeg" style="grid-template-columns:repeat(' + TYPES.length + ',1fr)">' + types + '</div></div>' +
         '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
-          '<span>본 평가의 목적을 이해했으며, 응답(성명·직군·평가 점수·의견)과 응답 과정 정보(단계별 소요 시간, 기기 종류)가 연구 목적으로 수집되는 데 동의합니다.</span></label></div>' +
+          '<span>본 평가의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 직군·경력, 진료·AI 사용 경험, 평가 점수와 의견, ' +
+          '응답 과정 정보(단계별 소요 시간, 접속 경로, 기기 종류). 분석과 발표에는 성명 대신 가명 코드를 사용합니다.' +
+          (CFG.IRB_NO ? ' (IRB 승인번호: ' + esc(CFG.IRB_NO) + ')' : '') + '</span></label></div>' +
         '<button type="button" class="btn btn-accent btn-block" id="startBtn" style="margin-top:18px">' + (starting ? '평가 준비 중…' : '평가 시작') + '</button>' +
       '</section>';
 
@@ -959,7 +1136,15 @@
       } else if (b.hasAttribute('data-type')) {
         draft.type = b.getAttribute('data-type');
       } else if (seg.hasAttribute('data-field')) {
-        draft.fields[seg.getAttribute('data-field')] = b.getAttribute('data-value');
+        var fid = seg.getAttribute('data-field');
+        var before = draft.fields[fid];
+        draft.fields[fid] = b.getAttribute('data-value');
+        var ff = findEvalField(fid);
+        if (ff && ff.other && ((before === ff.other) !== (draft.fields[fid] === ff.other))) {
+          var host = seg.closest('#roleFields, #commonFields');
+          if (host) host.innerHTML = host.id === 'roleFields' ? roleFieldsHTML() : commonFieldsHTML();
+          var oi = card.querySelector('[data-other="' + fid + '"]'); if (oi) oi.focus();
+        }
       }
     };
     card.addEventListener('click', function (e) {
@@ -981,7 +1166,7 @@
       if (t.tagName === 'SELECT' && t.hasAttribute('data-field')) {
         var id = t.getAttribute('data-field');
         draft.fields[id] = t.value;
-        var f = (roleById(draft.role).fields.filter(function (x) { return x.id === id; })[0]) || {};
+        var f = findEvalField(id) || {};
         var hasOther = !!card.querySelector('[data-other="' + id + '"]');
         if (f.other && (t.value === f.other) !== hasOther) {
           $('roleFields').innerHTML = roleFieldsHTML();
@@ -995,9 +1180,12 @@
       else if (t.tagName === 'INPUT' && t.type === 'text' && t.hasAttribute('data-field')) draft.fields[t.getAttribute('data-field')] = t.value;
     });
     $('evName').addEventListener('input', function (e) { draft.name = e.target.value; });
-    $('evConsent').addEventListener('change', function (e) { draft.consent = e.target.checked; });
+    $('evConsent').addEventListener('change', function (e) {
+      draft.consent = e.target.checked; draft.consent_at = e.target.checked ? nowIso() : null; draft.consent_inherited = false;
+    });
     $('startBtn').addEventListener('click', startSession);
     elDock.innerHTML = '';
+    sendView();
   }
 
   function renderStarting() {
@@ -1014,6 +1202,8 @@
       html += caseHeadHTML('환자 정보', '먼저 환자 기록을 충분히 읽어 주세요. 다음 화면부터 AI 답변이 제시됩니다.');
       if (seen) {
         html += '<p class="notice info same-patient">이 환자는 <b>케이스 ' + seen + '</b>에서 이미 확인하셨습니다. 이번에는 <b>다른 AI 답변</b>을 평가합니다. 필요한 부분만 다시 훑어보셔도 됩니다.</p>';
+      } else if ((S.prev_patients || []).indexOf(out.patient) >= 0) {
+        html += '<p class="notice info same-patient">이 환자는 <b>이전 Type 평가</b>에서 이미 확인하셨습니다. 이번에는 <b>다른 AI 답변</b>을 평가합니다.</p>';
       }
       html += patientHTML(p, false);
     } else if (st === 'p1') {
@@ -1059,11 +1249,16 @@
         return itemHTML(it[0], it[1], body);
       }).join('') + '</div>';
     } else if (st === 'comment') {
-      html += caseHeadHTML('이 AI 답변에 대한 의견', '선택 사항입니다. 비워 두고 넘어가셔도 됩니다.');
+      html += caseHeadHTML('케이스 마무리', '보조 문항에 답하고, 필요하면 의견을 남겨 주세요.');
       html += '<section class="card"><h3 class="section-title">이번 케이스 평가 요약</h3>' + caseRecapHTML(c) +
         '<p class="small muted" style="margin-top:8px">점수를 고치려면 아래 [이전] 버튼으로 해당 단계로 돌아가세요.</p></section>';
-      html += '<section class="card"><div class="field"><label for="caseComment">자유 의견</label>' +
-        '<textarea class="input" id="caseComment" maxlength="3000" placeholder="강점, 우려되는 점, 실제 진료에 그대로 쓰기 어려운 부분 등을 자유롭게 적어 주세요.">' + esc(c.comment) + '</textarea>' +
+      if (CASE_ITEMS.length) {
+        html += '<section class="card sub-items"><span class="sub-tag">보조 문항</span>' +
+          '<p class="small muted" style="margin:6px 0 4px">위 임상 수용성 평가(Phase 1–5)와 별개로, 이 케이스의 AI 답변 전체에 대해 답해 주세요.</p>' +
+          '<div id="caseItems">' + itemsHTML(CASE_ITEMS, c.items || {}, 'ci_') + '</div></section>';
+      }
+      html += '<section class="card"><div class="field"><label for="caseComment">자유 의견 (선택)</label>' +
+        '<textarea class="input" id="caseComment" maxlength="3000" placeholder="' + esc(commentPlaceholder(c)) + '">' + esc(c.comment) + '</textarea>' +
         '<div class="char-count" id="ccCount">' + c.comment.length + ' / 3000</div></div></section>';
     }
     elMain.innerHTML = html;
@@ -1089,6 +1284,20 @@
         if (nx) nx.focus();
       });
     }
+    if (st === 'combo') startComboObs(c);
+    if (PHASES[st] && st !== 'p2') {
+      var det = elMain.querySelector('.selected-banner details');
+      if (det) det.addEventListener('toggle', function () { if (det.open) { c.metrics.rx_details_opens = (c.metrics.rx_details_opens || 0) + 1; saveSoon(); } });
+    }
+    if (st === 'comment' && $('caseItems')) {
+      bindItems($('caseItems'), CASE_ITEMS, function () { return curCase().items || (curCase().items = {}); }, 'ci_', function (f) {
+        var cm = stepMetrics(curCase(), 'comment');
+        var v = curCase().items[f.id];
+        cm.history.push([f.id, v ? v.code || v.value : '', Math.round(cm.active_ms + cm.idle_ms)]);
+        var ta = $('caseComment'); if (ta) ta.placeholder = commentPlaceholder(curCase());
+        renderDock();
+      });
+    }
     if (st === 'comment') {
       $('caseComment').addEventListener('input', function (e) {
         curCase().comment = e.target.value;
@@ -1096,6 +1305,85 @@
         saveSoon();
       });
     }
+  }
+
+  function itemsHTML(list, vals, prefix) {
+    return list.filter(function (f) { return itemVisible(f, vals); }).map(function (f) {
+      return fieldHTML(f, (vals[f.id] || {}).value || '', '', prefix);
+    }).join('');
+  }
+  // 보조 문항 입력 처리 (케이스·마지막 화면 공통). getVals() 는 {id: {value, code}} 를 돌려준다.
+  function bindItems(host, list, getVals, prefix, onChange) {
+    var byId = {}; list.forEach(function (f) { byId[f.id] = f; });
+    var rerender = function () { host.innerHTML = itemsHTML(list, getVals(), prefix); };
+    host.addEventListener('click', function (e) {
+      if (staleTab) return;
+      var b = e.target.closest('button');
+      if (!b) return;
+      var vals = getVals();
+      var seg = b.closest('.seg[data-field]'), chips = b.closest('.chips[data-multi]');
+      if (seg) {
+        var f = byId[seg.getAttribute('data-field')], v = b.getAttribute('data-value');
+        var beforeVis = list.map(function (x) { return itemVisible(x, vals); }).join();
+        vals[f.id] = { value: v, code: fieldCode(f, v) };
+        list.forEach(function (x) { if (!itemVisible(x, vals)) delete vals[x.id]; });
+        if (beforeVis !== list.map(function (x) { return itemVisible(x, vals); }).join()) rerender();
+        else Array.prototype.forEach.call(seg.querySelectorAll('button'), function (x) {
+          x.setAttribute('aria-checked', String(x === b)); x.setAttribute('tabindex', x === b ? '0' : '-1');
+        });
+        onChange(f);
+      } else if (chips) {
+        var g = byId[chips.getAttribute('data-multi')];
+        var on = b.getAttribute('aria-pressed') !== 'true';
+        b.setAttribute('aria-pressed', String(on));
+        var picked = Array.prototype.filter.call(chips.querySelectorAll('.chip'), function (x) { return x.getAttribute('aria-pressed') === 'true'; })
+          .map(function (x) { return x.getAttribute('data-value'); });
+        if (picked.length) vals[g.id] = { value: picked.join(';'), code: '' }; else delete vals[g.id];
+        onChange(g);
+      }
+      saveSoon();
+    });
+  }
+  function commentPlaceholder(c) {
+    var h = (c.items || {}).harm;
+    return (h && Number(h.code) >= 2) ? '위해 가능성이 있다고 판단한 내용을 간단히 적어 주세요 (선택).'
+      : '강점, 우려되는 점, 실제 진료에 그대로 쓰기 어려운 부분 등을 자유롭게 적어 주세요.';
+  }
+
+  // 후보 조합 카드 노출(화면에 절반 이상 보였는지)과 머문 시간
+  var comboObs = null, comboVis = {}, comboCase = null;
+  function startComboObs(c) {
+    stopComboObs();
+    if (!('IntersectionObserver' in window)) return;
+    comboCase = c;
+    if (!c.metrics.combo_seen) { c.metrics.combo_seen = [false, false, false]; c.metrics.combo_dwell_ms = [0, 0, 0]; }
+    comboObs = new IntersectionObserver(function (entries) {
+      var now = performance.now();
+      entries.forEach(function (en) {
+        var k = Number(en.target.getAttribute('data-combo'));
+        var vis = en.isIntersecting && en.intersectionRect.height >= 0.5 * Math.min(en.boundingClientRect.height, window.innerHeight);
+        if (vis) { comboCase.metrics.combo_seen[k - 1] = true; if (!comboVis[k]) comboVis[k] = document.hidden ? -1 : now; }
+        else if (comboVis[k]) { if (comboVis[k] > 0) comboCase.metrics.combo_dwell_ms[k - 1] += now - comboVis[k]; comboVis[k] = 0; }
+      });
+    }, { threshold: [0, 0.1, 0.25, 0.5, 0.75, 1] });
+    Array.prototype.forEach.call(elMain.querySelectorAll('.combo-card'), function (el) { comboObs.observe(el); });
+  }
+  function pauseComboDwell() {
+    if (!comboObs || !comboCase) return;
+    var now = performance.now();
+    Object.keys(comboVis).forEach(function (k) {
+      if (comboVis[k] > 0) { comboCase.metrics.combo_dwell_ms[k - 1] += now - comboVis[k]; comboVis[k] = -1; }
+    });
+  }
+  function resumeComboDwell() {
+    if (!comboObs) return;
+    var now = performance.now();
+    Object.keys(comboVis).forEach(function (k) { if (comboVis[k] === -1) comboVis[k] = now; });
+  }
+  function stopComboObs() {
+    if (!comboObs) return;
+    pauseComboDwell();
+    comboObs.disconnect(); comboObs = null; comboVis = {}; comboCase = null;
   }
 
   function caseRecapHTML(c) {
@@ -1156,9 +1444,10 @@
         nav('선택 완료 →', c.combo != null);
     } else if (st === 'comment') {
       var last = S.caseIdx === nCases() - 1;
-      html += '<div class="dock-kicker"><span>케이스 ' + (S.caseIdx + 1) + ' 마무리</span></div>' +
+      var okItems = itemsComplete(CASE_ITEMS, c.items || {});
+      html += '<div class="dock-kicker"><span>케이스 ' + (S.caseIdx + 1) + ' 마무리</span><span class="req-hint">' + (okItems ? '' : '보조 문항에 답해 주세요') + '</span></div>' +
         '<p class="dock-msg">' + (last ? '마지막 케이스입니다. 다음 화면에서 전체 의견을 남기고 제출합니다.' : '다음 케이스로 넘어가면 이 케이스의 응답이 저장됩니다.') + '</p>' +
-        nav(last ? '케이스 평가 완료 →' : '저장하고 다음 케이스 →', true, true);
+        nav(last ? '케이스 평가 완료 →' : '저장하고 다음 케이스 →', okItems, true);
     }
     html += '</div>';
     elDock.innerHTML = html;
@@ -1202,6 +1491,8 @@
       '<section class="card"><span class="eyebrow">마지막 단계</span>' +
         '<h1 style="font-size:22px;color:var(--navy);margin-top:6px">케이스 평가를 모두 마쳤습니다</h1>' +
         '<p class="lead" style="margin-top:6px">AI CDSS 답변 전반에 대한 의견을 남기신 뒤 <b>평가 제출</b>을 눌러 주세요.</p></section>' +
+      (END_ITEMS.length ? '<section class="card sub-items"><span class="sub-tag">보조 문항</span><div id="endItems" style="margin-top:6px">' +
+        itemsHTML(END_ITEMS, S.end_items || {}, 'ei_') + '</div></section>' : '') +
       '<section class="card"><div class="field"><label for="overallComment">AI 답변 전반에 대한 의견 (선택)</label>' +
         '<p class="small muted">이러한 AI 답변을 실제 진료에서 어떻게 받아들이실지, 신뢰하거나 망설여지는 부분, 개선이 필요한 점 등을 자유롭게 적어 주세요.</p>' +
         '<textarea class="input" id="overallComment" maxlength="5000">' + esc(S.overall_comment) + '</textarea>' +
@@ -1215,6 +1506,7 @@
       saveSoon();
     });
     $('submitBtn').addEventListener('click', goNext);
+    if ($('endItems')) bindItems($('endItems'), END_ITEMS, function () { return S.end_items || (S.end_items = {}); }, 'ei_', function () { save(); });
   }
 
   function downloadJSON() {
@@ -1222,7 +1514,8 @@
       study_id: S.study_id, app_version: S.app_version, data_version: S.data_version,
       session_id: S.session_id, is_test: S.is_test, evaluator: S.evaluator, study_type: S.study_type,
       sequence_index: S.seq_index, seq_source: S.seq_source, order: S.order,
-      session: sessionSummary(), overall_comment: S.overall_comment, device: S.device,
+      session: sessionSummary(), overall_comment: S.overall_comment, end_items: S.end_items || {}, device: S.device,
+      evaluator_id: S.evaluator_id, entry: S.entry, consent: S.consent, session_ordinal: S.session_ordinal,
       cases: S.cases.map(function (_, i) { return buildCaseRecord(i); })
     };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1291,8 +1584,13 @@
           if (f.other && v.indexOf('기타: ') === 0) { draft.fields[f.id] = f.other; draft.other[f.id] = v.slice(4); }
           else draft.fields[f.id] = v;
         });
+        COMMON.forEach(function (f) { draft.fields[f.id] = prev.evaluator.fields[f.id] || ''; });
         draft.type = prefill; draft.consent = true; draft.linked = prev.session_id;
+        draft.consent_at = (prev.consent || {}).at || nowIso(); draft.consent_inherited = true;
         draft.done_types = (prev.done_types || []).concat([prev.study_type]);
+        draft.evaluator_id = prev.evaluator_id || null;
+        draft.prev_cases = (prev.prev_cases || 0) + prev.cases.length;
+        draft.prev_patients = (prev.prev_patients || []).concat(prev.order.map(function (k) { return DATA.outputs[k].patient; }));
       }
       T.last = performance.now();
       render();

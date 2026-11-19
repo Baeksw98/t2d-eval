@@ -4,7 +4,7 @@ import sys, qrcode, qrcode.image.svg
 from qrcode.constants import ERROR_CORRECT_Q
 
 base = (sys.argv[1] if len(sys.argv) > 1 else 'https://eval.asclep.org').rstrip('/')
-targets = {'type-a': base + '/a', 'type-b': base + '/b', 'select': base + '/'}
+targets = {'type-a': base + '/a?src=qr', 'type-b': base + '/b?src=qr', 'select': base + '/?src=qr'}
 for name, url in targets.items():
     def make():
         q = qrcode.QRCode(error_correction=ERROR_CORRECT_Q, box_size=20, border=4)

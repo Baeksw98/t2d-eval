@@ -164,7 +164,17 @@ p { margin: 0; }
 
 .field { display: grid; gap: 6px; }
 .field + .field { margin-top: 14px; }
-#roleFields > .field, #roleFields + .field { margin-top: 14px; }
+#roleFields > .field, #roleFields + .field, #commonFields > .field, #commonFields > p { margin-top: 14px; }
+#commonFields + .field { margin-top: 20px; }
+#caseItems > .field + .field, #endItems > .field + .field { margin-top: 16px; }
+.seg.list { grid-template-columns: 1fr; gap: 6px; }
+.seg.list button { text-align: left; justify-content: flex-start; padding: 10px 14px; font-size: 15px; font-weight: 600; min-height: 46px; line-height: 1.4; }
+.field .label { line-height: 1.5; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--line-2); background: #fff; color: var(--navy); font-weight: 700; font-size: 14px; touch-action: manipulation; }
+.chip[aria-pressed="true"] { background: var(--teal-ink); border-color: var(--teal-ink); color: #fff; }
+.sub-items { border-left: 4px solid var(--teal-ink); }
+.sub-tag { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: .04em; color: #fff; background: var(--teal-ink); border-radius: 6px; padding: 2px 8px; }
 .field label, .field .label { font-weight: 700; font-size: 14.5px; color: var(--navy); }
 .field .req { color: var(--orange-ink); margin-left: 2px; }
 .input {

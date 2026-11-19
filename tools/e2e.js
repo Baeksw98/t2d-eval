@@ -38,11 +38,19 @@ const path = require('path');
   await snap('intro_top');
   await page.fill('#evName', evName);
   await page.click(`#roleSeg button[data-role="${role}"]`);
-  if (role === 'resident') await page.click('#roleFields .seg button[data-value="R2"]');
-  if (role === 'specialist') {
-    await page.selectOption('#fld_specialty', '기타 (직접 입력)');
-    await page.fill('[data-other="specialty"]', '=임상약리학');
+  if (role === 'resident') {
+    await page.click('#roleFields .seg[data-field="year"] button[data-value="R2"]');
+    await page.click('#roleFields .seg[data-field="major"] button[data-value="내과"]');
   }
+  if (role === 'specialist') {
+    await page.selectOption('#fld_ev_specialty', '기타 (직접 입력)');
+    await page.fill('[data-other="specialty"]', '=임상약리학');
+    await page.click('#roleFields .seg[data-field="board_years"] button[data-value="5–9년"]');
+  }
+  // common background items (first option of each, trust = 4)
+  await page.click('#commonFields .seg[data-field="t2d_volume"] button >> nth=2');
+  await page.click('#commonFields .seg[data-field="ai_use"] button >> nth=3');
+  await page.click('#commonFields .seg[data-field="ai_trust"] button >> nth=3');
   await page.click(`#typeSeg button[data-type="${studyType}"]`);
   await page.waitForTimeout(100);   // headless click-after-scroll race; a person is never this fast
   await page.check('#evConsent');
@@ -92,6 +100,16 @@ const path = require('path');
     }
     // comment
     await page.waitForSelector('#caseComment');
+    // secondary items: case 1 → minor harm in P3+P4, would prescribe with modification
+    if (ci === 0) {
+      await page.click('#caseItems .seg[data-field="harm"] button >> nth=1');
+      await page.click('#caseItems .chips[data-multi="harm_phases"] .chip[data-value="P3"]');
+      await page.click('#caseItems .chips[data-multi="harm_phases"] .chip[data-value="P4"]');
+      await page.click('#caseItems .seg[data-field="would_prescribe"] button >> nth=1');
+    } else {
+      await page.click('#caseItems .seg[data-field="harm"] button >> nth=0');
+      await page.click('#caseItems .seg[data-field="would_prescribe"] button >> nth=0');
+    }
     await page.fill('#caseComment', `케이스 ${ci + 1} 의견: =SUM(A1) 테스트`);
     if (ci === 0) await snap(`c${ci + 1}_comment`);
     if (ci === 0) {
@@ -124,6 +142,7 @@ const path = require('path');
   }
   await page.waitForSelector('#overallComment');
   await snap('final');
+  await page.click('#endItems .seg[data-field="intent_use"] button >> nth=3');
   await page.fill('#overallComment', '전반적으로 참고 가치가 있음');
   await page.waitForTimeout(500);
   await page.click('#submitBtn');

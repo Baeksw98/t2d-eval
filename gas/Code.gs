@@ -23,7 +23,7 @@
 // CONFIG
 // ============================================================
 var SPREADSHEET_ID = '';            // 시트에서 [확장 프로그램 → Apps Script]로 만든 경우 비워 둠. script.google.com 에서 따로 만든 경우 시트 ID 입력
-var BACKEND_VERSION = '2026-11-19.ca-backend-v3';
+var BACKEND_VERSION = '2026-11-19.ca-backend-v4';
 var EXPECTED_STUDY_ID = 'T2D-CA-2026';
 
 var SHEET = {
@@ -31,7 +31,8 @@ var SHEET = {
   LONG: 'PhaseLong',
   SESS: 'Sessions',
   RAW: 'RawJSON',
-  SUMMARY: 'Summary'
+  SUMMARY: 'Summary',
+  VISITS: 'Visits'
 };
 
 var PHASE_KEYS = ['p1', 'p2', 'p3', 'p4', 'p5'];
@@ -53,8 +54,9 @@ var STEP_COL = {
 function respHeaders_() {
   var h = [
     'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
-    'StudyType', 'SequenceIndex', 'SeqSource', 'CaseOrder', 'CaseKey', 'PatientId', 'Model', 'ModelName',
-    'P1_Referral', 'ComboChoice', 'ComboName', 'ComboIsAIFirst',
+    'StudyType', 'SequenceIndex', 'SeqSource', 'EvaluatorId', 'EvaluatorCode', 'SessionOrdinal', 'CaseOrder', 'GlobalCaseOrder',
+    'CaseKey', 'PatientId', 'PatientSeenPrior', 'Model', 'ModelName',
+    'P1_Referral', 'ComboChoice', 'ComboName', 'ComboKey', 'ComboIsAIFirst', 'ComboRankAI', 'RankCueVisible',
     'P2_SharedDecision', 'P3_Pharmacotherapy', 'P4_FollowUp', 'P5_Education',
     'CaseComment', 'CaseStartedAt', 'CaseCompletedAt',
     'CaseActiveSec', 'CaseIdleSec', 'CaseHiddenSec', 'CaseWallSec'
@@ -64,27 +66,41 @@ function respHeaders_() {
   ['p1', 'combo', 'p2', 'p3', 'p4', 'p5'].forEach(function (s) { h.push('Changes_' + STEP_COL[s]); });
   STEPS.forEach(function (s) { h.push('Scroll_' + STEP_COL[s]); });
   STEPS.forEach(function (s) { h.push('Visits_' + STEP_COL[s]); });
-  h = h.concat(['ComboResets', 'PatientDrawerOpens', 'PatientDrawerSec',
+  PHASE_KEYS.forEach(function (k) { h.push('ScrollAtFR_' + STEP_COL[k]); });
+  ['vignette', 'p1', 'combo', 'p2', 'p3', 'p4', 'p5'].forEach(function (s) { h.push('Chars_' + STEP_COL[s]); });
+  h = h.concat(['ComboSeen_1', 'ComboSeen_2', 'ComboSeen_3', 'ComboDwellSec_1', 'ComboDwellSec_2', 'ComboDwellSec_3',
+    'RxDetailsOpens', 'Interruptions', 'ComboResets', 'PatientDrawerOpens', 'PatientDrawerSec',
     'AppVersion', 'DataVersion', 'BackendVersion', 'MetricsJson']);
   return h;
 }
 
 function longHeaders_() {
   return ['ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
-    'StudyType', 'SequenceIndex',
-    'CaseOrder', 'CaseKey', 'PatientId', 'Model', 'ComboChoice', 'Phase', 'PhaseLabel', 'Score', 'Acceptable_4plus',
-    'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Changes', 'ScrollPct', 'Visits'];
+    'StudyType', 'SequenceIndex', 'EvaluatorId', 'EvaluatorCode', 'SessionOrdinal', 'CaseOrder', 'GlobalCaseOrder',
+    'CaseKey', 'PatientId', 'PatientSeenPrior', 'Model', 'ModelName', 'ComboChoice', 'ComboKey', 'RankCueVisible',
+    'Phase', 'PhaseLabel', 'TargetKey', 'Score', 'Acceptable_4plus', 'FirstScore', 'Changed',
+    'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Changes', 'ScrollPct', 'ScrollAtFirstRating', 'Chars', 'CharsPerSec',
+    'Visits', 'HarmInPhase'];
 }
 
 function sessHeaders_() {
   return [
     'FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
     'StudyType', 'SequenceIndex', 'SeqSource', 'Order', 'Status', 'CasesCompleted', 'LinkedSessionId',
+    'EvaluatorId', 'EvaluatorCode', 'DeviceId', 'VisitId', 'SessionOrdinal',
+    'Src', 'Site', 'Wave', 'TypePreselected', 'InAppBrowser', 'ReferrerOrigin',
+    'ConsentVersion', 'ConsentAt', 'ConsentInherited', 'InstrumentVersion', 'Incentive',
     'StartedAt', 'FinishedAt', 'TotalActiveMin', 'TotalIdleMin', 'TotalHiddenMin', 'TotalWallMin',
-    'IntroSec', 'FinalSec', 'Resumes', 'OverallComment',
+    'IntroSec', 'FinalSec', 'Resumes', 'Interruptions', 'SendFailures',
+    'FurthestCase', 'FurthestStep', 'LastActivityAt', 'PartialRatingsN', 'OverallComment',
     'FormFactor', 'ViewportW', 'ViewportH', 'ScreenW', 'ScreenH', 'DPR', 'TouchPoints', 'CoarsePointer',
     'Language', 'TimeZone', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion'
   ];
+}
+
+function visitsHeaders_() {
+  return ['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser',
+    'ReferrerOrigin', 'IsTest', 'AppVersion'];
 }
 
 function rawHeaders_() {
@@ -99,6 +115,9 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var body0 = (e && e.postData && e.postData.contents) || '';
+  // 첫 화면 방문 기록(view): 응답 저장보다 우선순위가 낮으므로 잠깐만 기다리고, 바쁘면 건너뜀
+  if (body0.indexOf('"action":"view"') !== -1) return handleView_(body0);
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(12000);   // 클라이언트 대기 한도(15초/30초)보다 짧게 → 혼잡 시 빨리 'busy' 응답 후 재전송
@@ -126,12 +145,14 @@ function doPost(e) {
     } else if (p.action === 'finish') {
       upsertSession_(ss, db, p, 'completed');
       (p.cases || []).forEach(function (c) { writeCase_(ss, db, p, c, true); });
+    } else if (p.action === 'progress') {
+      updateProgress_(ss, db, p);
     }
     // Responses 를 마지막에 기록: finish 재전송 시 '이미 저장됨' 판단 기준(Responses 행)이 다른 시트보다 먼저 생기지 않도록
     [SHEET.SESS, SHEET.LONG, SHEET.RESP].forEach(function (k) { if (db[k]) tFlush_(db[k]); });
-    // 실제(비테스트) 평가가 완료될 때마다 Summary 자동 갱신 — 실패해도 응답 저장에는 영향 없음
-    if (p.action === 'finish' && !p.is_test) {
-      try { buildSummary(false); } catch (eSum) { console.error('summary refresh failed: ' + eSum); }
+    // 새 실제 응답이 있으면 표시만 해 두고, Summary 는 10분 주기 트리거(refreshSummaryIfDirty)가 다시 만든다
+    if (!p.is_test && (p.action === 'case' || p.action === 'finish')) {
+      PropertiesService.getScriptProperties().setProperty('SUMMARY_DIRTY', '1');
     }
     logRaw_(ss, p, Date.now() - t0, '');
     return json_(result);
@@ -144,7 +165,7 @@ function doPost(e) {
   }
 }
 
-var VALID_ACTIONS = ['start', 'case', 'finish'];
+var VALID_ACTIONS = ['start', 'case', 'finish', 'progress'];
 var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function json_(obj) {
@@ -163,6 +184,62 @@ function ss_() {
 // ============================================================
 // HANDLERS
 // ============================================================
+function handleView_(body) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(3000)) return json_({ ok: false, error: 'busy' });
+  try {
+    var p = JSON.parse(body);
+    if (!p || p.study_id !== EXPECTED_STUDY_ID || !UUID_RE.test(String(p.visit_id || ''))) return json_({ ok: false, error: 'bad request' });
+    var en = p.entry || {};
+    var sh = sheet_(ss_(), SHEET.VISITS, visitsHeaders_());
+    sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
+      en.type_preselected ? 'preset' : '', short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
+      !!p.is_test, short_(p.app_version)].map(cell_));
+    return json_({ ok: true });
+  } catch (err) {
+    return json_({ ok: false, error: String(err && err.message || err) });
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+function short_(v, n) { return String(v == null ? '' : v).slice(0, n || 64); }
+
+/** 이탈 지점 기록: 완료된 세션은 건드리지 않음 */
+function updateProgress_(ss, db, p) {
+  var t = table_(ss, db, SHEET.SESS, sessHeaders_());
+  var idx = tFind_(t, { SessionId: p.session_id });
+  if (idx >= 0 && String(tGet_(t, idx, 'Status')) === 'completed') return;
+  var g = p.progress || {};
+  var row = {
+    ServerUpdatedAt: new Date(), SessionId: p.session_id, IsTest: !!p.is_test,
+    FurthestCase: nz_(g.furthest_case), FurthestStep: short_(g.furthest_step, 20),
+    LastActivityAt: short_(g.last_activity_at, 40), PartialRatingsN: nz_(g.partial_ratings_n)
+  };
+  if (idx < 0) { row.FirstSeenAt = new Date(); row.Status = 'started'; }
+  Object.assign(row, evalCols_(p));
+  tWrite_(t, idx, row);
+}
+
+/** 가명 코드: 같은 사람(정규화한 성명 + 직군)은 기기가 달라도 같은 코드 E001… (테스트는 T001…) */
+function evaluatorCode_(p) {
+  var ev = p.evaluator || {};
+  var norm = String(ev.name || '').replace(/\s+/g, '').toLowerCase() + '|' + String(ev.role || '');
+  if (norm === '|') return '';
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, norm, Utilities.Charset.UTF_8);
+  var hex = bytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('').slice(0, 24);
+  var props = PropertiesService.getScriptProperties();
+  var key = (p.is_test ? 'EVT_' : 'EVC_') + hex;
+  var code = props.getProperty(key);
+  if (!code) {
+    var ck = p.is_test ? 'EVT_COUNTER' : 'EVC_COUNTER';
+    var n = Number(props.getProperty(ck) || '0') + 1;
+    props.setProperty(ck, String(n));
+    code = (p.is_test ? 'T' : 'E') + ('00' + n).slice(-3);
+    props.setProperty(key, code);
+  }
+  return code;
+}
 /** 제시 순서 배정. 이미 배정된 세션은 같은 값을 돌려준다. */
 function handleStart_(ss, db, p) {
   var t = table_(ss, db, SHEET.SESS, sessHeaders_());
@@ -242,6 +319,16 @@ function upsertSession_(ss, db, p, status) {
   if (p.seq_source) row.SeqSource = p.seq_source;
   if (p.order && p.order.length) row.Order = p.order.join(' > ');
   if (p.linked_session_id) row.LinkedSessionId = p.linked_session_id;
+  if (p.device_id) row.DeviceId = short_(p.device_id, 40);
+  if (p.visit_id) row.VisitId = short_(p.visit_id, 40);
+  var en = p.entry || {}, cs = p.consent || {};
+  if (p.entry) {
+    row.Src = short_(en.src); row.Site = short_(en.site); row.Wave = short_(en.wave || p.wave);
+    row.TypePreselected = !!en.type_preselected; row.InAppBrowser = short_(en.in_app); row.ReferrerOrigin = short_(en.referrer_origin, 120);
+  }
+  if (p.consent) { row.ConsentVersion = short_(cs.version); row.ConsentAt = short_(cs.at, 40); row.ConsentInherited = !!cs.inherited; }
+  if (p.instrument_version) row.InstrumentVersion = short_(p.instrument_version, 120);
+  if (p.incentive !== undefined) row.Incentive = short_(p.incentive, 120);
   if (idx < 0) row.FirstSeenAt = new Date();
   if (p.session && !stale) {
     var prevCases = idx >= 0 ? Number(tGet_(t, idx, 'CasesCompleted')) || 0 : 0;
@@ -255,8 +342,14 @@ function upsertSession_(ss, db, p, status) {
     row.IntroSec = sec_(s.intro_ms);
     row.FinalSec = sec_(s.final_ms);
     row.Resumes = s.resumes;
+    row.Interruptions = nz_(s.interruptions);
+    row.SendFailures = nz_(s.send_failures);
   }
-  if (p.action === 'finish') row.OverallComment = p.overall_comment || '';
+  if (p.action === 'finish') {
+    row.OverallComment = p.overall_comment || '';
+    row.FurthestStep = 'final';
+    Object.assign(row, itemCols_(p.end_items, 'End_'));
+  }
   if (p.device) {
     row.FormFactor = d.form_factor; row.ViewportW = d.vw; row.ViewportH = d.vh;
     row.ScreenW = d.sw; row.ScreenH = d.sh; row.DPR = d.dpr; row.TouchPoints = d.touch;
@@ -291,6 +384,13 @@ function writeCase_(ss, db, p, c, fromFinish) {
     ComboChoice: nz_(c.combo_choice),
     ComboName: c.combo_name || '',
     ComboIsAIFirst: c.combo_choice ? (c.combo_choice === 1) : '',
+    ComboKey: c.combo_key || (c.combo_choice ? c.case_key + '_C' + c.combo_choice : ''),
+    ComboRankAI: nz_(c.combo_rank_ai || c.combo_choice),
+    RankCueVisible: c.rank_cue_visible === undefined ? '' : !!c.rank_cue_visible,
+    GlobalCaseOrder: nz_(c.global_case_order),
+    PatientSeenPrior: c.patient_seen_prior === undefined ? '' : !!c.patient_seen_prior,
+    RxDetailsOpens: nz_(c.rx_details_opens),
+    Interruptions: nz_(c.interruptions),
     P2_SharedDecision: nz_(r.p2),
     P3_Pharmacotherapy: nz_(r.p3),
     P4_FollowUp: nz_(r.p4),
@@ -320,6 +420,18 @@ function writeCase_(ss, db, p, c, fromFinish) {
       row['Changes_' + STEP_COL[s]] = st.changes || 0;
     }
   });
+  var chars = c.chars || {};
+  ['vignette', 'p1', 'combo', 'p2', 'p3', 'p4', 'p5'].forEach(function (s) { row['Chars_' + STEP_COL[s]] = nz_(chars[s]); });
+  PHASE_KEYS.forEach(function (k) {
+    var st = steps[k] || {};
+    row['ScrollAtFR_' + STEP_COL[k]] = (st.scroll_at_fr === null || st.scroll_at_fr === undefined) ? '' : st.scroll_at_fr;
+  });
+  var ex = c.combo_exposure || {};
+  [0, 1, 2].forEach(function (i) {
+    row['ComboSeen_' + (i + 1)] = ex.seen ? !!ex.seen[i] : '';
+    row['ComboDwellSec_' + (i + 1)] = ex.dwell_ms ? sec_(ex.dwell_ms[i]) : '';
+  });
+  Object.assign(row, itemCols_(c.items, 'Case_'));
   Object.assign(row, evalCols_(p));
   tWrite_(t, idx, row);
 
@@ -328,8 +440,23 @@ function writeCase_(ss, db, p, c, fromFinish) {
   PHASE_KEYS.forEach(function (k) {
     var st = steps[k] || {};
     var score = r[k];
+    var vis = (st.active_ms || 0) + (st.idle_ms || 0);
+    // 조합을 바꾸면(reset) 그 이후의 응답만 현재 조합에 대한 응답으로 본다
+    var rawHist = st.history || [], lastReset = -1;
+    rawHist.forEach(function (h, i) { if (h && h[0] === 'reset') lastReset = i; });
+    var hist = rawHist.slice(lastReset + 1).filter(function (h) { return typeof h[0] === 'number'; });
+    var nChars = (c.chars || {})[k];
+    var harmPh = (c.items && c.items.harm_phases) ? String(c.items.harm_phases.value || '') : '';
+    var harmAns = c.items && c.items.harm ? Number(c.items.harm.code) : 0;
     var lrow = {
       ServerUpdatedAt: new Date(), SessionId: p.session_id, IsTest: !!p.is_test,
+      GlobalCaseOrder: nz_(c.global_case_order), PatientSeenPrior: c.patient_seen_prior === undefined ? '' : !!c.patient_seen_prior,
+      ModelName: c.model_name || '', ComboKey: c.combo_key || '', RankCueVisible: c.rank_cue_visible === undefined ? '' : !!c.rank_cue_visible,
+      TargetKey: k === 'p1' ? c.case_key + '|P1' : (c.combo_choice ? c.case_key + '|C' + c.combo_choice + '|' + k.toUpperCase() : ''),
+      FirstScore: hist.length ? hist[0][0] : nz_(score), Changed: hist.length > 1 ? 1 : 0,
+      ScrollAtFirstRating: (st.scroll_at_fr === null || st.scroll_at_fr === undefined) ? '' : st.scroll_at_fr,
+      Chars: nz_(nChars), CharsPerSec: (nChars && vis > 0) ? Math.round(nChars / (vis / 1000) * 10) / 10 : '',
+      HarmInPhase: harmPh ? (harmPh.split(';').indexOf(k.toUpperCase()) >= 0 ? 1 : 0) : (harmAns === 1 ? 0 : ''),
       EvaluatorName: (p.evaluator && p.evaluator.name) || '',
       SequenceIndex: nz_(p.sequence_index), CaseOrder: c.case_index, CaseKey: c.case_key, PatientId: c.patient_id,
       Model: c.model, ComboChoice: nz_(c.combo_choice), Phase: k.toUpperCase(), PhaseLabel: PHASE_LABEL[k],
@@ -425,13 +552,29 @@ function tGet_(t, idx, name) {
 /** idx >= 0 이면 해당 행의 지정 컬럼만 갱신, 아니면 새 행 추가(메모리). */
 /** 평가자 정보 컬럼: 직군·세부 항목(config.EVALUATOR_ROLES 의 fields)은 Eval_<id> 컬럼으로 자동 추가 */
 function evalCols_(p) {
+  if (p._evc) return p._evc;
   var ev = p.evaluator || {};
   var o = {
     EvaluatorName: ev.name || '', EvaluatorRole: ev.role_label || ev.role || '', EvaluatorDetail: ev.detail || '',
-    ResidentYear: ev.year || '', StudyType: p.study_type || ''
+    ResidentYear: ev.year || '', StudyType: p.study_type || '',
+    EvaluatorId: short_(p.evaluator_id, 40), EvaluatorCode: evaluatorCode_(p), SessionOrdinal: nz_(p.session_ordinal)
   };
-  var f = ev.fields || {};
-  Object.keys(f).forEach(function (k) { if (/^[A-Za-z0-9_]{1,40}$/.test(k)) o['Eval_' + k] = f[k]; });
+  var f = ev.fields || {}, cd = ev.codes || {};
+  Object.keys(f).forEach(function (k) { if (/^[A-Za-z0-9_]{1,40}$/.test(k)) o['Eval_' + k] = short_(f[k], 120); });
+  Object.keys(cd).forEach(function (k) { if (/^[A-Za-z0-9_]{1,40}$/.test(k)) o['Eval_' + k + '_code'] = Number(cd[k]) || ''; });
+  p._evc = o;
+  return o;
+}
+
+/** 보조 문항 {id: {value, code}} → <prefix><id>, <prefix><id>_code 컬럼 */
+function itemCols_(items, prefix) {
+  var o = {};
+  Object.keys(items || {}).forEach(function (k) {
+    if (!/^[A-Za-z0-9_]{1,40}$/.test(k)) return;
+    var it = items[k] || {};
+    o[prefix + k] = short_(it.value, 200);
+    if (it.code !== '' && it.code !== undefined && it.code !== null) o[prefix + k + '_code'] = Number(it.code) || '';
+  });
   return o;
 }
 
@@ -445,7 +588,7 @@ function tAddCol_(t, name) {
 }
 
 function tWrite_(t, idx, rowObj) {
-  Object.keys(rowObj).forEach(function (k) { if (!t.map[k] && /^Eval_/.test(k)) tAddCol_(t, k); });
+  Object.keys(rowObj).forEach(function (k) { if (!t.map[k] && /^(Eval|Case|End)_/.test(k)) tAddCol_(t, k); });
   var vals;
   if (idx >= 0) {
     vals = t.rows[idx];
@@ -511,10 +654,12 @@ function nz_(v) { return (v === null || v === undefined) ? '' : v; }
 /** 최초 1회 실행: 권한 승인 + 시트/헤더 생성 */
 function setup() {
   var ss = ss_();
-  // 응답이 아직 없는 시트(헤더만 있음)는 최신 컬럼 순서로 헤더를 다시 쓴다. 응답이 있으면 건드리지 않고 누락 컬럼만 뒤에 추가.
-  [[SHEET.RESP, respHeaders_()], [SHEET.LONG, longHeaders_()], [SHEET.SESS, sessHeaders_()], [SHEET.RAW, rawHeaders_()]].forEach(function (x) {
+  // 응답이 없거나 테스트 응답(IsTest=TRUE)만 있는 시트는 최신 컬럼 순서로 새로 만든다.
+  // 실제 응답이 하나라도 있으면 데이터는 건드리지 않고 누락된 컬럼만 오른쪽 끝에 추가한다.
+  [[SHEET.RESP, respHeaders_()], [SHEET.LONG, longHeaders_()], [SHEET.SESS, sessHeaders_()],
+   [SHEET.VISITS, visitsHeaders_()], [SHEET.RAW, rawHeaders_()]].forEach(function (x) {
     var sh = ss.getSheetByName(x[0]);
-    if (sh && sh.getLastRow() <= 1) {
+    if (sh && onlyTestRows_(sh)) {
       sh.clear();
       sh.getRange(1, 1, 1, x[1].length).setValues([x[1]]).setFontWeight('bold').setBackground('#e3edf5');
       sh.setFrozenRows(1);
@@ -524,7 +669,19 @@ function setup() {
   });
   var def = ss.getSheetByName('Sheet1') || ss.getSheetByName('시트1');
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(def);
+  try { ensureSummaryTrigger_(); Logger.log('✅ Summary 자동 갱신(10분 주기) 설정 완료'); }
+  catch (eTrig) { Logger.log('⚠️ 자동 갱신 트리거 설정 실패: ' + eTrig); }
   Logger.log('✅ 시트 준비 완료: ' + ss.getUrl());
+}
+
+function onlyTestRows_(sh) {
+  var lastRow = sh.getLastRow();
+  if (lastRow <= 1) return true;
+  var hdr = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var col = hdr.indexOf('IsTest');
+  if (col < 0) return false;
+  var vals = sh.getRange(2, col + 1, lastRow - 1, 1).getValues();
+  return vals.every(function (r) { return isTrue_(r[0]); });
 }
 
 function onOpen() {
@@ -543,6 +700,9 @@ function showCounter() {
   SpreadsheetApp.getUi().alert('지금까지 순서 배정을 요청한 실제 평가자 수: ' + c + '\n(배정은 응답이 들어온 세션 수가 가장 적은 순서부터 이루어집니다.)');
 }
 
+// ============================================================
+// SUMMARY / ANALYSIS (gas/src/summary.gs)
+// ============================================================
 function buildSummaryIncludingTests() { buildSummary(true); }
 
 /**

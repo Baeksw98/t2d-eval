@@ -81,10 +81,25 @@ const SS = new Spreadsheet();
 const props = {};
 const ctx = {
   SpreadsheetApp: { getActiveSpreadsheet: () => SS, openById: () => SS, getUi: () => ({ alert() {}, createMenu() { return { addItem() { return this; }, addSeparator() { return this; }, addToUi() {} }; } }) },
-  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-  PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
+  LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
+  PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, getProperties: () => Object.assign({}, props), deleteProperty: k => { delete props[k]; } }) },
   ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
   Logger: { log: (...a) => console.log('[GAS]', ...a) },
+  Utilities: {
+    DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+    computeDigest: (alg, str) => Array.from(require('crypto').createHash(alg).update(String(str), 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
+    sleep: () => {}
+  },
+  ScriptApp: (() => {
+    const triggers = [];
+    const mk = (fn) => ({ getHandlerFunction: () => fn, getEventType: () => 'CLOCK', getUniqueId: () => fn + triggers.length });
+    return {
+      EventType: { CLOCK: 'CLOCK' },
+      getProjectTriggers: () => triggers.slice(),
+      deleteTrigger: (t) => { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
+      newTrigger: (fn) => { const b = { timeBased: () => b, everyMinutes: () => b, everyHours: () => b, create: () => { const t = mk(fn); triggers.push(t); return t; } }; return b; }
+    };
+  })(),
   console,
   JSON, Math, Date, String, Number, Object, Array, isNaN
 };
@@ -129,6 +144,8 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/__sheets') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(dumpSheets())); return; }
   if (url.pathname === '/__fail') { failNext = Number(url.searchParams.get('n') || 1); res.end('ok'); return; }
   if (url.pathname === '/__delay') { delayMs = Number(url.searchParams.get('ms') || 0); res.end('ok'); return; }
+  if (url.pathname === '/__refresh') { ctx.refreshSummaryIfDirty && ctx.refreshSummaryIfDirty(); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ dirty: props.SUMMARY_DIRTY || null, built: props.SUMMARY_BUILT_AT || null })); return; }
+  if (url.pathname === '/__props') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(props)); return; }
   if (url.pathname === '/__summary') { ctx.buildSummary(url.searchParams.get('tests') === '1'); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(dumpSheets().Summary || [])); return; }
   // static
   let p = decodeURIComponent(url.pathname);
