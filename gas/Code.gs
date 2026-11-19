@@ -22,7 +22,7 @@
 // ============================================================
 // CONFIG
 // ============================================================
-var SPREADSHEET_ID = '';            // 비워 두면 이 스크립트가 연결된(컨테이너) 스프레드시트를 사용
+var SPREADSHEET_ID = '';            // 시트에서 [확장 프로그램 → Apps Script]로 만든 경우 비워 둠. script.google.com 에서 따로 만든 경우 시트 ID 입력
 var BACKEND_VERSION = '2026-11-19.ca-backend-v3';
 var EXPECTED_STUDY_ID = 'T2D-CA-2026';
 
@@ -148,7 +148,12 @@ function json_(obj) {
 }
 
 function ss_() {
-  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    throw new Error('응답을 저장할 스프레드시트를 찾을 수 없습니다. 이 스크립트가 시트에 연결된 프로젝트가 아니라면 ' +
+      'Code.gs 위쪽 SPREADSHEET_ID 에 시트 주소의 /d/ 와 /edit 사이 ID를 넣고 저장하세요.');
+  }
+  return ss;
 }
 
 // ============================================================
