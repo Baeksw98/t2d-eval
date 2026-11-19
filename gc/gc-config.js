@@ -1,11 +1,13 @@
 /**
  * 가이드라인 부합도 검증 (GC track) — 사이트 설정
  * ------------------------------------------------------------
- * 임상 수용성 평가(루트 /)와 같은 Apps Script 웹 앱으로 보냅니다(action 이 gc_ 로 시작).
- * ENDPOINT 를 비우면 테스트 모드(기기에만 저장)로 동작합니다.
+ * GC 는 임상 수용성 평가(루트 /)와 별개의 평가 절차입니다: 자기 Apps Script 프로젝트(gas/GcCode.gs)와
+ * 자기 Google 스프레드시트로 응답을 보냅니다. CA 의 config.js / Apps Script 와는 관계없습니다.
  */
 window.GC_CONFIG = {
-  ENDPOINT: 'https://script.google.com/macros/s/AKfycbxPxzjMttjnyGlgwY_8AYRCMcMGN1_LLGsgShtMg0ZTcSPE3d52m3f4WALNJMuH0S1KUg/exec',
+  // GC 웹 앱 URL (…/exec). 아직 비어 있음 → 테스트 모드(응답은 이 기기에만 저장되고 서버로 보내지 않음).
+  // gas/GcCode.gs 를 새 Apps Script 프로젝트로 배포한 뒤 받은 웹 앱 URL 을 여기에 넣으면 실제 수집이 시작됩니다.
+  ENDPOINT: '',
 
   STUDY_ID: 'T2D-GC-2026',
   APP_VERSION: '2026-11-19.gc-v1',
@@ -34,10 +36,11 @@ window.GC_CONFIG = {
       options: ['월 100명 미만', '월 100–299명', '월 300명 이상'] }
   ],
 
-  // 판정마다: 동의 / 비동의. 비동의면 올바른 판정을 고릅니다.
+  // 판정마다: 동의 / 비동의. 비동의면 올바른 판정을 고릅니다. hint 는 비동의 후 고르는 버튼에 함께 보입니다.
+  // 채점 요소 제목은 대부분 '… 누락'처럼 결함을 적은 것이므로, 충족 = 감점 사유 없음 임을 분명히 둡니다.
   VERDICTS: [
-    { id: 'met', label: '충족' },
-    { id: 'deducted', label: '감점' },
+    { id: 'met', label: '충족', hint: '감점 기준에 해당하지 않음' },
+    { id: 'deducted', label: '감점', hint: '감점 기준에 해당함' },
     { id: 'not_applicable', label: '채점 대상 아님', hint: '이 환자·조합에는 이 항목을 적용하지 않아야 함' }
   ],
 

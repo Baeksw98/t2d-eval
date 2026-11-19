@@ -117,3 +117,5 @@ case_hidden_ms, case_wall_ms, drawer_opens, drawer_ms}`
 
 `session` summary: `started_at, finished_at, total_active_ms, total_idle_ms, total_hidden_ms, total_wall_ms,
 intro_ms, final_ms, resumes, cases_completed, interruptions, send_failures`
+
+> GC (guideline-concordance physician validation, `/gc/`) is a separate evaluation procedure with its own Apps Script project and spreadsheet: see [`docs/GC_CONTRACT.md`](GC_CONTRACT.md).

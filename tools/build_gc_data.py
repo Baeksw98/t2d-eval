@@ -15,6 +15,48 @@ MODEL = {'OpenAI gpt-6.1-sol': 'gpt', 'DeepSeek V4.1 Flash (1017)': 'deepseek'}
 def clean(s):
     return s.strip()
 
+# The audit / rubric notes are written against the scoring pipeline's internal record (field names, rule numbers).
+# Physicians see these texts as they are (감사 의견, 감사 근거, 채점표 적용 근거, 채점표 감사 메모), so internal names
+# are mapped to the labels used on screen. (field, on-screen label, label's last syllable has a final consonant)
+FIELD_LABELS = [
+    ('guideline_quotes', 'AI 채점이 인용한 채점 기준 문구(이 화면에는 표시하지 않음)', False),
+    ('answer_quotes', 'AI 채점의 「인용한 답변」', True),
+    ('combination_condition', '채점표 조합 조건', True),
+    ('record_evidence', '채점표 기록 근거', False),
+    ('reason', 'AI 채점의 「판정 사유」', False),
+    ('decision', '결정', True),
+]
+PARTICLE = {'이': 0, '가': 0, '은': 1, '는': 1, '을': 2, '를': 2, '과': 3, '와': 3, '으로': 4, '로': 4}
+PARTICLE_FORMS = [('이', '가'), ('은', '는'), ('을', '를'), ('과', '와'), ('으로', '로')]
+
+def humanize(s):
+    """Map pipeline-internal names and rule references in a display text to plain on-screen wording."""
+    s = str(s or '')
+    # prescription JSON quoted as evidence: "drug": "X" … "decision": "Y"  →  X (Y)
+    s = re.sub(r'\s*…\s*"decision":\s*"([^"]*)"', r' (\1)', s)
+    s = re.sub(r'"drug":\s*"([^"]*)"', r'\1', s)
+    for field, label, batchim in FIELD_LABELS:
+        def rep(m, label=label, batchim=batchim):
+            p = m.group(1) or ''
+            if p in PARTICLE:
+                p = PARTICLE_FORMS[PARTICLE[p]][0 if batchim else 1]
+            return label + p
+        s = re.sub(r'(?<![A-Za-z_])' + field + r'(?![A-Za-z_])(으로|로|이|가|은|는|을|를|과|와)?', rep, s)
+    s = re.sub(r'규칙\s*\d+\s*에\s*따라', '채점 원칙에 따라', s)
+    s = re.sub(r'규칙\s*\d+', '채점 원칙', s)
+    s = s.replace('(금지형 항목: 기록만으로 적용)', '(환자 기록만으로 적용 여부를 정하는 항목)')
+    s = s.replace('금지형 규칙의 기록 확인', '환자 기록 확인')
+    s = s.replace('금지형 항목', '환자 기록만으로 적용 여부를 정하는 항목')
+    s = re.sub(r';\s*확정[^;〕]*\(작성\)', '', s)          # rubric-audit bookkeeping tail inside 〔…〕
+    return s.strip()
+
+def humanize_evidence(e):
+    e = humanize(e)
+    k = e.find('“')
+    if k > 0:   # label part only: "가이드라인 ADA 2026 Sec 8 text; Sec 9 text" → "… Sec 8; Sec 9"
+        e = re.sub(r'\s+text(?=\s*[;:,]|\s*$)', '', e[:k]) + e[k:]
+    return e
+
 def parse(path):
     lines = open(path, encoding='utf-8').read().split('\n')
     units, cur, elem, question = [], None, None, None
@@ -73,7 +115,8 @@ def parse(path):
                 body = body[cm.end():]
             # split audit explanation and its 〔evidence〕 quotes
             ev = re.findall(r'〔([^〕]+)〕', body)
-            expl = re.sub(r'\s*〔[^〕]+〕', '', body).strip()
+            expl = humanize(re.sub(r'\s*〔[^〕]+〕', '', body).strip())
+            ev = [humanize_evidence(e) for e in ev]
             qid = elem['id'][1:4]  # Q2.1-02 -> 2.1
             item_id = '%s|%s|%s' % (cur['key'], ('C%d' % combo) if combo else 'P1', elem['id'])
             cur['items'].append({
@@ -91,7 +134,7 @@ def parse(path):
                     'type': '' if typ in ('', '–') else typ,
                     'quotes': [] if quotes in ('', '–') else re.findall(r'“([^”]*)”(?:\s*\(답안 원문에서 찾지 못함\))?', quotes),
                     'quotes_raw': '' if quotes in ('', '–') else quotes,
-                    'reason': reason,
+                    'reason': humanize(reason),
                 },
                 'audit': {
                     'mark': mark,
@@ -102,14 +145,15 @@ def parse(path):
                 },
                 'final': corrected or v,
                 'target_key': tkey,
-                'basis': basis,
+                'basis': humanize(basis),
             })
     return units
 
 def main():
     units = parse(sys.argv[1])
     out = {
-        'data_version': datetime.date.today().isoformat() + '.gc1',
+        # .gc2: audit / rubric notes mapped to on-screen wording (humanize); items, verdicts and criteria unchanged from .gc1
+        'data_version': datetime.date.today().isoformat() + '.gc2',
         'scope': 'AI audit flagged (△/✗) judgments only',
         'units': {},
     }

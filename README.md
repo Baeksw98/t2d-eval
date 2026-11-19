@@ -143,3 +143,38 @@ node tools/mock_gas_server.js 8787        # gas/Code.gs 를 그대로 실행하�
 node tools/e2e.js http://localhost:8787/ ./shots mobile    # 4케이스 자동 완주 + 화면 캡처
 curl http://localhost:8787/__sheets                       # 저장된 시트 내용 확인
 ```
+
+---
+
+## 7. 가이드라인 부합도 검증 (GC, `/gc/`) — 별도 평가 절차
+
+임상 수용성 평가(CA)와 **별개의 Apps Script 프로젝트·웹 앱 URL·Google 스프레드시트**를 씁니다. CA 의 스크립트·시트·`config.js` 는 건드리지 않습니다(재배포 불필요).
+데이터 계약: [`docs/GC_CONTRACT.md`](docs/GC_CONTRACT.md).
+
+| 경로 | 내용 |
+|---|---|
+| `gc/` | GC 사이트 (`gc/gc-config.js` 의 `ENDPOINT` = GC 웹 앱 URL, 비어 있으면 테스트 모드) |
+| `gas/gc/*.gs` | GC 백엔드 원본 → `python3 tools/build_gas.py` 가 **`gas/GcCode.gs`** 로 합침 (붙여넣을 파일) |
+| `qr/gc/` | GC 참여 QR·초대 문구 페이지 |
+
+**GC 응답 시트 만들기 (iPad 가능, 약 5분)** — 자세한 순서는 `gas/GcCode.gs` 맨 위 주석에도 있습니다.
+0. 붙여넣을 코드 복사: GitHub 의 [`gas/GcCode.gs`](https://github.com/Baeksw98/t2d-eval/blob/main/gas/GcCode.gs) 화면에서 코드 위 오른쪽 **복사 아이콘(「Copy raw file」)** → 파일 전체가 복사됩니다.
+   컴퓨터라면 [raw 파일](https://raw.githubusercontent.com/Baeksw98/t2d-eval/main/gas/GcCode.gs)을 열고 전체 선택(⌘A / Ctrl+A) → 복사해도 됩니다.
+   (이 링크는 `gas/GcCode.gs` 가 GitHub 에 올라가 있어야 열립니다. 약 1,850줄이라 손으로 옮길 수는 없습니다.)
+1. [script.google.com](https://script.google.com) → **새 프로젝트** → 기본 코드를 지우고 복사한 `GcCode.gs` 전체를 붙여넣고 저장
+   - 임상 수용성 평가(CA) 응답 시트의 [확장 프로그램 → Apps Script]에서 만들거나, CA 시트 ID 를 `GC_SPREADSHEET_ID` 에 넣지 마세요(두 평가의 `Visits` 가 섞입니다). 그렇게 하면 setup 이 오류로 멈춥니다.
+2. 함수 선택에서 **`setup`** → **실행** → 권한 승인 (확인되지 않은 앱 경고가 나오면 고급 → 이동 → 허용. 권한 항목마다 체크박스가 보이면 **「모두 선택」** 후 **[계속]**)
+3. 아래 **실행 로그**의 마지막 줄이 `✅ GC 응답 시트 준비 완료 — <링크>` 인지 확인합니다 (`⚠️` 로 끝나면 setup 을 한 번 더 실행). 그 링크가 새로 만들어진 스프레드시트 `가이드라인 부합도 검증 (GC) 응답` 입니다 (Visits·GC_Sessions·GC_Judgments·GC_Raw, 10분 요약 트리거 포함)
+4. **배포 → 새 배포 → 웹 앱** (실행 사용자: **나**, 액세스 권한: **모든 사용자**) → 웹 앱 URL 복사
+5. 그 URL 을 `gc/gc-config.js` 의 `ENDPOINT: ''` 따옴표 안에 넣고 사이트에 반영
+
+요약(`GC_Adjudication`, `GC_Concordance`, `GC_Summary`, `GC_Codebook`)은 10분마다 자동 갱신되며, 바로 보려면 함수 `buildGcSummary` 실행.
+CA Summary [14] 에 연결하려면 `GC_Concordance` 의 `TargetKey`·`ConcordanceScore` 두 열을 CA 스프레드시트의 `Concordance` 시트에 붙여 넣습니다.
+
+```bash
+python3 tools/build_gas.py                 # gas/Code.gs (CA, 변경 없음) + gas/GcCode.gs (GC)
+node tools/test_gc.js                      # GC 백엔드 단위 테스트 (+ CA test_summary.js)
+node tools/mock_gas_server.js 8791         # CA 웹 앱 /exec, GC 웹 앱 /gc-exec (각자 별도 시트)
+node tools/e2e_gc.js http://localhost:8791 ./shots-gc      # GC 사이트 자동 완주 + 시트·요약 검증
+curl 'http://localhost:8791/__sheets?app=gc'               # GC 시트 내용
+```
