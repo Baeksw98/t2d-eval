@@ -1,6 +1,14 @@
 # Data contract (v3) — client payloads → Google Sheets
 
 This file is the single source of truth for what the site sends and what the backend stores.
+The CA site is served at `https://eval.asclep.org/ca/` (`ca/index.html` + root `app.js`/`config.js`; moved from `/` in site v3.5,
+`APP_VERSION 2026-11-20.ca-v3.5`; no payload field or storage-key change). `entry.src`/`site`/`wave` come from the `/ca/` URL; the
+landing page `/` and the legacy short links `/a/`, `/b/` pass them on (`?src=qr` from the printed QR → landing → `/ca/?src=qr`).
+What changed in meaning: (1) `entry.referrer_origin` (Visits/Sessions `ReferrerOrigin`): for a visit that comes through `/`, `/about/`,
+`/a/` or `/b/`, `document.referrer` on `/ca/` is this site, so the entry page stores the external origin of the visit in
+`sessionStorage['t2d:entry_ref']` (`''` = direct) and `app.js` uses that instead; a direct external link to `/ca/` still uses
+`document.referrer` as before. (2) A scan of the printed CA QR (`/?src=qr`) now opens the landing page, which sends no beacon, so
+**Visits no longer includes people who leave on the landing page**; a Visits row is written only once they open `/ca/` (or `/gc/`).
 `gas/src/core.gs` writes these sheets; `gas/src/summary.gs` reads them. `tools/build_gas.py` concatenates
 `gas/src/*.gs` into the single `gas/Code.gs` that is pasted into Apps Script.
 

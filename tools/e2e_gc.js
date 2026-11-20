@@ -273,13 +273,19 @@ async function intro(page, R, kind, firstPart, urlPart) {
   await page.goto(`${BASE}/gc/?${q}`);
   await page.waitForSelector('#eligCard');
   if (await page.$('#evaluatorCard')) fail(`[${kind}] evaluator form visible before eligibility`);
+  // intro only: discreet links to the landing page (../) and About (../about/), carrying src·site·wave (never test/part/reset)
+  const links = await page.evaluate(() => ({ home: (document.getElementById('homeLink') || {}).href, about: (document.getElementById('aboutLink') || {}).href }));
+  if (links.home !== `${BASE}/?src=e2e` || links.about !== `${BASE}/about/?src=e2e`) fail(`[${kind}] intro site links → ${JSON.stringify(links)}`);
+  else ok('intro links to ../ and ../about/ (src kept)');
   await R.checkLayout('intro');
   await R.snap('intro');
-  // eligibility "아니요" → blocked screen with a link back to the CA site
+  // eligibility "아니요" → blocked screen with a link to the CA evaluation (/ca/) and to the landing page
   await page.click('[data-elig="no"]');
   await page.waitForSelector('#blocked');
   const href = await page.$eval('#toCaLink', a => a.href);
-  if (href !== `${BASE}/`) fail(`[${kind}] blocked screen link → ${href}`); else ok('blocked screen links to ../');
+  const home = await page.$eval('#toHomeLink', a => a.href);
+  if (href !== `${BASE}/ca/?src=e2e`) fail(`[${kind}] blocked screen link → ${href}`); else ok('blocked screen links to ../ca/');
+  if (home !== `${BASE}/?src=e2e`) fail(`[${kind}] blocked screen home link → ${home}`);
   await R.checkLayout('blocked');
   await R.snap('blocked');
   await page.click('[data-act="elig-back"]');
@@ -328,6 +334,7 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
   for (;;) {
     const s = await R.S();
     if (s.screen !== 'eval') break;
+    if (await page.$('.site-links')) fail(`[${kind}] home/About links shown during the evaluation`);
     if (s.i < 0) {
       unitsSeen++;
       await page.waitForSelector('.gc-combo');

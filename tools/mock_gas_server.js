@@ -2,11 +2,12 @@
  * Local test harness: runs the two Apps Script projects unchanged inside Node, each in its OWN vm context with its own
  * in-memory spreadsheet / script properties / triggers (mock SpreadsheetApp / LockService / PropertiesService /
  * ContentService / ScriptApp), exactly like the two separate deployments:
- *   - CA  gas/Code.gs    web app at http://localhost:PORT/exec     (site /,    config.js ENDPOINT rewritten to it)
+ *   - CA  gas/Code.gs    web app at http://localhost:PORT/exec     (site /ca/, root config.js ENDPOINT rewritten to it)
  *   - GC  gas/GcCode.gs  web app at http://localhost:PORT/gc-exec  (site /gc/, gc/gc-config.js ENDPOINT rewritten to it)
  *     The GC project is a standalone project: its setup() creates the spreadsheet (SpreadsheetApp.create), as on script.google.com.
  * and serves:
- *   - the static site   at http://localhost:PORT/   (both configs' ENDPOINT rewritten unless ?noendpoint=1 is in the referer)
+ *   - the static site   at http://localhost:PORT/   (landing /, CA /ca/, GC /gc/, About /about/, QR /qr/;
+ *                       both configs' ENDPOINT rewritten unless ?noendpoint=1 is in the referer)
  *   - sheet dump        at /__sheets            (CA)   /__sheets?app=gc   (GC)        JSON of all sheets, for tests
  *   - script properties at /__props             (CA)   /__props?app=gc    (GC)
  *   - summaries         /__refresh (CA refreshSummaryIfDirty) · /__summary[?tests=1] (CA buildSummary → Summary)
@@ -160,7 +161,7 @@ const CA = makeProject('CA', 'Code.gs', { bound: true });     // CA: script boun
 const GC = makeProject('GC', 'GcCode.gs', { bound: false });  // GC: standalone project, setup() creates its spreadsheet
 
 // ---------------- HTTP ----------------
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.txt': 'text/plain', '.svg': 'image/svg+xml', '.png': 'image/png', '.pdf': 'application/pdf' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.txt': 'text/plain', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.pdf': 'application/pdf', '.webmanifest': 'application/manifest+json' };
 let failNext = 0, delayMs = 0;
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -206,10 +207,16 @@ const server = http.createServer((req, res) => {
   }
   // static
   let p = decodeURIComponent(url.pathname);
+  // like GitHub Pages: /ca → /ca/ (directory without the trailing slash), keeping the query
+  const dirFp = path.join(ROOT, p);
+  if (!p.endsWith('/') && dirFp.startsWith(ROOT) && fs.existsSync(dirFp) && fs.statSync(dirFp).isDirectory()) {
+    res.writeHead(301, { Location: p + '/' + url.search }); res.end(); return;
+  }
   if (p.endsWith('/')) p += 'index.html';
   const fp = path.join(ROOT, p);
   if (!fp.startsWith(ROOT) || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) { res.writeHead(404); res.end('not found'); return; }
-  // config override: CA /config.js → /exec, GC /gc/gc-config.js → /gc-exec (separate projects), unless ?noendpoint=1 is in the referer
+  // config override: CA /config.js (loaded by /ca/ as ../config.js) → /exec, GC /gc/gc-config.js → /gc-exec (separate projects),
+  // unless ?noendpoint=1 is in the referer
   if ((p === '/config.js' || p === '/gc/gc-config.js') && !/noendpoint=1/.test(req.headers.referer || '')) {
     const src = fs.readFileSync(fp, 'utf8').replace(/ENDPOINT:\s*'[^']*'/, `ENDPOINT: 'http://localhost:${PORT}${p === '/config.js' ? '/exec' : '/gc-exec'}'`);
     res.writeHead(200, { 'Content-Type': MIME['.js'], 'Cache-Control': 'no-store' }); res.end(src); return;

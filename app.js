@@ -81,13 +81,31 @@
   var UA = navigator.userAgent || '';
   var IN_APP = /KAKAOTALK/i.test(UA) ? 'KAKAOTALK' : /NAVER/.test(UA) ? 'NAVER' : /\bLine\//.test(UA) ? 'LINE' :
     /Instagram/i.test(UA) ? 'INSTAGRAM' : /FBAN|FBAV/.test(UA) ? 'FACEBOOK' : /; wv\)/.test(UA) ? 'WEBVIEW' : '';
+  // 외부에서 바로 왔으면 그 origin. 처음 화면(/)·소개·짧은 링크(/a/ /b/)를 거쳐 왔으면 referrer 가 이 사이트이므로,
+  // 그 페이지가 sessionStorage 't2d:entry_ref' 에 남긴 진입 origin('' = 직접 접속)을 씀 (assets/site.js)
   var REF_ORIGIN = (function () {
-    try { var o = document.referrer ? new URL(document.referrer).origin : ''; return o === location.origin ? '' : o; } catch (_) { return ''; }
+    try {
+      var o = document.referrer ? new URL(document.referrer).origin : '';
+      if (o !== location.origin) return o;
+      var e = sessionStorage.getItem('t2d:entry_ref') || '';
+      return e === location.origin ? '' : e;
+    } catch (_) { return ''; }
   })();
   var ENTRY = {
     src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
     type_preselected: !!URL_TYPE, type_param: URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
   };
+  // 시작 화면의 '처음 화면'(../) · '벤치마크 소개'(../about/) 링크 — 접속 경로(src·site·wave)만 넘긴다.
+  // test·type·reset 은 넘기지 않는다 (루트는 이 값이 있으면 다시 /ca/ 로 보낸다).
+  function siteLinksHTML() {
+    var q = new URLSearchParams();
+    ['src', 'site', 'wave'].forEach(function (k) { var v = safeParam(k); if (v) q.set(k, v); });
+    var qs = q.toString() ? '?' + q.toString() : '';
+    return '<nav class="site-links" aria-label="사이트 메뉴">' +
+      '<a href="../' + qs + '" id="homeLink"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>처음 화면</a>' +
+      '<span class="sep" aria-hidden="true">·</span>' +
+      '<a href="../about/' + qs + '" id="aboutLink">벤치마크 소개</a></nav>';
+  }
   var DEVICE_ID = (function () {
     var k = 't2d-ca:device';
     try { var v = localStorage.getItem(k); if (!v) { v = uuid(); localStorage.setItem(k, v); } return v; } catch (_) { return uuid(); }
@@ -1182,6 +1200,8 @@
       return f.required && !String(draft.fields[f.id] || '').trim();
     }).map(fieldName);
     elMain.innerHTML =
+      // 이어서 평가(draft.linked)는 이 화면을 떠나면 연결이 끊기므로 링크를 보이지 않는다
+      (draft.linked ? '' : siteLinksHTML()) +
       '<section class="card hero">' +
         '<span class="eyebrow">AI 기반 T2D 임상 의사결정 지원 시스템</span>' +
         '<h1>임상 수용성 평가</h1>' +

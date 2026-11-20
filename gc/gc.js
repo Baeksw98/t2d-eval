@@ -1,6 +1,6 @@
 /* 가이드라인 부합도 검증 (Guideline Concordance · Physician Validation) — app
  * 분과전문의가 AI 감사가 표시한(△/✗) AI 채점 판정만 확인합니다. 계약: docs/GC_CONTRACT.md
- * 패턴(보관함·재전송·자동 저장·탭 보호·시간 측정)은 루트 app.js(임상 수용성 평가)와 같습니다. */
+ * 패턴(보관함·재전송·자동 저장·탭 보호·시간 측정)은 루트 app.js(임상 수용성 평가, /ca/)와 같습니다. */
 (function () {
   'use strict';
 
@@ -67,13 +67,32 @@
   var UA = navigator.userAgent || '';
   var IN_APP = /KAKAOTALK/i.test(UA) ? 'KAKAOTALK' : /NAVER/.test(UA) ? 'NAVER' : /\bLine\//.test(UA) ? 'LINE' :
     /Instagram/i.test(UA) ? 'INSTAGRAM' : /FBAN|FBAV/.test(UA) ? 'FACEBOOK' : /; wv\)/.test(UA) ? 'WEBVIEW' : '';
+  // 외부에서 바로 왔으면 그 origin. 처음 화면(/)·소개를 거쳐 왔으면 그 페이지가 남긴 진입 origin (app.js 와 같음)
   var REF_ORIGIN = (function () {
-    try { var o = document.referrer ? new URL(document.referrer).origin : ''; return o === location.origin ? '' : o; } catch (_) { return ''; }
+    try {
+      var o = document.referrer ? new URL(document.referrer).origin : '';
+      if (o !== location.origin) return o;
+      var e = sessionStorage.getItem('t2d:entry_ref') || '';
+      return e === location.origin ? '' : e;
+    } catch (_) { return ''; }
   })();
   var ENTRY = {
     src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
     part_preselected: !!URL_PART, in_app: IN_APP, referrer_origin: REF_ORIGIN
   };
+  // 사이트 안 다른 페이지 링크(처음 화면 ../ · 벤치마크 소개 ../about/ · 임상 수용성 평가 ../ca/) — 접속 경로(src·site·wave)만 넘긴다.
+  // test·part·reset 은 넘기지 않는다 (루트는 test 가 있으면 /ca/ 로 보낸다).
+  var SITE_QS = (function () {
+    var q = new URLSearchParams();
+    ['src', 'site', 'wave'].forEach(function (k) { var v = safeParam(k); if (v) q.set(k, v); });
+    return q.toString() ? '?' + q.toString() : '';
+  })();
+  function siteLinksHTML() {
+    return '<nav class="site-links" aria-label="사이트 메뉴">' +
+      '<a href="../' + SITE_QS + '" id="homeLink"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>처음 화면</a>' +
+      '<span class="sep" aria-hidden="true">·</span>' +
+      '<a href="../about/' + SITE_QS + '" id="aboutLink">벤치마크 소개</a></nav>';
+  }
   // 기기 ID 는 임상 수용성 평가와 같은 키를 씀 (같은 기기에서 두 트랙 참여 여부 분석용, 개인정보 아님)
   var DEVICE_ID = (function () {
     var k = 't2d-ca:device';
@@ -1307,6 +1326,7 @@
     var linked = !!draft.linked;
     var lp = partById(draft.part);
     elMain.innerHTML =
+      siteLinksHTML() +   // 시작 화면에만 (판정 중에는 없음). 이어서 하기 정보는 gc:draft:v1 에 남아 있다
       '<section class="card hero">' +
         '<span class="eyebrow">AI 기반 T2D 임상 의사결정 지원 시스템</span>' +
         '<h1>가이드라인 부합도 검증</h1>' +
@@ -1350,9 +1370,11 @@
         '<p class="lead" style="margin-top:8px">' + esc(ELIG.blocked) + '</p>' +
         '<p class="small muted" style="margin-top:10px">AI 답변의 임상 수용성 평가는 다른 진료과 의사 선생님도 참여하실 수 있습니다.</p>' +
         '<div class="btn-row" style="margin-top:16px">' +
-          '<a class="btn btn-primary" href="../" id="toCaLink">임상 수용성 평가로 이동</a>' +
+          '<a class="btn btn-primary" href="../ca/' + SITE_QS + '" id="toCaLink">임상 수용성 평가로 이동</a>' +
           '<button type="button" class="btn btn-ghost" data-act="elig-back">← 답을 잘못 고르셨다면</button>' +
         '</div>' +
+        '<nav class="site-links" aria-label="사이트 메뉴" style="margin-top:10px"><a href="../' + SITE_QS + '" id="toHomeLink">' +
+          '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>처음 화면으로</a></nav>' +
       '</section>';
     elDock.innerHTML = '';
   }

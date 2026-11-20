@@ -1,3 +1,24 @@
+# eval.asclep.org — Hybrid Physician–AI Benchmark 평가 사이트
+
+## 0. 사이트 구성 (주소)
+
+| 주소 | 내용 | 원본 |
+|---|---|---|
+| `https://eval.asclep.org/` | **처음 화면**: 무엇을 하는 사이트인지 + 두 평가 중 선택. 이 브라우저에 끝나지 않은 평가가 있으면 '이어서 하기' 안내 | `index.html` |
+| `https://eval.asclep.org/ca/` | **임상 수용성 평가 (CA)** — 인턴·레지던트·전문의 (아래 1–6절) | `ca/index.html` + 루트 `app.js`·`config.js`·`styles.css`·`data/cases.js` |
+| `https://eval.asclep.org/gc/` | **가이드라인 부합도 검증 (GC)** — 내분비대사내과 분과전문의 (7절) | `gc/*` |
+| `https://eval.asclep.org/about/` | 벤치마크 소개 (About) | `about/*` |
+| `https://eval.asclep.org/qr/` | 참여 안내 QR 모음 (통합·CA·GC) — 8절 | `qr/*` |
+
+예전 주소도 그대로 동작합니다.
+- 루트에 CA 를 가리키는 값이 있으면 바로 `/ca/` 로 보냅니다(쿼리·해시 유지): `?type=` · `?reset=1` · `?test=1` (트랙 지정 없이), `?track=ca`. `?track=gc` → `/gc/`.
+- `/a/`, `/b/` → `/ca/?type=A|B` (다른 쿼리·해시 유지).
+- 이미 인쇄·배포된 CA QR(`https://eval.asclep.org/?src=qr`, `qr/select.*`)은 이제 처음 화면을 엽니다. 처음 화면은 `src`·`site`·`wave` 를 각 평가 링크에 넘기므로 접속 경로 기록은 유지됩니다.
+- CA 를 루트에서 `/ca/` 로 옮겼지만 저장 키(`t2d-ca:T2D-CA-2026:v3`, `t2d-ca:device`)·응답 형식·`config.js` 는 그대로입니다. 루트에서 평가하던 분이 `/ca/` 를 열면(같은 기기·브라우저) 그 자리에서 이어집니다.
+- CA·GC 의 **시작 화면에만** 작은 링크 「처음 화면 · 벤치마크 소개」가 있습니다(케이스·판정 중에는 없음. CA 의 '다른 Type 이어서 평가' 시작 화면에도 없음 — 떠나면 이어서 평가 연결이 끊기므로).
+
+---
+
 # 임상 수용성 평가 (Physician Clinical Acceptability Assessment)
 
 AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별로 **"임상 결정에 유의미한 참고가 되는지"**를 5점 척도로 평가하는 웹 설문입니다. 모바일·데스크톱 모두 지원합니다.
@@ -29,7 +50,9 @@ AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별
 
 | 경로 | 내용 |
 |---|---|
-| `index.html`, `styles.css`, `app.js` | 사이트 본체 (빌드 불필요한 정적 파일) |
+| `index.html`, `about/index.html`, `site.css`, `assets/` | 처음 화면(`/`)·벤치마크 소개(`/about/`). `site.css` 는 이 두 쪽 전용(styles.css 토큰 복사 + 다크 모드), `assets/site.js` 는 `src·site·wave` 전달·'이어서 하기' 안내·목차 강조, `assets/icons.svg` 아이콘, `assets/og.png` 링크 미리보기 이미지(1200×630, `node tools/render_og.js` 로 `tools/og_image.html` 에서 생성) |
+| `qr/` | 참여 안내 QR 모음(8절) |
+| `ca/index.html`, `styles.css`, `app.js` | CA 평가 화면 (`/ca/`; 빌드 불필요한 정적 파일). `styles.css` 는 GC 도 같이 씀 |
 | `config.js` | **서버 주소(ENDPOINT)**, 제시 순서, 년차 선택지 |
 | `data/cases.js` | 환자 정보 + AI 답변 4건 (원문에서 자동 생성) |
 | `gas/Code.gs` | 응답 저장용 Google Apps Script (Google Sheets) |
@@ -90,11 +113,11 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 
 | 용도 | 주소 |
 |---|---|
-| 실제 평가 | `https://eval.asclep.org/` |
-| Type A 로 바로 안내 | `https://eval.asclep.org/?type=A` |
-| Type B 로 바로 안내 | `https://eval.asclep.org/?type=B` |
-| 시험 응답 (분석에서 자동 제외) | `https://eval.asclep.org/?test=1` |
-| 기기에 저장된 진행 상황 초기화 | `…/?reset=1` |
+| 실제 평가 | `https://eval.asclep.org/ca/` (처음 화면 `https://eval.asclep.org/` 에서 골라도 됨) |
+| Type A 로 바로 안내 | `https://eval.asclep.org/ca/?type=A` (예전 `/?type=A`, `/a/` 도 동작) |
+| Type B 로 바로 안내 | `https://eval.asclep.org/ca/?type=B` (예전 `/?type=B`, `/b/` 도 동작) |
+| 시험 응답 (분석에서 자동 제외) | `https://eval.asclep.org/ca/?test=1` |
+| 기기에 저장된 진행 상황 초기화 | `…/ca/?reset=1` |
 
 - 평가자가 창을 닫아도 **같은 기기·브라우저**에서 다시 열면 이어서 진행됩니다.
 - 케이스 하나를 마칠 때마다 서버에 저장되므로 중도 이탈해도 완료한 케이스는 남습니다.
@@ -133,8 +156,12 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 
 (실제 Summary 는 [0]–[15] 절로 구성됩니다 — `gas/src/summary.gs` 머리말 참고. 평가자 특성 표 [2] 와 하위군 [7] 의 AI 친숙도 변수는 `ai_freq` 입니다.)
 
+**v3.5 (`2026-11-20.ca-v3.5`: CA 를 `/ca/` 로 이동, 시작 화면에 처음 화면·벤치마크 소개 링크)**
+- 사이트만 바뀌었습니다. 응답 형식·저장 키·문항은 v3.4 와 같고, 새로 시작한 세션의 `AppVersion` 만 `2026-11-20.ca-v3.5` 입니다(진행 중이던 세션은 시작할 때의 버전을 그대로 보냄).
+- **Apps Script 재배포 불필요** (CA·GC 모두).
+
 **v3.4 (평가자 정보 간소화) 반영 시 재배포 여부**
-- 사이트: `config.js`·`app.js`·`index.html`·`styles.css` 를 GitHub Pages 에 올리면 끝입니다. 이전 버전에서 평가를 진행 중이던 분은 새로고침해도 그대로 이어서 진행·저장됩니다(그 세션은 이전 문항 응답을 계속 보냄).
+- 사이트: `config.js`·`app.js`·`index.html`(지금은 `ca/index.html`)·`styles.css` 를 GitHub Pages 에 올리면 끝입니다. 이전 버전에서 평가를 진행 중이던 분은 새로고침해도 그대로 이어서 진행·저장됩니다(그 세션은 이전 문항 응답을 계속 보냄).
 - CA Apps Script: **응답 수집에는 재배포가 필요 없습니다.** 현재 배포된 백엔드가 `Eval_ai_freq`·`Eval_ai_freq_code` 컬럼을 자동으로 추가합니다.
   Summary·AnalysisLong·Codebook 에 AI 사용 빈도를 반영하려면 `gas/Code.gs` 전체를 Apps Script 에 붙여넣고 **저장**하세요(10분 요약 트리거와 메뉴는 저장된 코드로 실행됨). 응답 수집 코드(core)는 바뀌지 않았으므로 웹 앱 새 버전 배포는 선택 사항입니다.
   붙여넣지 않으면 Summary 는 계속 이전 형식으로 만들어지며(오류 없음), v3.4 평가자는 이전 문항 행에 "(미응답)"으로 잡히고 AI 사용 빈도는 표에 나오지 않습니다(시트 원자료에는 저장됨).
@@ -163,10 +190,11 @@ python3 tools/build_data.py data/parsed_raw.json data/cases.js
 ## 6. 로컬 테스트
 
 ```bash
-node tools/mock_gas_server.js 8787        # gas/Code.gs 를 그대로 실행하는 모의 서버 + 사이트
-# 브라우저: http://localhost:8787/
-node tools/e2e.js http://localhost:8787/ ./shots mobile 테스트평가자 all   # 인턴·레지던트·전문의 경로를 각각 완주 + 화면 캡처 (desktop 도 가능)
+node tools/mock_gas_server.js 8787        # gas/Code.gs 를 그대로 실행하는 모의 서버 + 사이트 (/ca → /ca/ 처럼 GitHub Pages 와 같이 동작)
+# 브라우저: http://localhost:8787/ (처음 화면) · http://localhost:8787/ca/ (CA) · http://localhost:8787/gc/ (GC) · http://localhost:8787/qr/ (QR)
+node tools/e2e.js http://localhost:8787/ ./shots mobile 테스트평가자 all   # 사이트 루트를 주면 /ca/ 를 엽니다. 인턴·레지던트·전문의 경로를 각각 완주 + 화면 캡처 (desktop 도 가능)
 node tools/test_summary.js                                # Summary·AnalysisLong·Codebook 단위 테스트 (v3.3·v3.4 응답 혼합)
+node tools/test_site.js http://localhost:8787            # 처음 화면: 예전 주소 → /ca/·/gc/ 이동, '이어서 하기' 안내, src·site·wave 전달
 curl http://localhost:8787/__sheets                       # 저장된 시트 내용 확인
 ```
 
@@ -181,7 +209,7 @@ curl http://localhost:8787/__sheets                       # 저장된 시트 내
 |---|---|
 | `gc/` | GC 사이트 (`gc/gc-config.js` 의 `ENDPOINT` = GC 웹 앱 URL, 비어 있으면 테스트 모드) |
 | `gas/gc/*.gs` | GC 백엔드 원본 → `python3 tools/build_gas.py` 가 **`gas/GcCode.gs`** 로 합침 (붙여넣을 파일) |
-| `qr/gc/` | GC 참여 QR·초대 문구 페이지 |
+| `qr/gc/` | GC 참여 QR·초대 문구 페이지 (QR 은 8절) |
 
 **GC 응답 시트 만들기 (iPad 가능, 약 5분)** — 자세한 순서는 `gas/GcCode.gs` 맨 위 주석에도 있습니다.
 0. 붙여넣을 코드 복사: GitHub 의 [`gas/GcCode.gs`](https://github.com/Baeksw98/t2d-eval/blob/main/gas/GcCode.gs) 화면에서 코드 위 오른쪽 **복사 아이콘(「Copy raw file」)** → 파일 전체가 복사됩니다.
@@ -204,3 +232,32 @@ node tools/mock_gas_server.js 8791         # CA 웹 앱 /exec, GC 웹 앱 /gc-ex
 node tools/e2e_gc.js http://localhost:8791 ./shots-gc      # GC 사이트 자동 완주 + 시트·요약 검증
 curl 'http://localhost:8791/__sheets?app=gc'               # GC 시트 내용
 ```
+
+---
+
+## 8. QR 코드 · 참여 안내
+
+QR 허브 **`https://eval.asclep.org/qr/`** 에 QR 3종이 카드로 나란히 있습니다(통합 → CA → GC 순). 카드마다 크게 띄우기(발표 화면), 링크 복사, 안내 문구 복사,
+QR 이미지 보내기(휴대폰 공유 → 카카오톡), PNG 저장, A4 PDF, 「안내 문구·설정」(트랙별 페이지)이 있습니다. 기관·세션 코드(`site`)를 넣으면 세 QR·링크에 모두 들어갑니다.
+
+| QR | 주소 (QR 내용) | 대상 | 파일 | 공유 페이지 |
+|---|---|---|---|---|
+| **통합 (권장)** | `https://eval.asclep.org/?src=qr` — 처음 화면에서 두 평가 중 선택 | 대상이 섞인 자리 | `qr/main.png` · `main.svg` · `main-card.png` · `main-poster-a4.pdf` | `qr/main/` |
+| 임상 수용성 평가 | `https://eval.asclep.org/ca/?src=qr` | 인턴·레지던트·전문의 | `qr/ca.png` · `ca.svg` · `ca-card.png` · `ca-poster-a4.pdf` | `qr/ca/` (Type 지정 가능) |
+| 가이드라인 부합도 검증 | `https://eval.asclep.org/gc/?src=qr` | 내분비대사내과 분과전문의 | `qr/gc.png` · `gc.svg` · `gc-card.png` · `gc-poster-a4.pdf` | `qr/gc/` (Part 지정 가능) |
+| (예전 CA QR, 인쇄됨) | `https://eval.asclep.org/?src=qr` = 통합과 같은 주소 | — | `qr/select.png` · `select.svg` · `select-card.png` · `poster-a4.pdf` (그대로 둠) | — |
+
+- 공용 코드: `qr/qr.js`(문구·주소·QR 즉석 생성·공유·발표 화면) + `qr/qr.css`. 문구를 바꾸면 이 파일의 `TRACKS` 만 고치면 됩니다.
+- 링크로 공유하면 `src=kakao`(문구·공유) / `src=link`(복사), QR 은 `src=qr` 로 접속 경로가 기록됩니다.
+- 예전 인쇄용 주소 `qr/?mode=card|poster` 는 `qr/main/` 으로 넘어갑니다.
+
+다시 만들기 (문구·주소를 바꿨을 때):
+
+```bash
+python3 tools/make_qr.py                                 # qr/{main,ca,gc,select}.{png,svg} (select 는 예전과 같은 파일이 나옴)
+node tools/mock_gas_server.js 8787                       # (다른 터미널) 로컬 서버
+node tools/render_qr_assets.js http://localhost:8787     # qr/{main,ca,gc}-card.png, qr/{main,ca,gc}-poster-a4.pdf
+```
+
+QR 내용 확인: PNG 를 아무 QR 리더(휴대폰 카메라 등)로 읽어 위 표의 주소가 나오는지 봅니다. `make_qr.py` 는 만든 주소를 출력합니다.
+

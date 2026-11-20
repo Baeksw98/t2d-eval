@@ -1,6 +1,7 @@
 # GC track (guideline-concordance physician validation) — data contract v2
 
-Second track next to clinical acceptability (CA). Entry: `https://eval.asclep.org/gc/` (own QR, `?src=qr`).
+Second track next to clinical acceptability (CA, `https://eval.asclep.org/ca/`). Entry: `https://eval.asclep.org/gc/` (own QR
+`qr/gc.png`, `?src=qr`), or from the landing page `https://eval.asclep.org/` (integrated QR `qr/main.png`), which passes `src`/`site`/`wave` on.
 Endocrinology board-certified specialists (내분비대사내과 분과전문의, self-reported) confirm or overturn the
 **AI Rater judgments that the AI audit flagged** (△ minor error, ✗ major error with a corrected verdict). All other
 AI Rater judgments were confirmed (✓) by the AI audit and are not re-checked: human-in-the-loop on the ambiguous part only.
@@ -75,7 +76,8 @@ recomputes it from the stored fields, and `draftError()` adds any unanswered req
    ①→④ reading order of the item screen (the only numbered sequence on the page, so ①–④ always mean the item steps),
    △/✗ in plain words (△ 근거 보완 = 판정은 유지하되 근거(인용·사유)에 보완이 필요하다는 의견; ✗ 판정 보정 = 판정이
    틀렸다고 보고 바로잡음, 최종 판정이 바뀜). Eligibility question (`GC_CONFIG.ELIGIBILITY`; "아니요" → blocked screen with a
-   link back to `../`). Name (pseudonymised server-side), profile fields, consent checkbox, Part choice (A/B cards with
+   link to the CA evaluation `../ca/` and to the landing page `../`, both carrying `src`/`site`/`wave`). The intro (only) starts with
+   the small site links 「처음 화면 · 벤치마크 소개」 (`../`, `../about/`, same params; never `test`/`part`/`reset`). Name (pseudonymised server-side), profile fields, consent checkbox, Part choice (A/B cards with
    item count and estimated minutes). `?test=1` → test session. `?part=A` preselects.
 2. Per unit (2 per session): unit intro (patient summary, one line + the ①→④ reading order, the 3 combinations as drug
    chips; patient record in the drawer).
@@ -120,6 +122,9 @@ evaluator_id (UUID), device_id, visit_id, session_ordinal, linked_session_id, pa
 sequence_index, seq_source ("server"|"local"), order [unitKey, unitKey], n_sequences,
 entry { src, site, wave, part_preselected, in_app, referrer_origin }, consent { version, at, inherited }, incentive
 ```
+`entry.referrer_origin` is the external origin of the visit. When the visit comes through the landing page `/` or `/about/`,
+`document.referrer` on `/gc/` is this site, so `gc.js` uses the origin those pages stored on entry in `sessionStorage['t2d:entry_ref']`
+(`''` = direct). Visitors who leave on the landing page send no beacon.
 - `gc_start`: + `device{…}` (same shape as CA). Response `{ ok, seq_index }` (balanced within the Part).
 - `gc_judgment`: + `judgment` (below). Sent when the evaluator presses 다음 on an item (re-sent on edit; upsert).
 - `gc_finish`: + `judgments[]` (all), `end_items {id: {value, code}}`, `overall_comment`, `session {started_at,

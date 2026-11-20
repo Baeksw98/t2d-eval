@@ -1,6 +1,8 @@
 /**
  * End-to-end run against tools/mock_gas_server.js (or any server that serves the site).
  * Usage: node tools/e2e.js <baseUrl> <outDir> [device=mobile|desktop] [name] [role=resident|specialist|intern|all] [type=A|B]
+ *   <baseUrl> is the site root (e.g. http://localhost:8787/) or the CA page itself (…/ca/): the CA evaluation lives at
+ *   /ca/ since the landing page took over /, so a site root gets 'ca/' appended. Anything else is used as given.
  *   role 'all' runs the intern, resident and specialist paths one after another (fresh browser context each).
  * Per role: fills the intro (v3.4 profile: role-specific items + the single AI-use question 'ai_freq'), checks that
  * starting without the AI question names it ('AI 사용 빈도를 선택해 주세요.'), completes both cases of the Type with
@@ -22,7 +24,7 @@ const EXPECT_FIELDS = {                          // evaluator.fields keys sent f
 const LEGACY_IDS = ['major', 't2d_volume', 'ai_use', 'ai_trust'];   // v3.3 questions that must no longer be shown
 
 (async () => {
-  const base = process.argv[2] || 'http://localhost:8787/';
+  const base = caUrl(process.argv[2] || 'http://localhost:8787/');
   const outDir = process.argv[3] || 'shots';
   const kind = process.argv[4] || 'mobile';
   const evName = process.argv[5] || '테스트평가자';
@@ -41,6 +43,13 @@ const LEGACY_IDS = ['major', 't2d_volume', 'ai_use', 'ai_trust'];   // v3.3 ques
   if (failed) { console.error(`e2e: ${failed} role path(s) reported errors`); process.exit(1); }
 })().catch(e => { console.error(e); process.exit(1); });
 
+// site root → CA page (/ca/). A URL whose path already names a page (…/ca/, …/index.html, a temp copy) is kept.
+function caUrl(u) {
+  const x = new URL(u);
+  if (x.pathname === '/' || x.pathname === '') x.pathname = '/ca/';
+  return x.toString();
+}
+
 async function runRole(browser, { base, outDir, kind, evName, role, studyType, detail }) {
   const ctxOpts = kind === 'mobile' ? { ...devices['iPhone 13'] } : { viewport: { width: 1366, height: 860 }, deviceScaleFactor: 1 };
   const ctx = await browser.newContext({ ...ctxOpts, locale: 'ko-KR' });
@@ -58,9 +67,16 @@ async function runRole(browser, { base, outDir, kind, evName, role, studyType, d
     await page.screenshot({ path: path.join(outDir, `${role}_${String(shot).padStart(2, '0')}_${kind}_${label}.png`), fullPage: full });
   };
 
-  await page.goto(base + (base.includes('?') ? '&' : '?') + 'reset=1');
+  await page.goto(base + (base.includes('?') ? '&' : '?') + 'reset=1&src=e2e&site=S1');
   await page.waitForSelector('#evName');
   await snap('intro_top');
+  // intro only: discreet links back to the landing page (../) and About (../about/), carrying src·site·wave only
+  if (new URL(page.url()).pathname.endsWith('/ca/')) {
+    const links = await page.evaluate(() => ({ home: (document.getElementById('homeLink') || {}).href, about: (document.getElementById('aboutLink') || {}).href }));
+    const root = new URL('../', page.url()).toString();
+    if (links.home !== root + '?src=e2e&site=S1') errors.push('intro home link → ' + links.home);
+    if (links.about !== root + 'about/?src=e2e&site=S1') errors.push('intro About link → ' + links.about);
+  }
   await page.fill('#evName', evName);
   await page.click(`#roleSeg button[data-role="${role}"]`);
   if (role === 'resident') {
@@ -102,6 +118,7 @@ async function runRole(browser, { base, outDir, kind, evName, role, studyType, d
     // vignette
     await page.waitForSelector('.pt-head');
     await page.waitForTimeout(150);
+    if (await page.$('.site-links')) errors.push('site links (home/About) shown during a case');
     if (detail && ci < 2) await snap(`c${ci + 1}_vignette`);
     if (detail && ci === 0) await snap(`c${ci + 1}_vignette_full`, true);
     await clickNext();
@@ -208,7 +225,7 @@ async function runRole(browser, { base, outDir, kind, evName, role, studyType, d
   // backend rows (mock only): Sessions row carries Eval_ai_freq / Eval_ai_freq_code and no legacy values
   let sheet = 'skipped (no /__sheets)';
   try {
-    const r = await fetch(new URL('__sheets', base).toString());
+    const r = await fetch(new URL('/__sheets', base).toString());
     if (r.ok) {
       const sh = await r.json(), S = sh.Sessions || [], H = S[0] || [], c = n => H.indexOf(n);
       const row = S.find(x => x[c('SessionId')] === st.session_id);

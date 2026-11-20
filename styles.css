@@ -135,6 +135,17 @@ p { margin: 0; }
 .notice.warn { background: var(--amber-soft); color: #6b4a12; border-color: #efd9ad; }
 .notice.info { background: #eaf1fb; color: #1d3f6e; border-color: #cbdcf3; }
 
+/* ---------- Site links (intro screens only: back to the landing page / About) ---------- */
+.site-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; margin: -6px 0 0 -10px; font-size: 14px; }
+.site-links a {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 40px; padding: 6px 10px; border-radius: 999px;
+  color: var(--navy-2); font-weight: 600; text-decoration: none;
+}
+.site-links a:hover { background: #e6ecf2; text-decoration: underline; text-underline-offset: 3px; }
+.site-links svg { flex: none; }
+.site-links .sep { color: #9aa8b6; user-select: none; }
+.content > .site-links + * { margin-top: 6px; }
+
 /* ---------- Intro ---------- */
 .hero { background: var(--navy); color: #fff; border: none; position: relative; overflow: hidden; }
 .hero::after {
@@ -202,6 +213,7 @@ textarea.input { min-height: 140px; resize: vertical; line-height: 1.6; }
   min-height: 48px; padding: 0 18px; border-radius: 12px; border: 1.5px solid transparent;
   font-weight: 700; font-size: 16px; transition: background .15s, opacity .15s;
 }
+a.btn { text-decoration: none; }
 .btn-primary { background: var(--navy); color: #fff; }
 .btn-primary:hover { background: var(--navy-2); }
 .btn-accent { background: var(--orange-ink); color: #fff; }

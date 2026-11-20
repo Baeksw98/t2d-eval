@@ -5,10 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>임상 수용성 평가 · Type A</title>
-  <meta http-equiv="refresh" content="0; url=../?type=A">
-  <script>location.replace('../?type=A' + (location.search ? '&' + location.search.slice(1) : '') + location.hash);</script>
+  <!-- 예전 짧은 링크: 임상 수용성 평가(/ca/)의 Type A 로 보냄. 다른 쿼리(src·site·wave·test …)와 #해시는 그대로 넘김 -->
+  <meta http-equiv="refresh" content="0; url=../ca/?type=A">
+  <script>
+    (function () {
+      // 들어온 곳(외부 origin, 직접 접속은 '')을 남김: /ca/ 에서는 referrer 가 이 페이지가 되므로 app.js 가 이것을 씀
+      try { var o = document.referrer ? new URL(document.referrer).origin : ''; if (o !== location.origin) sessionStorage.setItem('t2d:entry_ref', o); } catch (e) {}
+      var q = new URLSearchParams(location.search);
+      q.set('type', 'A');
+      location.replace('../ca/?' + q.toString() + location.hash);
+    })();
+  </script>
 </head>
 <body style="font-family:system-ui,sans-serif;padding:24px">
-  <p>평가 페이지로 이동합니다… <a href="../?type=A">이동하지 않으면 여기를 누르세요</a></p>
+  <p>평가 페이지로 이동합니다… <a href="../ca/?type=A">이동하지 않으면 여기를 누르세요</a></p>
 </body>
 </html>
