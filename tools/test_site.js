@@ -62,7 +62,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fail++;
     ok(ca === '/ca/?src=qr&site=h1&wave=2', 'CA button carries src/site/wave: ' + ca);
     ok(hrefs.some(h => h === '/about/?src=qr&site=h1&wave=2'), 'About link carries params');
     ok(!(await p.isVisible('#resume')), 'no resume banner without saved state');
-    await p.click('.track.gc .btn');
+    await p.click('.pick-card.gc');
     await p.waitForTimeout(100);
     ok(new URL(p.url()).pathname === '/gc/' && new URL(p.url()).searchParams.get('src') === 'qr', 'clicking GC goes to /gc/?src=qr…');
     await p.goto(base + '/about/?src=qr');

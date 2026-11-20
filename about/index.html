@@ -21,7 +21,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314304a'/%3E%3Cpath d='M18 34l9 9 19-21' stroke='%23f08a3c' stroke-width='7' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="../site.css?v=2026-11-20.site-v1">
+  <link rel="stylesheet" href="../site.css?v=2026-11-20.site-v2">
 </head>
 <body class="about">
   <a class="skip" href="#main">본문으로 바로 가기</a>
@@ -47,12 +47,12 @@
         <p class="eyebrow">벤치마크 소개 · 제2형 당뇨병 AI 벤치마크</p>
         <h1 id="aboutTitle">Hybrid Physician–AI Benchmark</h1>
         <p class="subtitle"><span class="paper-label">논문 제목</span> <span lang="en">A hybrid AI rater–physician benchmark for medical AI in type 2 diabetes pharmacotherapy</span></p>
-        <p class="purpose">제2형 당뇨병 약물치료에서 의료 AI의 답변이 <span class="q gc">진료지침을 따르는지</span>(가이드라인 부합도)와 <span class="q ca">의사가 실제로 쓸 만한지</span>(임상 수용성)를 함께 재는 벤치마크입니다.</p>
+        <p class="purpose">AI 답변이 <span class="q gc">진료지침을 따르는지</span>와 <span class="q ca">의사가 쓸 만한지</span>를 함께 잽니다.</p>
         <ul class="keynums" aria-label="벤치마크 구성 요약">
-          <li><b>480<small>명</small></b><span>합성 환자 · 12개월 진료 기록</span></li>
-          <li><b>5<small>단계</small></b><span>AI 답변의 구조화 형식</span></li>
-          <li><b>167<small>개</small></b><span>채점 항목 (20문항) · 시스템 실행 전 고정</span></li>
-          <li><b>2<small>가지 평가</small></b><span>가이드라인 부합도(AI 채점 · 전문의 검증) + 임상 수용성(의사 평가)</span></li>
+          <li><b>480<small>명</small></b><span>합성 환자</span></li>
+          <li><b>5<small>단계</small></b><span>구조화 답변</span></li>
+          <li><b>167<small>개</small></b><span>채점 항목 · 사전 고정</span></li>
+          <li><b>2<small>가지 평가</small></b><span>가이드라인 부합도 · 임상 수용성</span></li>
         </ul>
       </div>
     </section>
@@ -76,7 +76,7 @@
         <div class="section-head">
           <p class="eyebrow">한눈에 보기</p>
           <h2 id="ovTitle">누가, 언제, 무엇을 하나요</h2>
-          <p>가이드라인 부합도 채점은 AI(파랑)가 하고, 모든 AI 단계 뒤에는 AI 감사가 따릅니다. 전문의(주황)는 <b>채점 기준 확정</b>과 <b>감점 검증</b> 두 지점에서 들어오고, <b>임상 수용성</b>은 의사 평가자가 별도로 직접 평가합니다.</p>
+          <p>채점은 AI(파랑)가, 판단이 필요한 곳은 의사(주황)가 맡습니다.</p>
         </div>
         <figure class="figure ov-card">
           <div class="ov-svg">
@@ -207,7 +207,7 @@
           <div class="sec-head">
             <p class="sec-n">1 · 왜 필요한가</p>
             <h2 id="whyH">기준을 얻는 방식이 다릅니다</h2>
-            <p>대표적인 의료 AI 벤치마크(HealthBench Professional, NOHARM)는 의사가 과제나 증례마다 채점 기준(rubric)이나 주석(annotation)을 직접 씁니다. 이 벤치마크는 기준을 진료지침에서 한 번 뽑아 고정하고, 의사의 시간은 판단이 꼭 필요한 곳에 씁니다.</p>
+            <p>기준을 증례마다 새로 쓰지 않고, 진료지침에서 한 번 뽑아 고정합니다.</p>
           </div>
 
           <div class="compare" role="table" aria-label="기존 방식과 이 벤치마크 비교">
@@ -451,7 +451,7 @@
           <div class="sec-head">
             <p class="sec-n">3 · 의사 참여와 두 평가</p>
             <h2 id="tracksH">의사 참여와 두 평가</h2>
-            <p>그림 1처럼 부합도 채점에서 전문의는 두 지점(채점 기준 확정 · 감점 검증)에서 들어옵니다. 이 사이트의 <b>가이드라인 부합도 검증</b>은 그중 참여 지점 2를 보완하는 검증으로, AI 감사가 △·✗로 표시한 판정(충족·감점 모두)만 분과전문의가 확인해 ‘표시된 곳만 전문의가 보는’ 방식이 타당한지 살펴봅니다. <b>임상 수용성 평가</b>는 그림 1의 ‘임상 수용성 평가’에 해당합니다.</p>
+            <p>이 사이트에서 참여하실 수 있는 두 평가입니다.</p>
           </div>
 
           <div class="tracks" style="margin-top:22px">
@@ -461,7 +461,7 @@
                   <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span>
                   <div><h3 id="atCa">임상 수용성 평가</h3><p class="track-en">Physician Clinical Acceptability Assessment</p></div>
                 </div>
-                <p class="track-q">가상 환자에 대한 AI 답변을 단계별로 읽고, 각 단계가 <b>실제 임상 결정에 유의미한 참고가 되는지</b> 평가합니다.</p>
+                <p class="track-q">AI 답변을 단계별로 읽고 <b>진료에 쓸 만한지</b> 평가합니다.</p>
                 <p class="mini-label">진행 순서</p>
                 <ol class="mini-flow">
                   <li><span class="step">환자 정보</span></li>
@@ -471,8 +471,7 @@
                   <li><span class="step you nowrap">단계별 1–5점 · 의견</span></li>
                 </ol>
                 <dl class="facts">
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-users"/></svg><dt>대상</dt><dd>인턴 · 레지던트 · 전문의<small>진료과와 관계없이</small></dd></div>
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd><span class="nowrap">Type 1개 약 20–30분</span><small>Type마다 AI 답변 2건</small></dd></div>
+                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 20–30분</dd></div>
                 </dl>
                 <a class="btn btn-ca btn-block" href="../ca/" data-carry>임상 수용성 평가 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
               </div>
@@ -484,7 +483,7 @@
                   <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-gc"/></svg></span>
                   <div><h3 id="atGc">가이드라인 부합도 검증</h3><p class="track-en">Guideline Concordance · Physician Validation</p></div>
                 </div>
-                <p class="track-q">AI 감사가 문제를 표시한 판정(△·✗)을 분과전문의가 직접 확인합니다. 이 결과로 <b>‘AI가 표시한 곳만 전문의가 확인하는’</b> 방식이 타당한지 살펴봅니다.</p>
+                <p class="track-q">AI 감사가 표시한 판정(△·✗)이 맞는지 <b>직접 확인</b>합니다.</p>
                 <p class="mini-label">판정마다 읽는 순서</p>
                 <ol class="mini-flow">
                   <li><span class="step"><span class="nb" aria-hidden="true">1</span>CDSS 답변</span></li>
@@ -493,10 +492,8 @@
                   <li><span class="step"><span class="nb" aria-hidden="true">4</span>최종 판정</span></li>
                   <li><span class="step you">동의 / 비동의</span></li>
                 </ol>
-                <p class="mini-note">CDSS 답변 = 평가 대상 AI 시스템이 낸 5단계 답변</p>
-                <dl class="facts">
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-users"/></svg><dt>대상</dt><dd>내분비대사내과 분과전문의만</dd></div>
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd><span class="nowrap">Part A 약 20–25분</span><span class="nowrap"> (판정 18건)</span> · <span class="nowrap">Part B 약 10–15분</span><span class="nowrap"> (판정 11건)</span><small>Part마다 CDSS 답변 2건</small></dd></div>
+                                <dl class="facts">
+                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 10–25분</dd></div>
                 </dl>
                 <a class="btn btn-gc btn-block" href="../gc/" data-carry>가이드라인 부합도 검증 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
               </div>
@@ -511,10 +508,10 @@
             <h2 id="ethicsH">가상 환자, 가명 분석, 블라인드</h2>
           </div>
           <ul class="ethics">
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><div><h3>가상(합성) 환자만 사용</h3><p>모든 환자 기록은 연구용으로 만든 합성 자료입니다. 실제 환자 정보는 없습니다.</p></div></li>
+            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><div><h3>가상(합성) 환자만 사용</h3><p>실제 환자 정보는 없습니다.</p></div></li>
             <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-shield"/></svg></span><div><h3>가명 코드로 분석</h3><p>분석과 발표에는 성명 대신 가명 코드를 씁니다.</p></div></li>
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-pen"/></svg></span><div><h3>참여 동의는 시작 화면에서</h3><p>각 평가의 시작 화면에서 수집 항목을 확인하고 동의한 뒤 시작합니다.</p></div></li>
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-blind"/></svg></span><div><h3>AI 이름은 공개하지 않음</h3><p>답변을 만든 AI와 채점·감사에 쓰인 AI의 이름은 밝히지 않습니다. 제시 순서는 평가자 사이에 균형 있게 나눠 배정합니다.</p></div></li>
+            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-pen"/></svg></span><div><h3>참여 동의는 시작 화면에서</h3><p>수집 항목을 확인하고 동의한 뒤 시작합니다.</p></div></li>
+            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-blind"/></svg></span><div><h3>AI 이름은 공개하지 않음</h3><p>답변·채점에 쓰인 AI 이름은 밝히지 않습니다.</p></div></li>
           </ul>
         </section>
 
@@ -526,24 +523,16 @@
           </div>
           <div class="faq">
             <details>
-              <summary>어떤 평가에 참여하면 되나요?</summary>
-              <div class="a"><p><b>임상 수용성 평가</b>는 인턴·레지던트·전문의 누구나, 진료과와 관계없이 참여할 수 있습니다. <b>가이드라인 부합도 검증</b>은 내분비대사내과 분과전문의만 참여할 수 있습니다. 분과전문의이시면 두 평가 모두 참여하실 수 있습니다.</p></div>
-            </details>
-            <details>
               <summary>시간은 얼마나 걸리나요?</summary>
-              <div class="a"><p>임상 수용성 평가는 Type 1개(AI 답변 2건)에 약 20–30분입니다. 가이드라인 부합도 검증은 Part A(판정 18건) 약 20–25분, Part B(판정 11건) 약 10–15분입니다. 하나를 마친 뒤 다른 Part·Type도 이어서 하실 수 있습니다.</p></div>
+              <div class="a"><p>임상 수용성 평가는 약 20–30분, 가이드라인 부합도 검증은 약 10–25분입니다.</p></div>
             </details>
             <details>
               <summary>중간에 멈춰도 되나요?</summary>
-              <div class="a"><p>네. 응답은 자동 저장됩니다. 같은 기기·브라우저에서 다시 열면 이어서 진행되며, 첫 화면에도 ‘이어서 하기’가 표시됩니다.</p></div>
+              <div class="a"><p>네. 자동 저장되어 같은 기기에서 다시 열면 이어서 진행됩니다.</p></div>
             </details>
             <details>
               <summary>어떤 AI가 답변을 만들었나요?</summary>
-              <div class="a"><p>평가의 공정성을 위해 답변을 만든 AI와 채점·감사에 쓰인 AI의 이름은 공개하지 않습니다. 화면에는 AI 이름 대신 번호로만 표시됩니다(가이드라인 부합도 검증은 ‘답변 1·2’, 임상 수용성 평가는 ‘케이스 1·2’).</p></div>
-            </details>
-            <details>
-              <summary>휴대폰으로도 할 수 있나요?</summary>
-              <div class="a"><p>네. 휴대폰·태블릿·PC 모두에서 할 수 있습니다. 환자 기록을 함께 보며 읽기에는 태블릿이나 PC가 조금 더 편합니다.</p></div>
+              <div class="a"><p>공정한 평가를 위해 AI 이름은 공개하지 않고 번호로만 표시합니다.</p></div>
             </details>
             <details>
               <summary>실제 환자 정보가 들어 있나요?</summary>
@@ -560,7 +549,7 @@
             <a class="btn btn-gc" href="../gc/" data-carry>가이드라인 부합도 검증<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
           </div>
         </section>
-        <p class="contact">문의: <b>주식회사 애스클립 (Asclep)</b> — 평가 안내를 받으신 연락처로 문의해 주세요.</p>
+        <p class="contact">문의: <b>주식회사 애스클립 (Asclep)</b></p>
       </div>
     </div>
   </main>
@@ -576,6 +565,6 @@
     </div>
   </footer>
 
-  <script src="../assets/site.js?v=2026-11-20.site-v1"></script>
+  <script src="../assets/site.js?v=2026-11-20.site-v2"></script>
 </body>
 </html>
