@@ -198,3 +198,8 @@ Sheets written:
 The GC data needed server-side (item metadata, concordance_base) is embedded in `gas/GcCode.gs` as `GC_ITEMS` by
 `tools/build_gas.py` reading `gc/data/gc_items.js` (single source of truth; no copy-paste). The same build copies the
 sheet/summary helpers GC uses from `gas/src/*.gs` by name (never CA entry points or triggers); tests: `node tools/test_gc.js`.
+
+## Timestamps and reset (GC backend v3, 2026-11-20)
+Same rule as CA: columns ending in `At` (incl. `AnsweredAt`) hold date-time values shown as `yyyy-mm-dd hh:mm:ss`, time zone
+`Asia/Seoul`. `resetAllGcResponses()` backs up the spreadsheet, clears Visits / GC_Sessions / GC_Judgments / GC_Raw to their
+headers, resets G-codes and Part sequence counters, and rebuilds the GC summary sheets.

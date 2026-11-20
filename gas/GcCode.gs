@@ -46,7 +46,7 @@
 // GC 응답 스프레드시트 ID. 비워 두면 setup 이 새 스프레드시트를 만들고 그 ID 를 스크립트 속성(GC_SPREADSHEET_ID)에 저장합니다.
 var GC_SPREADSHEET_ID = "";
 var GC_SPREADSHEET_NAME = '가이드라인 부합도 검증 (GC) 응답';
-var GC_BACKEND_VERSION = '2026-11-19.gc-backend-v2';
+var GC_BACKEND_VERSION = '2026-11-20.gc-backend-v3';
 
 // ============================================================
 // HTTP ENTRY POINTS
@@ -115,6 +115,7 @@ function gcHandleView_(body) {
     sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
       short_(en.type_param || ''), short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
       !!p.is_test, short_(p.app_version)].map(cell_));
+    sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
     return json_({ ok: true });
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
@@ -128,6 +129,7 @@ function gcLogRaw_(ss, p, elapsedMs, error) {
   var row = [new Date(), String(p.action || ''), String(p.session_id || ''), String(p.msg_id || ''), !!p.is_test,
     clip_(JSON.stringify(p)), elapsedMs, error || ''];
   sh.appendRow(row.map(cell_));
+  sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
 }
 
 // 임상 수용성 평가(CA) 응답 스프레드시트에만 있는 시트. 이 중 하나라도 있으면 GC 는 그 스프레드시트를 쓰지 않는다
@@ -184,8 +186,7 @@ function setup() {
   var ss = gcSs_(true);
   // 응답이 없거나 테스트 응답(IsTest=TRUE)만 있는 시트는 최신 컬럼 순서로 새로 만든다.
   // 실제 응답이 하나라도 있으면 데이터는 건드리지 않고 누락된 컬럼만 오른쪽 끝에 추가한다.
-  [[GC_SHEET.VISITS, visitsHeaders_()], [GC_SHEET.SESS, gcSessHeaders_()], [GC_SHEET.JUDG, gcJudgHeaders_()],
-   [GC_SHEET.RAW, rawHeaders_()]].forEach(function (x) {
+  gcDataSheets_().forEach(function (x) {
     var sh = ss.getSheetByName(x[0]);
     if (sh && onlyTestRows_(sh)) {
       sh.clear();
@@ -197,6 +198,9 @@ function setup() {
   });
   var def = ss.getSheetByName('Sheet1') || ss.getSheetByName('시트1');
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(def);
+  ensureTimeZone_(ss);
+  gcDataSheets_().forEach(function (x) { var sh = ss.getSheetByName(x[0]); if (sh) formatTimeCols_(sh); });
+  Logger.log('✅ 시각 컬럼: 한국 시간, 초 단위(yyyy-mm-dd hh:mm:ss) 표시');
   var trigOk = false;
   try { ensureGcSummaryTrigger_(); trigOk = true; Logger.log('✅ GC 요약 자동 갱신(10분 주기) 설정 완료'); }
   catch (eTrig) { Logger.log('⚠️ 자동 갱신 트리거 설정 실패: ' + eTrig); }
@@ -210,6 +214,51 @@ function setup() {
       '허용하세요(체크박스가 보이면 「모두 선택」 → [계속]). 응답 시트: ' + url);
   }
   return url;
+}
+
+/** GC 응답 데이터 시트와 헤더 (setup·resetAllGcResponses 공용) */
+function gcDataSheets_() {
+  return [[GC_SHEET.VISITS, visitsHeaders_()], [GC_SHEET.SESS, gcSessHeaders_()], [GC_SHEET.JUDG, gcJudgHeaders_()],
+    [GC_SHEET.RAW, rawHeaders_()]];
+}
+
+/**
+ * ⚠️ 모든 GC 응답 삭제 (처음부터 다시 수집할 때만 실행)
+ *  1) 지금 GC 스프레드시트 전체를 '… (백업 yyyy-MM-dd HH:mm:ss)' 사본으로 내 드라이브에 저장
+ *  2) Visits · GC_Sessions · GC_Judgments · GC_Raw 의 응답 행을 모두 지우고 최신 헤더만 남김
+ *  3) 전문의 가명 코드(G001…, GT001…)·순서 배정 카운터 초기화, GC 요약 시트를 빈 데이터로 다시 만듦
+ */
+function resetAllGcResponses() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = gcSs_(false);
+    var stamp = Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
+    var backup = ss.copy(ss.getName() + ' (백업 ' + stamp + ')');
+    Logger.log('💾 백업 사본: ' + backup.getUrl());
+    var counts = [];
+    gcDataSheets_().forEach(function (x) {
+      var sh = ss.getSheetByName(x[0]);
+      var n = sh ? Math.max(sh.getLastRow() - 1, 0) : 0;
+      if (sh) sh.clear(); else sh = ss.insertSheet(x[0]);
+      sh.getRange(1, 1, 1, x[1].length).setValues([x[1]]).setFontWeight('bold').setBackground('#e3edf5');
+      sh.setFrozenRows(1);
+      formatTimeCols_(sh);
+      counts.push(x[0] + ' ' + n + '행');
+    });
+    var props = PropertiesService.getScriptProperties();
+    var all = props.getProperties(), removed = 0;
+    Object.keys(all).forEach(function (k) {
+      if (/^(GCT_|GCC_|GC_SEQ_COUNTER|GC_SUMMARY_DIRTY$|GC_SUMMARY_BUILT_AT$)/.test(k)) { props.deleteProperty(k); removed++; }
+    });
+    ensureTimeZone_(ss);
+    SpreadsheetApp.flush();
+    Logger.log('🗑️ 삭제한 응답: ' + counts.join(', ') + ' / 초기화한 코드·카운터 ' + removed + '개');
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
+  try { buildGcSummary(false); } catch (eSum) { Logger.log('⚠️ GC 요약 갱신 실패(다음 응답 후 자동 갱신): ' + eSum); }
+  Logger.log('✅ 모든 GC 응답을 지웠습니다. 백업은 위 링크에 있습니다.');
 }
 
 /** 시간 기반 트리거(10분)용: 새 실제 판정이 있을 때만, 잠금을 얻은 경우에만 GC 요약 재생성 */
@@ -1472,7 +1521,7 @@ function gcCbDefs_(a) {
 // ============================================================
 // SHARED HELPERS — copied by tools/build_gas.py from the CA sources (gas/src/*.gs), only the ones GC uses.
 // Do not edit here: change gas/src/*.gs (CA) or gas/gc/*.gs (GC) and re-run `python3 tools/build_gas.py`.
-// core.gs: 19; summary.gs: 32
+// core.gs: 27; summary.gs: 32
 // ============================================================
 var SHEET = {
   RESP: 'Responses',
@@ -1596,7 +1645,7 @@ function tWrite_(t, idx, rowObj) {
     var col = t.map[k];
     if (!col) return;
     var v = rowObj[k];
-    vals[col - 1] = (v === undefined || v === null) ? '' : v;
+    vals[col - 1] = (v === undefined || v === null) ? '' : (isTimeCol_(k) ? timeVal_(v) : v);
   });
   t.dirty[idx] = true;
 }
@@ -1609,7 +1658,12 @@ function tFlush_(t) {
     if (i < t.orig) t.sh.getRange(i + 2, 1, 1, t.width).setValues([safe]);
     else appended.push(safe);
   });
-  if (appended.length) t.sh.getRange(t.orig + 2, 1, appended.length, t.width).setValues(appended);
+  if (appended.length) {
+    t.sh.getRange(t.orig + 2, 1, appended.length, t.width).setValues(appended);
+    var heads = [];
+    Object.keys(t.map).forEach(function (h) { heads[t.map[h] - 1] = h; });
+    timeColsOf_(heads).forEach(function (c) { t.sh.getRange(t.orig + 2, c, appended.length, 1).setNumberFormat(TIME_FMT); });
+  }
   t.orig = t.rows.length;
   t.dirty = {};
 }
@@ -1624,6 +1678,45 @@ function cell_(v) {
   if (v === undefined || v === null) return '';
   if (typeof v === 'string' && v !== '') return "'" + v;
   return v;
+}
+
+var TIME_FMT = 'yyyy-mm-dd hh:mm:ss';
+
+var TIME_ZONE = 'Asia/Seoul';
+
+var ISO_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+function isTimeCol_(name) { return /At$/.test(String(name || '')); }
+
+/** ISO 시각 문자열 → Date (그 밖의 값은 그대로) */
+function timeVal_(v) {
+  if (typeof v === 'string') {
+    var s = v.trim();
+    if (ISO_TIME_RE.test(s)) { var t = Date.parse(s); if (!isNaN(t)) return new Date(t); }
+  }
+  return v;
+}
+
+/** 헤더 행에서 시각 컬럼 번호(1부터) */
+function timeColsOf_(headers) {
+  var out = [];
+  (headers || []).forEach(function (h, i) { if (isTimeCol_(h)) out.push(i + 1); });
+  return out;
+}
+
+/** 시각 컬럼 전체(2행부터 시트 끝까지)에 초 단위 표시 형식 적용 */
+function formatTimeCols_(sh) {
+  var lastCol = sh.getLastColumn();
+  if (lastCol < 1) return;
+  var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var n = Math.max(sh.getMaxRows() - 1, 1);
+  timeColsOf_(hdr).forEach(function (c) { sh.getRange(2, c, n, 1).setNumberFormat(TIME_FMT); });
+}
+
+/** 스프레드시트 시간대를 한국 시간으로 */
+function ensureTimeZone_(ss) {
+  try { if (ss.getSpreadsheetTimeZone() !== TIME_ZONE) ss.setSpreadsheetTimeZone(TIME_ZONE); }
+  catch (eTz) { Logger.log('⚠️ 시간대 설정 실패: ' + eTz); }
 }
 
 function clip_(txt) {

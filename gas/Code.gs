@@ -23,7 +23,7 @@
 // CONFIG
 // ============================================================
 var SPREADSHEET_ID = '1-R-BZKkhyaTSHvHssM5sazwjq-KKQqfjzIqAhFMbS10';            // 시트에서 [확장 프로그램 → Apps Script]로 만든 경우 비워 둠. script.google.com 에서 따로 만든 경우 시트 ID 입력
-var BACKEND_VERSION = '2026-11-19.ca-backend-v4';
+var BACKEND_VERSION = '2026-11-20.ca-backend-v5';
 var EXPECTED_STUDY_ID = 'T2D-CA-2026';
 
 var SHEET = {
@@ -195,6 +195,7 @@ function handleView_(body) {
     sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
       short_(en.type_param || ''), short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
       !!p.is_test, short_(p.app_version)].map(cell_));
+    sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
     return json_({ ok: true });
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
@@ -476,6 +477,7 @@ function logRaw_(ss, p, elapsedMs, error) {
   var row = [new Date(), String(p.action || ''), String(p.session_id || ''), String(p.msg_id || ''), !!p.is_test,
     clip_(JSON.stringify(p)), elapsedMs, error || ''];
   sh.appendRow(row.map(cell_));
+  sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
 }
 
 // ============================================================
@@ -602,7 +604,7 @@ function tWrite_(t, idx, rowObj) {
     var col = t.map[k];
     if (!col) return;
     var v = rowObj[k];
-    vals[col - 1] = (v === undefined || v === null) ? '' : v;
+    vals[col - 1] = (v === undefined || v === null) ? '' : (isTimeCol_(k) ? timeVal_(v) : v);
   });
   t.dirty[idx] = true;
 }
@@ -615,7 +617,12 @@ function tFlush_(t) {
     if (i < t.orig) t.sh.getRange(i + 2, 1, 1, t.width).setValues([safe]);
     else appended.push(safe);
   });
-  if (appended.length) t.sh.getRange(t.orig + 2, 1, appended.length, t.width).setValues(appended);
+  if (appended.length) {
+    t.sh.getRange(t.orig + 2, 1, appended.length, t.width).setValues(appended);
+    var heads = [];
+    Object.keys(t.map).forEach(function (h) { heads[t.map[h] - 1] = h; });
+    timeColsOf_(heads).forEach(function (c) { t.sh.getRange(t.orig + 2, c, appended.length, 1).setNumberFormat(TIME_FMT); });
+  }
   t.orig = t.rows.length;
   t.dirty = {};
 }
@@ -630,6 +637,55 @@ function cell_(v) {
   if (v === undefined || v === null) return '';
   if (typeof v === 'string' && v !== '') return "'" + v;
   return v;
+}
+
+// ------------------------------------------------------------
+// 시각 컬럼: 이름이 …At 인 컬럼(ReceivedAt, FirstSeenAt, ServerUpdatedAt, StartedAt, FinishedAt, ConsentAt,
+// CaseStartedAt, CaseCompletedAt, LastActivityAt, AnsweredAt …).
+//  · 기기가 보낸 ISO 시각 문자열(예: 2026-11-20T01:23:45.678Z)도 문자열이 아니라 날짜·시각 값으로 저장
+//  · 표시 형식을 'yyyy-mm-dd hh:mm:ss'(초 단위)로 고정, 스프레드시트 시간대는 한국 시간(Asia/Seoul)
+//  · 값 자체는 밀리초까지 보존되므로 소요 시간 계산에 그대로 쓸 수 있다
+// ------------------------------------------------------------
+var TIME_FMT = 'yyyy-mm-dd hh:mm:ss';
+var TIME_ZONE = 'Asia/Seoul';
+var ISO_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+function isTimeCol_(name) { return /At$/.test(String(name || '')); }
+
+/** ISO 시각 문자열 → Date (그 밖의 값은 그대로) */
+function timeVal_(v) {
+  if (typeof v === 'string') {
+    var s = v.trim();
+    if (ISO_TIME_RE.test(s)) { var t = Date.parse(s); if (!isNaN(t)) return new Date(t); }
+  }
+  return v;
+}
+
+/** 헤더 행에서 시각 컬럼 번호(1부터) */
+function timeColsOf_(headers) {
+  var out = [];
+  (headers || []).forEach(function (h, i) { if (isTimeCol_(h)) out.push(i + 1); });
+  return out;
+}
+
+/** 시각 컬럼 전체(2행부터 시트 끝까지)에 초 단위 표시 형식 적용 */
+function formatTimeCols_(sh) {
+  var lastCol = sh.getLastColumn();
+  if (lastCol < 1) return;
+  var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var n = Math.max(sh.getMaxRows() - 1, 1);
+  timeColsOf_(hdr).forEach(function (c) { sh.getRange(2, c, n, 1).setNumberFormat(TIME_FMT); });
+}
+
+/** 방금 추가한 행(rowNo)의 시각 셀에 형식 적용 (appendRow 용) */
+function formatTimeRow_(sh, rowNo, headers) {
+  timeColsOf_(headers).forEach(function (c) { sh.getRange(rowNo, c).setNumberFormat(TIME_FMT); });
+}
+
+/** 스프레드시트 시간대를 한국 시간으로 */
+function ensureTimeZone_(ss) {
+  try { if (ss.getSpreadsheetTimeZone() !== TIME_ZONE) ss.setSpreadsheetTimeZone(TIME_ZONE); }
+  catch (eTz) { Logger.log('⚠️ 시간대 설정 실패: ' + eTz); }
 }
 
 function clip_(txt) {
@@ -656,8 +712,7 @@ function setup() {
   var ss = ss_();
   // 응답이 없거나 테스트 응답(IsTest=TRUE)만 있는 시트는 최신 컬럼 순서로 새로 만든다.
   // 실제 응답이 하나라도 있으면 데이터는 건드리지 않고 누락된 컬럼만 오른쪽 끝에 추가한다.
-  [[SHEET.RESP, respHeaders_()], [SHEET.LONG, longHeaders_()], [SHEET.SESS, sessHeaders_()],
-   [SHEET.VISITS, visitsHeaders_()], [SHEET.RAW, rawHeaders_()]].forEach(function (x) {
+  dataSheets_().forEach(function (x) {
     var sh = ss.getSheetByName(x[0]);
     if (sh && onlyTestRows_(sh)) {
       sh.clear();
@@ -669,9 +724,60 @@ function setup() {
   });
   var def = ss.getSheetByName('Sheet1') || ss.getSheetByName('시트1');
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(def);
+  ensureTimeZone_(ss);
+  dataSheets_().forEach(function (x) { var sh = ss.getSheetByName(x[0]); if (sh) formatTimeCols_(sh); });
+  Logger.log('✅ 시각 컬럼: 한국 시간, 초 단위(yyyy-mm-dd hh:mm:ss) 표시');
   try { ensureSummaryTrigger_(); Logger.log('✅ Summary 자동 갱신(10분 주기) 설정 완료'); }
   catch (eTrig) { Logger.log('⚠️ 자동 갱신 트리거 설정 실패: ' + eTrig); }
   Logger.log('✅ 시트 준비 완료: ' + ss.getUrl());
+}
+
+/** 응답 데이터 시트와 헤더 (setup·resetAllResponses 공용) */
+function dataSheets_() {
+  return [[SHEET.RESP, respHeaders_()], [SHEET.LONG, longHeaders_()], [SHEET.SESS, sessHeaders_()],
+    [SHEET.VISITS, visitsHeaders_()], [SHEET.RAW, rawHeaders_()]];
+}
+
+/**
+ * ⚠️ 모든 응답 삭제 (처음부터 다시 수집할 때만 실행)
+ *  1) 지금 스프레드시트 전체를 '… (백업 yyyy-MM-dd HH:mm:ss)' 사본으로 내 드라이브에 저장 (되돌릴 수 있음)
+ *  2) Responses · PhaseLong · Sessions · Visits · RawJSON 의 응답 행을 모두 지우고 최신 헤더만 남김
+ *  3) 평가자 가명 코드(E001…)·테스트 코드(T001…)·순서 배정 카운터를 처음으로 되돌림 → 다음 평가자가 E001
+ *  4) Summary 등 요약 시트를 빈 데이터로 다시 만듦
+ *  Concordance 시트(GC 결과를 붙여넣는 곳)는 건드리지 않는다.
+ *  실행: Apps Script 편집기 위쪽 함수 목록에서 resetAllResponses 선택 → [실행] → 실행 로그에서 백업 링크 확인
+ */
+function resetAllResponses() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = ss_();
+    var stamp = Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
+    var backup = ss.copy(ss.getName() + ' (백업 ' + stamp + ')');
+    Logger.log('💾 백업 사본: ' + backup.getUrl());
+    var counts = [];
+    dataSheets_().forEach(function (x) {
+      var sh = ss.getSheetByName(x[0]);
+      var n = sh ? Math.max(sh.getLastRow() - 1, 0) : 0;
+      if (sh) sh.clear(); else sh = ss.insertSheet(x[0]);
+      sh.getRange(1, 1, 1, x[1].length).setValues([x[1]]).setFontWeight('bold').setBackground('#e3edf5');
+      sh.setFrozenRows(1);
+      formatTimeCols_(sh);
+      counts.push(x[0] + ' ' + n + '행');
+    });
+    var props = PropertiesService.getScriptProperties();
+    var all = props.getProperties(), removed = 0;
+    Object.keys(all).forEach(function (k) {
+      if (/^(EVC_|EVT_|SEQ_COUNTER|SUMMARY_DIRTY$|SUMMARY_BUILT_AT$)/.test(k)) { props.deleteProperty(k); removed++; }
+    });
+    ensureTimeZone_(ss);
+    SpreadsheetApp.flush();
+    Logger.log('🗑️ 삭제한 응답: ' + counts.join(', ') + ' / 초기화한 코드·카운터 ' + removed + '개');
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
+  }
+  try { buildSummary(false); } catch (eSum) { Logger.log('⚠️ 요약 시트 갱신 실패(다음 응답 후 자동 갱신): ' + eSum); }
+  Logger.log('✅ 모든 응답을 지웠습니다. 백업은 위 링크에 있습니다. 시각은 한국 시간 초 단위로 기록됩니다.');
 }
 
 function onlyTestRows_(sh) {

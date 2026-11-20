@@ -48,6 +48,12 @@ session 1 and `ai_freq` from session 2). AnalysisLong carries `AIFreq_code` (aft
 `T2DVolume_code`, `AIUse_code`, `AITrust_code`, `Major` (blank for evaluators who were not asked).
 
 ## Sheets
+**Timestamps (backend v5, 2026-11-20):** every column whose name ends in `At` (ReceivedAt, FirstSeenAt, ServerUpdatedAt,
+StartedAt, FinishedAt, ConsentAt, CaseStartedAt, CaseCompletedAt, LastActivityAt …) is stored as a real date-time value
+(client ISO strings are converted), shown as `yyyy-mm-dd hh:mm:ss` in the spreadsheet time zone `Asia/Seoul`; the value keeps
+milliseconds. `resetAllResponses()` (run from the Apps Script editor) backs up the whole spreadsheet as a copy, clears the five
+response sheets to their headers, resets EvaluatorCode/sequence counters and rebuilds Summary (Concordance is kept).
+
 
 ### Visits (one row per intro page view, no PII) — action `view`
 `ReceivedAt, VisitId, DeviceId, Src, Site, Wave, TypeParam, FormFactor, InAppBrowser, ReferrerOrigin, IsTest, AppVersion`

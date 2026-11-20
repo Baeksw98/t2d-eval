@@ -54,6 +54,12 @@ class Range {
   }
   setValue(v) { return this.setValues([[v]]); }
   setFontWeight() { return this; } setBackground() { return this; } setFontSize() { return this; }
+  setNumberFormat(fmt) {
+    this.sheet.formats = this.sheet.formats || {};
+    for (let r = 0; r < this.nr; r++) for (let c = 0; c < this.nc; c++) this.sheet.formats[(this.row + r) + ':' + (this.col + c)] = fmt;
+    return this;
+  }
+  getNumberFormat() { return ((this.sheet.formats || {})[this.row + ':' + this.col]) || 'General'; }
 }
 class Sheet {
   constructor(name) { this.name = name; this.cells = []; }
@@ -62,6 +68,7 @@ class Sheet {
     if (r < 1 || c < 1 || nr < 1 || nc < 1) throw new Error(`bad range ${r},${c},${nr},${nc}`);
     return new Range(this, r, c, nr, nc);
   }
+  getMaxRows() { return Math.max(1000, this.cells.length); }
   getLastRow() {
     for (let i = this.cells.length - 1; i >= 0; i--) if ((this.cells[i] || []).some(v => v !== '' && v !== undefined)) return i + 1;
     return 0;
@@ -75,12 +82,23 @@ class Sheet {
   setFrozenRows() {} clear() { this.cells = []; } autoResizeColumns() {}
 }
 class Spreadsheet {
+  static copies = 0;
   constructor() { this.sheets = [new Sheet('Sheet1')]; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
   insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; }
+  getSpreadsheetTimeZone() { return this.tz || 'America/New_York'; }
+  setSpreadsheetTimeZone(tz) { this.tz = tz; }
+  copy(name) {
+    const c = Object.create(Object.getPrototypeOf(this));
+    Object.assign(c, this, { name, id: (this.id || 'ss') + '-copy-' + (++Spreadsheet.copies) });
+    c.sheets = this.sheets.map(sh => { const n = new Sheet(sh.name); n.cells = sh.cells.map(r => (r || []).slice()); n.formats = Object.assign({}, sh.formats || {}); return n; });
+    (Spreadsheet.copied = Spreadsheet.copied || []).push(c);
+    return c;
+  }
   getSheets() { return this.sheets.slice(); }
   deleteSheet(s) { this.sheets = this.sheets.filter(x => x !== s); }
-  getUrl() { return 'mock://spreadsheet'; }
+  getName() { return this.name || 'Mock'; }
+  getUrl() { return 'mock://spreadsheet/' + (this.name || ''); }
 }
 
 function makeEnv() {
@@ -90,7 +108,7 @@ function makeEnv() {
   const lock = { busy: false, acquired: 0, released: 0 };
   let tid = 0;
   const ctx = {
-    SpreadsheetApp: { getActiveSpreadsheet: () => SS, openById: () => SS, getUi: () => ({ alert() {}, createMenu() { return { addItem() { return this; }, addSeparator() { return this; }, addToUi() {} }; } }) },
+    SpreadsheetApp: { flush() {}, getActiveSpreadsheet: () => SS, openById: () => SS, getUi: () => ({ alert() {}, createMenu() { return { addItem() { return this; }, addSeparator() { return this; }, addToUi() {} }; } }) },
     LockService: { getScriptLock: () => ({
       waitLock() { if (lock.busy) throw new Error('busy'); lock.acquired++; },
       tryLock() { if (lock.busy) return false; lock.acquired++; return true; },
@@ -110,6 +128,7 @@ function makeEnv() {
       }
     },
     Utilities: {
+      formatDate: (d, tz, fmt) => new Date(d).toISOString().replace('T', ' ').slice(0, 19),
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, str) => Array.from(crypto.createHash(alg).update(String(str), 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
       sleep: () => {}
@@ -729,6 +748,59 @@ function buildStudy(SS) {
     Object.keys(saved).forEach(k => { EV[k] = saved[k]; });
     SESSIONS.forEach(s => { if (s._v34) s.v34 = s._v34; delete s._v34; });
   }
+})();
+
+// =====================================================================
+// 5) 시각 저장(초 단위·한국 시간) + resetAllResponses
+// =====================================================================
+(function () {
+  const env = makeEnv();
+  const C = env.ctx;
+  C.setup();
+  eq('setup: spreadsheet time zone', env.SS.getSpreadsheetTimeZone(), 'Asia/Seoul');
+  const sess = env.SS.getSheetByName('Sessions');
+  const hdr = sess.getRange(1, 1, 1, sess.getLastColumn()).getValues()[0];
+  const col = n => hdr.indexOf(n) + 1;
+  eq('setup: StartedAt column formatted to seconds', sess.getRange(2, col('StartedAt')).getNumberFormat(), 'yyyy-mm-dd hh:mm:ss');
+  eq('setup: SessionId column not time-formatted', sess.getRange(2, col('SessionId')).getNumberFormat(), 'General');
+  // write a row through the normal table path with client ISO strings
+  const db = {};
+  const t = C.table_(env.SS, db, 'Sessions', C.sessHeaders_());
+  C.tWrite_(t, -1, { SessionId: 'sess-1', FirstSeenAt: new Date('2026-11-20T00:00:01Z'), StartedAt: '2026-11-20T00:00:02.345Z',
+    ConsentAt: '2026-11-20T00:00:01.000Z', OverallComment: '2026-11-20T00:00:02Z' });
+  C.tFlush_(t);
+  const r = sess.getRange(2, 1, 1, hdr.length).getValues()[0];
+  ok('StartedAt stored as Date (ms kept)', r[col('StartedAt') - 1] instanceof Date && r[col('StartedAt') - 1].toISOString() === '2026-11-20T00:00:02.345Z');
+  ok('ConsentAt stored as Date', r[col('ConsentAt') - 1] instanceof Date);
+  eq('free-text column with an ISO-looking value stays text', r[col('OverallComment') - 1], '2026-11-20T00:00:02Z');
+  eq('appended row: StartedAt formatted', sess.getRange(2, col('StartedAt')).getNumberFormat(), 'yyyy-mm-dd hh:mm:ss');
+  ok('sameTime_ Date vs ISO', C.sameTime_(r[col('StartedAt') - 1], '2026-11-20T00:00:02.345Z'));
+  // Visits / RawJSON (appendRow) get the format on ReceivedAt
+  C.logRaw_(env.SS, { action: 'start', session_id: 'sess-1', msg_id: 'm1', is_test: false }, 5, '');
+  const raw = env.SS.getSheetByName('RawJSON');
+  ok('RawJSON ReceivedAt is Date', raw.getRange(raw.getLastRow(), 1).getValues()[0][0] instanceof Date);
+  eq('RawJSON ReceivedAt formatted', raw.getRange(raw.getLastRow(), 1).getNumberFormat(), 'yyyy-mm-dd hh:mm:ss');
+  // reset
+  env.props.EVC_abc = 'E001'; env.props.EVC_COUNTER = '1'; env.props.EVT_COUNTER = '2'; env.props.SEQ_COUNTER_A = '3';
+  env.props.SUMMARY_DIRTY = '1'; env.props.KEEP_ME = 'x';
+  const conc = env.SS.insertSheet('Concordance'); conc.cells = [['TargetKey', 'ConcordanceScore'], ['P051_gpt|P1', 0.9]];
+  const before = (env.SS.constructor.copied || []).length;
+  C.resetAllResponses();
+  const copies = env.SS.constructor.copied || [];
+  eq('reset: one backup copy made', copies.length - before, 1);
+  const bk = copies[copies.length - 1];
+  ok('reset: backup name has timestamp', /\(백업 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)$/.test(bk.name));
+  eq('reset: backup keeps the old Sessions row', bk.getSheetByName('Sessions').getLastRow(), 2);
+  ['Responses', 'PhaseLong', 'Sessions', 'Visits', 'RawJSON'].forEach(n => {
+    const sh = env.SS.getSheetByName(n);
+    eq('reset: ' + n + ' has header only', sh.getLastRow(), 1);
+  });
+  eq('reset: Sessions StartedAt still formatted', sess.getRange(2, col('StartedAt')).getNumberFormat(), 'yyyy-mm-dd hh:mm:ss');
+  ok('reset: codes/counters cleared', !Object.keys(env.props).some(k => /^(EVC_|EVT_|SEQ_COUNTER|SUMMARY_DIRTY$)/.test(k)));
+  eq('reset: unrelated property kept', env.props.KEEP_ME, 'x');
+  eq('reset: Concordance untouched', env.SS.getSheetByName('Concordance').getLastRow(), 2);
+  eq('reset: lock released', env.lock.acquired, env.lock.released);
+  ok('reset: Summary rebuilt', !!env.SS.getSheetByName('Summary'));
 })();
 
 console.log(`\n${passes} passed, ${failures} failed`);

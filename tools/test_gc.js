@@ -56,6 +56,12 @@ class Range {
   }
   setValue(v) { return this.setValues([[v]]); }
   setFontWeight() { return this; } setBackground() { return this; } setFontSize() { return this; }
+  setNumberFormat(fmt) {
+    this.sheet.formats = this.sheet.formats || {};
+    for (let r = 0; r < this.nr; r++) for (let c = 0; c < this.nc; c++) this.sheet.formats[(this.row + r) + ':' + (this.col + c)] = fmt;
+    return this;
+  }
+  getNumberFormat() { return ((this.sheet.formats || {})[this.row + ':' + this.col]) || 'General'; }
 }
 class Sheet {
   constructor(name) { this.name = name; this.cells = []; }
@@ -64,6 +70,7 @@ class Sheet {
     if (r < 1 || c < 1 || nr < 1 || nc < 1) throw new Error(`bad range ${r},${c},${nr},${nc}`);
     return new Range(this, r, c, nr, nc);
   }
+  getMaxRows() { return Math.max(1000, this.cells.length); }
   getLastRow() {
     for (let i = this.cells.length - 1; i >= 0; i--) if ((this.cells[i] || []).some(v => v !== '' && v !== undefined)) return i + 1;
     return 0;
@@ -78,11 +85,21 @@ class Sheet {
 }
 let ssSeq = 0;
 class Spreadsheet {
+  static copies = 0;
   constructor(name) { this.sheets = [new Sheet('Sheet1')]; this.name = name || 'Untitled'; this.id = 'mock-ss-' + (++ssSeq); }
   getId() { return this.id; }
   getName() { return this.name; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
   insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; }
+  getSpreadsheetTimeZone() { return this.tz || 'America/New_York'; }
+  setSpreadsheetTimeZone(tz) { this.tz = tz; }
+  copy(name) {
+    const c = Object.create(Object.getPrototypeOf(this));
+    Object.assign(c, this, { name, id: (this.id || 'ss') + '-copy-' + (++Spreadsheet.copies) });
+    c.sheets = this.sheets.map(sh => { const n = new Sheet(sh.name); n.cells = sh.cells.map(r => (r || []).slice()); n.formats = Object.assign({}, sh.formats || {}); return n; });
+    (Spreadsheet.copied = Spreadsheet.copied || []).push(c);
+    return c;
+  }
   getSheets() { return this.sheets.slice(); }
   deleteSheet(s) { this.sheets = this.sheets.filter(x => x !== s); }
   getUrl() { return 'mock://spreadsheet'; }
@@ -129,6 +146,7 @@ function makeEnv(opts) {
       }
     },
     Utilities: {
+      formatDate: (d, tz, fmt) => new Date(d).toISOString().replace('T', ' ').slice(0, 19),
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, str) => Array.from(crypto.createHash(alg).update(String(str), 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
       sleep: () => {}
@@ -278,7 +296,7 @@ const endItems = (a, b) => ({
     CODE.indexOf('var GC_SPREADSHEET_ID = "";') > 0 && CODE.indexOf('var GC_SPREADSHEET_ID') < CODE.search(/^function /m));
   const pub = gcNames.filter(n => /^[a-z]/i.test(n) && !/_$/.test(n) && new RegExp('^function ' + n + '\\b', 'm').test(CODE));
   eq('GC Run dropdown = GC functions only', pub.slice().sort().join(','),
-    ['buildGcSummary', 'buildGcSummaryIncludingTests', 'doGet', 'doPost', 'onOpen', 'refreshGcSummaryIfDirty', 'setup', 'showGcCounter'].join(','));
+    ['buildGcSummary', 'buildGcSummaryIncludingTests', 'doGet', 'doPost', 'onOpen', 'refreshGcSummaryIfDirty', 'resetAllGcResponses', 'setup', 'showGcCounter'].join(','));
   const caNames = topNames(CA_CODE);
   eq('Code.gs (CA): no top-level name declared twice', caNames.filter((n, i) => caNames.indexOf(n) !== i).join(','), '');
   ok('Code.gs (CA): no GC code', !/gc_|GC_/.test(CA_CODE));
@@ -299,7 +317,7 @@ const endItems = (a, b) => ({
   const G = env.ctx.GC_ITEMS;
   GC_CONFIG.PROFILE_FIELDS.forEach(f => eq('GC_OPT.' + f.id + ' = gc-config.js PROFILE_FIELDS options (codes)', JSON.stringify(env.ctx.GC_OPT[f.id]), JSON.stringify(f.options)));
   eq('profile fields = board_years, setting, ai_freq', GC_CONFIG.PROFILE_FIELDS.map(f => f.id).join(','), 'board_years,setting,ai_freq');
-  eq('GC_BACKEND_VERSION', env.ctx.GC_BACKEND_VERSION, '2026-11-19.gc-backend-v2');
+  eq('GC_BACKEND_VERSION', env.ctx.GC_BACKEND_VERSION, '2026-11-20.gc-backend-v3');
   eq('GC_ITEMS data_version = gc_items.js', G.data_version, GC_DATA.data_version);
   eq('GC_ITEMS units', Object.keys(G.units).join(','), Object.keys(GC_DATA.units).join(','));
   eq('GC_ITEMS item counts (P051_gpt 4, P051_deepseek 8, P011_gpt 10, P011_deepseek 7)',
@@ -409,7 +427,7 @@ const endItems = (a, b) => ({
   eq('ConsentVersion', s1.ConsentVersion, GC_CONFIG.CONSENT_VERSION);
   eq('PartPreselected FALSE', s1.PartPreselected, false);
   eq('Src', s1.Src, 'qr');
-  eq('BackendVersion', s1.BackendVersion, '2026-11-19.gc-backend-v2');
+  eq('BackendVersion', s1.BackendVersion, '2026-11-20.gc-backend-v3');
   ok('FirstSeenAt is a Date', s1.FirstSeenAt instanceof Date);
   eq('GC_Raw logged gc_start', objs(SS, 'GC_Raw').filter(r => r.Action === 'gc_start').length, 1);
   ok('no CA sheets in the GC spreadsheet', ['RawJSON', 'Sessions', 'Responses', 'PhaseLong', 'Summary'].every(n => !SS.getSheetByName(n)));
@@ -522,7 +540,7 @@ const endItems = (a, b) => ({
   eq('finish: TotalActiveMin', s1.TotalActiveMin, 10);
   eq('finish: TotalWallMin', s1.TotalWallMin, 15);
   eq('finish: Resumes', s1.Resumes, 1);
-  eq('finish: FinishedAt', s1.FinishedAt, iso(20 * 60e3));
+  eq('finish: FinishedAt is a Date (초 단위 표시)', s1.FinishedAt instanceof Date && s1.FinishedAt.toISOString(), iso(20 * 60e3));
   eq('finish: OverallComment stored as text', rawCell(SS, 'GC_Sessions', (r, h) => r[h.indexOf('SessionId')] === p1.sid, 'OverallComment'), "'+수고하셨습니다");
   const snap = JSON.stringify(objs(SS, 'GC_Judgments').map(x => [x.SessionId, x.ItemId, x.PhysVerdict, String(x.ServerUpdatedAt)]));
   eq('finish re-sent ok', post(Object.assign({}, fin, { msg_id: uuid() })).ok, true);
@@ -546,7 +564,7 @@ const endItems = (a, b) => ({
   const s2 = objs(SS, 'GC_Sessions').find(x => x.SessionId === p2.sid);
   eq('progress: FurthestUnit', s2.FurthestUnit, 1);
   eq('progress: FurthestItem', s2.FurthestItem, 3);
-  eq('progress: LastActivityAt', s2.LastActivityAt, iso(5e3));
+  eq('progress: LastActivityAt is a Date', s2.LastActivityAt instanceof Date && s2.LastActivityAt.toISOString(), iso(5e3));
   eq('progress: status unchanged', s2.Status, 'started');
   const p6 = physician('윤가가', 'B', { seq: 1, order: ['P051_gpt', 'P011_deepseek'] });
   post(base(p6, 'gc_progress', { progress: { furthest_unit: 2, furthest_item: 9, items_done: 8, last_activity_at: iso(9e3) } }));
@@ -1088,6 +1106,35 @@ const endItems = (a, b) => ({
   const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'test_summary.js')], { encoding: 'utf8' });
   const tail = (r.stdout || '').trim().split('\n').pop();
   ok('tools/test_summary.js still all PASS (' + tail + ')', r.status === 0, (r.stdout || '').split('\n').filter(l => l.startsWith('FAIL')).join(' | ') || r.stderr);
+})();
+
+// ---- 시각 저장(초 단위·한국 시간) + resetAllGcResponses ----
+(function () {
+  const env = makeEnv();
+  const C = env.ctx;
+  C.setup();
+  const SS = env.SS;
+  eq('GC setup: time zone Asia/Seoul', SS.getSpreadsheetTimeZone(), 'Asia/Seoul');
+  const J = SS.getSheetByName('GC_Judgments');
+  const jh = J.getRange(1, 1, 1, J.getLastColumn()).getValues()[0];
+  eq('GC setup: AnsweredAt formatted to seconds', J.getRange(2, jh.indexOf('AnsweredAt') + 1).getNumberFormat(), 'yyyy-mm-dd hh:mm:ss');
+  const db = {};
+  const t = C.table_(SS, db, 'GC_Judgments', C.gcJudgHeaders_());
+  C.tWrite_(t, -1, { SessionId: 's', ItemId: 'i', AnsweredAt: '2026-11-20T03:04:05.678Z', Comment: '2026-11-20T03:04:05Z' });
+  C.tFlush_(t);
+  const r = J.getRange(2, 1, 1, jh.length).getValues()[0];
+  ok('GC AnsweredAt stored as Date', r[jh.indexOf('AnsweredAt')] instanceof Date && r[jh.indexOf('AnsweredAt')].toISOString() === '2026-11-20T03:04:05.678Z');
+  eq('GC Comment stays text', r[jh.indexOf('Comment')], '2026-11-20T03:04:05Z');
+  env.props.GCC_x = 'G001'; env.props.GCC_COUNTER = '1'; env.props.GCT_COUNTER = '1'; env.props.GC_SEQ_COUNTER_A = '2'; env.props.GC_SUMMARY_DIRTY = '1';
+  const id = env.props.GC_SPREADSHEET_ID;
+  const before = (Spreadsheet.copied || []).length;
+  C.resetAllGcResponses();
+  eq('GC reset: one backup copy', (Spreadsheet.copied || []).length - before, 1);
+  eq('GC reset: backup keeps the judgment row', Spreadsheet.copied[Spreadsheet.copied.length - 1].getSheetByName('GC_Judgments').getLastRow(), 2);
+  ['Visits', 'GC_Sessions', 'GC_Judgments', 'GC_Raw'].forEach(n => eq('GC reset: ' + n + ' header only', SS.getSheetByName(n).getLastRow(), 1));
+  ok('GC reset: codes/counters cleared', !Object.keys(env.props).some(k => /^(GCC_|GCT_|GC_SEQ_COUNTER|GC_SUMMARY_DIRTY$)/.test(k)));
+  eq('GC reset: spreadsheet id kept', env.props.GC_SPREADSHEET_ID, id);
+  eq('GC reset: lock released', env.lock.acquired, env.lock.released);
 })();
 
 console.log(`\n${passes} passed, ${failures} failed`);

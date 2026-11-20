@@ -141,6 +141,12 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 
 ---
 
+### 응답 시각과 전체 삭제
+- 시각 컬럼(이름이 `…At`)은 한국 시간 기준 `yyyy-mm-dd hh:mm:ss`(초 단위)로 표시됩니다. 값에는 밀리초까지 들어 있습니다.
+- 응답을 처음부터 다시 받으려면 Apps Script 편집기에서 함수 `resetAllResponses`(GC 는 `resetAllGcResponses`)를 실행합니다.
+  실행하면 먼저 스프레드시트 전체를 `(백업 날짜 시각)` 사본으로 내 드라이브에 저장한 뒤, 응답 시트를 헤더만 남기고 비우고,
+  평가자 가명 코드(E001…)와 순서 배정 카운터를 처음으로 되돌립니다. 백업 링크는 실행 로그에 나옵니다.
+
 ## 5. AI 답변·환자 자료를 바꿀 때
 
 원문 마크다운(현재 형식: `# P051 Deepseek V4.1 Flash` / `GPT6.1 Sol P051` 블록 + `P051 Patient Input Information`)을 준비한 뒤:

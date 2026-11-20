@@ -53,6 +53,12 @@ class Range {
   }
   setValue(v) { return this.setValues([[v]]); }
   setFontWeight() { return this; } setBackground() { return this; } setFontSize() { return this; }
+  setNumberFormat(fmt) {
+    this.sheet.formats = this.sheet.formats || {};
+    for (let r = 0; r < this.nr; r++) for (let c = 0; c < this.nc; c++) this.sheet.formats[(this.row + r) + ':' + (this.col + c)] = fmt;
+    return this;
+  }
+  getNumberFormat() { return ((this.sheet.formats || {})[this.row + ':' + this.col]) || 'General'; }
 }
 class Sheet {
   constructor(name) { this.name = name; this.cells = []; }
@@ -61,6 +67,7 @@ class Sheet {
     if (r < 1 || c < 1 || nr < 1 || nc < 1) throw new Error(`bad range ${r},${c},${nr},${nc}`);
     return new Range(this, r, c, nr, nc);
   }
+  getMaxRows() { return Math.max(1000, this.cells.length); }
   getLastRow() {
     for (let i = this.cells.length - 1; i >= 0; i--) if ((this.cells[i] || []).some(v => v !== '' && v !== undefined)) return i + 1;
     return 0;
@@ -78,11 +85,21 @@ class Sheet {
 }
 let ssSeq = 0;
 class Spreadsheet {
+  static copies = 0;
   constructor(name) { this.sheets = [new Sheet('Sheet1')]; this.name = name || 'Untitled'; this.id = 'mock-ss-' + (++ssSeq); }
   getId() { return this.id; }
   getName() { return this.name; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
   insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; }
+  getSpreadsheetTimeZone() { return this.tz || 'America/New_York'; }
+  setSpreadsheetTimeZone(tz) { this.tz = tz; }
+  copy(name) {
+    const c = Object.create(Object.getPrototypeOf(this));
+    Object.assign(c, this, { name, id: (this.id || 'ss') + '-copy-' + (++Spreadsheet.copies) });
+    c.sheets = this.sheets.map(sh => { const n = new Sheet(sh.name); n.cells = sh.cells.map(r => (r || []).slice()); n.formats = Object.assign({}, sh.formats || {}); return n; });
+    (Spreadsheet.copied = Spreadsheet.copied || []).push(c);
+    return c;
+  }
   getSheets() { return this.sheets.slice(); }
   deleteSheet(s) { this.sheets = this.sheets.filter(x => x !== s); }
   getUrl() { return 'mock://spreadsheet/' + this.id; }
@@ -108,6 +125,7 @@ function makeProject(label, file, opts) {
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
     Logger: { log: (...a) => console.log(`[GAS ${label}]`, ...a) },
     Utilities: {
+      formatDate: (d, tz, fmt) => new Date(d).toISOString().replace('T', ' ').slice(0, 19),
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, str) => Array.from(require('crypto').createHash(alg).update(String(str), 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
       sleep: () => {}
