@@ -21,7 +21,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314304a'/%3E%3Cpath d='M18 34l9 9 19-21' stroke='%23f08a3c' stroke-width='7' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="../site.css?v=2026-11-20.site-v2">
+  <link rel="stylesheet" href="../site.css?v=2026-11-20.site-v3">
 </head>
 <body class="about">
   <a class="skip" href="#main">본문으로 바로 가기</a>
@@ -61,10 +61,9 @@
       <nav class="toc-mobile" aria-label="이 페이지 목차">
         <h2>이 페이지</h2>
         <ol>
-          <li><a href="#overview">그림 1 · 한눈에</a></li>
-          <li><a href="#why">왜 필요한가</a></li>
-          <li><a href="#design">구성</a></li>
+          <li><a href="#overview">한눈에 보기</a></li>
           <li><a href="#tracks">두 평가</a></li>
+          <li><a href="#more">더 알아보기</a></li>
           <li><a href="#faq">자주 묻는 질문</a></li>
         </ol>
       </nav>
@@ -185,14 +184,11 @@
       <nav class="toc" aria-label="이 페이지 목차">
         <h2>이 페이지</h2>
         <ol>
-          <li><a href="#why">왜 필요한가</a></li>
-          <li><a href="#design">벤치마크 구성</a></li>
-          <li class="sub"><a href="#design-a">A 질문지</a></li>
-          <li class="sub"><a href="#design-b">B 시험 자료</a></li>
-          <li class="sub"><a href="#design-c">C 채점</a></li>
-          <li class="sub"><a href="#phases">5단계 × 두 평가</a></li>
-          <li><a href="#tracks">의사 참여와 두 평가</a></li>
-          <li><a href="#ethics">데이터와 윤리</a></li>
+          <li><a href="#tracks">두 평가</a></li>
+          <li><a href="#more">더 알아보기</a></li>
+          <li class="sub"><a href="#why">왜 필요한가</a></li>
+          <li class="sub"><a href="#design">벤치마크 구성</a></li>
+          <li class="sub"><a href="#ethics">데이터와 윤리</a></li>
           <li><a href="#faq">자주 묻는 질문</a></li>
         </ol>
         <div class="toc-cta">
@@ -202,13 +198,71 @@
       </nav>
 
       <div class="doc-main">
-        <!-- 1. Why -->
-        <section class="doc-sec" id="why" aria-labelledby="whyH">
+        <!-- Tracks -->
+        <section class="doc-sec" id="tracks" aria-labelledby="tracksH">
           <div class="sec-head">
-            <p class="sec-n">1 · 왜 필요한가</p>
-            <h2 id="whyH">기준을 얻는 방식이 다릅니다</h2>
-            <p>기준을 증례마다 새로 쓰지 않고, 진료지침에서 한 번 뽑아 고정합니다.</p>
+            <p class="sec-n">참여하기</p>
+            <h2 id="tracksH">두 평가</h2>
+            <p>이 사이트에서 참여하실 수 있는 두 평가입니다.</p>
           </div>
+
+          <div class="tracks" style="margin-top:22px">
+            <article class="track ca" aria-labelledby="atCa">
+              <div class="track-body">
+                <div class="track-top">
+                  <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span>
+                  <div><h3 id="atCa">임상 수용성 평가</h3><p class="track-en">Physician Clinical Acceptability Assessment</p></div>
+                </div>
+                <p class="track-q">AI 답변을 단계별로 읽고 <b>진료에 쓸 만한지</b> 평가합니다.</p>
+                <p class="mini-label">진행 순서</p>
+                <ol class="mini-flow">
+                  <li><span class="step">환자 정보</span></li>
+                  <li><span class="step">Phase 1</span></li>
+                  <li><span class="step">선호 조합 선택</span></li>
+                  <li><span class="step">Phase 2–5</span></li>
+                  <li><span class="step you nowrap">단계별 1–5점 · 의견</span></li>
+                </ol>
+                <dl class="facts">
+                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 20–30분</dd></div>
+                </dl>
+                <a class="btn btn-ca btn-block" href="../ca/" data-carry>임상 수용성 평가 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
+              </div>
+            </article>
+
+            <article class="track gc" aria-labelledby="atGc">
+              <div class="track-body">
+                <div class="track-top">
+                  <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-gc"/></svg></span>
+                  <div><h3 id="atGc">가이드라인 부합도 검증</h3><p class="track-en">Guideline Concordance · Physician Validation</p></div>
+                </div>
+                <p class="track-q">AI 감사가 표시한 판정(△·✗)이 맞는지 <b>직접 확인</b>합니다.</p>
+                <p class="mini-label">판정마다 읽는 순서</p>
+                <ol class="mini-flow">
+                  <li><span class="step"><span class="nb" aria-hidden="true">1</span>CDSS 답변</span></li>
+                  <li><span class="step"><span class="nb" aria-hidden="true">2</span>AI 채점 사유</span></li>
+                  <li><span class="step"><span class="nb" aria-hidden="true">3</span>AI 감사 의견</span></li>
+                  <li><span class="step"><span class="nb" aria-hidden="true">4</span>최종 판정</span></li>
+                  <li><span class="step you">동의 / 비동의</span></li>
+                </ol>
+                                <dl class="facts">
+                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 10–25분</dd></div>
+                </dl>
+                <a class="btn btn-gc btn-block" href="../gc/" data-carry>가이드라인 부합도 검증 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- More (collapsed: for readers who want the details) -->
+        <section class="doc-sec" id="more" aria-labelledby="moreH">
+          <div class="sec-head">
+            <p class="sec-n">더 알아보기</p>
+            <h2 id="moreH">관심 있는 항목을 펼쳐 보세요</h2>
+          </div>
+          <div class="more-list">
+          <details class="more-item" id="why">
+            <summary><span class="mi-text"><span class="mi-k">비교</span><span class="mi-t">왜 필요한가</span><span class="mi-d">기존 벤치마크와 기준을 얻는 방식 비교</span></span></summary>
+            <div class="more-body">
 
           <div class="compare" role="table" aria-label="기존 방식과 이 벤치마크 비교">
             <div class="cmp-head" role="row">
@@ -234,21 +288,17 @@
           </div>
           <p class="cmp-note">HealthBench Professional (arXiv 2604.27470), NOHARM (arXiv 2512.01241). 우열의 비교가 아니라, 기준을 얻는 방식과 재는 대상이 다르다는 뜻입니다.</p>
 
-        </section>
-
-        <!-- 2. Design -->
-        <section class="doc-sec" id="design" aria-labelledby="designH">
-          <div class="sec-head">
-            <p class="sec-n">2 · 벤치마크 구성</p>
-            <h2 id="designH">질문지 · 시험 자료 · 채점</h2>
-            <p>무엇을 물을지(A), 시스템이 무엇을 받고 내는지(B), 답변을 어떻게 판정하는지(C)의 세 부분으로 이루어집니다.</p>
-          </div>
+        </div>
+          </details>
+          <details class="more-item" id="design">
+            <summary><span class="mi-text"><span class="mi-k">그림 A · B · C</span><span class="mi-t">벤치마크 구성</span><span class="mi-d">질문지 · 시험 자료 · 채점 흐름, 5단계 × 두 평가</span></span></summary>
+            <div class="more-body">
 
           <!-- A -->
           <figure class="panel a figure" id="design-a" aria-labelledby="paH">
             <div class="panel-head"><span class="pl" aria-hidden="true">A</span><h3 id="paH">질문지 <span class="en">Questionnaire · 무엇을 묻는가</span></h3></div>
             <p class="panel-lead">처방 결정의 인지 절차에서 문항을 만들고, 당뇨병 전문의 패널의 Delphi 합의로 다듬었습니다.</p>
-            <details class="panel-more" data-mobile-closed open><summary><span>그림 A 자세히 보기 · 문항을 만든 과정</span></summary>
+            <details class="panel-more" open><summary><span>그림 A 자세히 보기 · 문항을 만든 과정</span></summary>
             <ol class="flow cols-4">
               <li><div class="node q">
                 <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-steps"/></svg></span><h4>처방 결정의 인지 절차 <span class="en">Cognitive procedure</span></h4></div>
@@ -284,7 +334,7 @@
           <figure class="panel b figure" id="design-b" aria-labelledby="pbH">
             <div class="panel-head"><span class="pl" aria-hidden="true">B</span><h3 id="pbH">시험 자료 <span class="en">Test material · 시스템이 받는 것과 내는 것</span></h3></div>
             <p class="panel-lead">처방을 바꾸는 6개 임상 차원을 모두 조합해 합성 환자를 만들고, 시스템이 같은 형식으로 답하게 했습니다.</p>
-            <details class="panel-more" data-mobile-closed open><summary><span>그림 B 자세히 보기 · 합성 환자와 5단계 답변</span></summary>
+            <details class="panel-more" open><summary><span>그림 B 자세히 보기 · 합성 환자와 5단계 답변</span></summary>
             <ol class="flow cols-3w">
               <li><div class="node t">
                 <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><h4>합성 환자 <span class="en">Synthetic vignettes</span></h4></div>
@@ -333,7 +383,7 @@
           <figure class="panel c figure" id="design-c" aria-labelledby="pcH">
             <div class="panel-head"><span class="pl" aria-hidden="true">C</span><h3 id="pcH">채점 <span class="en">Scoring · 답변을 어떻게 판정하나</span></h3></div>
             <p class="panel-lead">하나의 답변을 두 갈래로 봅니다. 진료지침을 따르는가(가이드라인 부합도), 의사가 쓸 만한가(임상 수용성).</p>
-            <details class="panel-more" data-mobile-closed open><summary><span>그림 C 자세히 보기 · 채점 흐름</span></summary>
+            <details class="panel-more" open><summary><span>그림 C 자세히 보기 · 채점 흐름</span></summary>
 
             <div class="lane">
               <div class="lane-h"><h4>가이드라인 부합도</h4><span class="pill teal">Guideline concordance · 모든 단계</span></div>
@@ -404,7 +454,7 @@
           </figure>
 
           <!-- Phase table -->
-          <details class="phases" id="phases" data-mobile-closed open>
+          <details class="phases" id="phases" open>
             <summary><h3>5단계 답변을 두 평가가 어떻게 보나</h3><span class="ph-more" aria-hidden="true">표 보기</span></summary>
             <p class="prose" style="color:var(--muted);margin-top:6px">가이드라인 부합도는 단계별 문항(모두 20문항)으로, 임상 수용성은 단계마다 “AI가 제공한 [해당 내용]은 [해당 임상 결정]에 유의미한 참고가 된다”에 대한 동의 정도로 봅니다.</p>
             <div class="ptable" role="table" aria-label="5단계 답변과 두 평가">
@@ -444,82 +494,26 @@
               </div>
             </div>
           </details>
-        </section>
-
-        <!-- 3. Physicians & tracks -->
-        <section class="doc-sec" id="tracks" aria-labelledby="tracksH">
-          <div class="sec-head">
-            <p class="sec-n">3 · 의사 참여와 두 평가</p>
-            <h2 id="tracksH">의사 참여와 두 평가</h2>
-            <p>이 사이트에서 참여하실 수 있는 두 평가입니다.</p>
-          </div>
-
-          <div class="tracks" style="margin-top:22px">
-            <article class="track ca" aria-labelledby="atCa">
-              <div class="track-body">
-                <div class="track-top">
-                  <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span>
-                  <div><h3 id="atCa">임상 수용성 평가</h3><p class="track-en">Physician Clinical Acceptability Assessment</p></div>
-                </div>
-                <p class="track-q">AI 답변을 단계별로 읽고 <b>진료에 쓸 만한지</b> 평가합니다.</p>
-                <p class="mini-label">진행 순서</p>
-                <ol class="mini-flow">
-                  <li><span class="step">환자 정보</span></li>
-                  <li><span class="step">Phase 1</span></li>
-                  <li><span class="step">선호 조합 선택</span></li>
-                  <li><span class="step">Phase 2–5</span></li>
-                  <li><span class="step you nowrap">단계별 1–5점 · 의견</span></li>
-                </ol>
-                <dl class="facts">
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 20–30분</dd></div>
-                </dl>
-                <a class="btn btn-ca btn-block" href="../ca/" data-carry>임상 수용성 평가 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
-              </div>
-            </article>
-
-            <article class="track gc" aria-labelledby="atGc">
-              <div class="track-body">
-                <div class="track-top">
-                  <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-gc"/></svg></span>
-                  <div><h3 id="atGc">가이드라인 부합도 검증</h3><p class="track-en">Guideline Concordance · Physician Validation</p></div>
-                </div>
-                <p class="track-q">AI 감사가 표시한 판정(△·✗)이 맞는지 <b>직접 확인</b>합니다.</p>
-                <p class="mini-label">판정마다 읽는 순서</p>
-                <ol class="mini-flow">
-                  <li><span class="step"><span class="nb" aria-hidden="true">1</span>CDSS 답변</span></li>
-                  <li><span class="step"><span class="nb" aria-hidden="true">2</span>AI 채점 사유</span></li>
-                  <li><span class="step"><span class="nb" aria-hidden="true">3</span>AI 감사 의견</span></li>
-                  <li><span class="step"><span class="nb" aria-hidden="true">4</span>최종 판정</span></li>
-                  <li><span class="step you">동의 / 비동의</span></li>
-                </ol>
-                                <dl class="facts">
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 10–25분</dd></div>
-                </dl>
-                <a class="btn btn-gc btn-block" href="../gc/" data-carry>가이드라인 부합도 검증 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <!-- 4. Data & ethics -->
-        <section class="doc-sec" id="ethics" aria-labelledby="ethicsH">
-          <div class="sec-head">
-            <p class="sec-n">4 · 데이터와 윤리</p>
-            <h2 id="ethicsH">가상 환자, 가명 분석, 블라인드</h2>
-          </div>
+        </div>
+          </details>
+          <details class="more-item" id="ethics">
+            <summary><span class="mi-text"><span class="mi-k">윤리</span><span class="mi-t">데이터와 윤리</span><span class="mi-d">가상 환자 · 가명 분석 · 블라인드</span></span></summary>
+            <div class="more-body">
           <ul class="ethics">
             <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><div><h3>가상(합성) 환자만 사용</h3><p>실제 환자 정보는 없습니다.</p></div></li>
             <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-shield"/></svg></span><div><h3>가명 코드로 분석</h3><p>분석과 발표에는 성명 대신 가명 코드를 씁니다.</p></div></li>
             <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-pen"/></svg></span><div><h3>참여 동의는 시작 화면에서</h3><p>수집 항목을 확인하고 동의한 뒤 시작합니다.</p></div></li>
             <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-blind"/></svg></span><div><h3>AI 이름은 공개하지 않음</h3><p>답변·채점에 쓰인 AI 이름은 밝히지 않습니다.</p></div></li>
           </ul>
+        </div>
+          </details>
+          </div>
         </section>
 
-        <!-- 5. FAQ -->
+        <!-- FAQ -->
         <section class="doc-sec" id="faq" aria-labelledby="faqH">
           <div class="sec-head">
-            <p class="sec-n">5 · 자주 묻는 질문</p>
-            <h2 id="faqH">자주 묻는 질문</h2>
+                        <h2 id="faqH">자주 묻는 질문</h2>
           </div>
           <div class="faq">
             <details>
@@ -540,16 +534,6 @@
             </details>
           </div>
         </section>
-
-        <section class="cta-band" aria-labelledby="ctaH">
-          <h2 id="ctaH">평가에 참여해 주세요</h2>
-          <p>선생님의 판단이 의료 AI를 재는 기준이 됩니다.</p>
-          <div class="hero-actions">
-            <a class="btn btn-ca" href="../ca/" data-carry>임상 수용성 평가<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
-            <a class="btn btn-gc" href="../gc/" data-carry>가이드라인 부합도 검증<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
-          </div>
-        </section>
-        <p class="contact">문의: <b>주식회사 애스클립 (Asclep)</b></p>
       </div>
     </div>
   </main>
@@ -565,6 +549,6 @@
     </div>
   </footer>
 
-  <script src="../assets/site.js?v=2026-11-20.site-v2"></script>
+  <script src="../assets/site.js?v=2026-11-20.site-v3"></script>
 </body>
 </html>

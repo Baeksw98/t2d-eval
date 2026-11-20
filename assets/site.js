@@ -122,23 +122,27 @@
     }
   }
 
-  // ---- 3a) collapsible blocks: closed on phones, open elsewhere (and without JS); a link into one opens it ----
+  // ---- 3a) collapsible blocks ----
+  //  · details[data-mobile-closed]: closed on phones, open elsewhere (and without JS)
+  //  · About '더 알아보기' items (details.more-item) start closed everywhere
+  //  · a link (or a URL hash) into a closed block opens it and every closed ancestor
+  var target = function (hash) { try { return hash && hash.length > 1 ? document.getElementById(decodeURIComponent(hash.slice(1))) : null; } catch (_) { return null; } };
+  var openFor = function (el) {
+    for (var d = el; d; d = d.parentElement) { if (d.tagName === 'DETAILS') d.open = true; }
+  };
   var folds = Array.prototype.slice.call(document.querySelectorAll('details[data-mobile-closed]'));
-  if (folds.length) {
-    var target = function (hash) { try { return hash && hash.length > 1 ? document.getElementById(decodeURIComponent(hash.slice(1))) : null; } catch (_) { return null; } };
-    var openFor = function (el) { folds.forEach(function (d) { if (el && (d === el || d.contains(el))) d.open = true; }); };
-    try {
-      if (window.matchMedia('(max-width: 759px)').matches) {
-        var t0 = target(location.hash);
-        folds.forEach(function (d) { if (!(t0 && (d === t0 || d.contains(t0)))) d.open = false; });
-      }
-    } catch (_) {}
-    document.addEventListener('click', function (e) {
-      var a = e.target.closest && e.target.closest('a[href^="#"]');
-      if (a) openFor(target(a.getAttribute('href')));
-    });
-    window.addEventListener('hashchange', function () { openFor(target(location.hash)); });
-  }
+  try {
+    if (folds.length && window.matchMedia('(max-width: 759px)').matches) {
+      var t0 = target(location.hash);
+      folds.forEach(function (d) { if (!(t0 && (d === t0 || d.contains(t0)))) d.open = false; });
+    }
+  } catch (_) {}
+  openFor(target(location.hash));
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (a) openFor(target(a.getAttribute('href')));
+  });
+  window.addEventListener('hashchange', function () { openFor(target(location.hash)); });
 
   // ---- 3) TOC highlight: the last section whose top has passed the header line ----
   var toc = document.querySelector('.toc');
