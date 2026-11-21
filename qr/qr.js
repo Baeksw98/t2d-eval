@@ -7,101 +7,75 @@
  *   main  https://eval.asclep.org/?src=qr      처음 화면 — 두 평가 중 선택 (이미 인쇄된 select.* 와 같은 주소)
  *   ca    https://eval.asclep.org/ca/?src=qr   임상 수용성 평가
  *   gc    https://eval.asclep.org/gc/?src=qr   가이드라인 부합도 검증
+ *   QR·링크 주소에는 언어를 넣지 않습니다(받는 사람의 브라우저 언어를 따름).
+ * 문구: i18n/qr.js (qr.* 키, 한국어/영어) — 이 파일에는 화면 문구가 없습니다. 헤더 공용 문구는 i18n/site.js.
+ *   페이지는 assets/i18n.js → i18n/site.js → i18n/qr.js 를 <head> 에서 먼저 읽습니다. 언어를 바꾸면('t2d:lang') 다시 그립니다.
+ * 인쇄용(?mode=card|poster)은 ?lang=en 이 없으면 한국어로 만듭니다(tools/render_qr_assets.js 의 qr/*-card.png · *-poster-a4.pdf
+ *   = 한국어 인쇄물). 영어 화면의 [A4 안내문] 버튼은 미리 만든 한국어 PDF 대신 ?mode=poster&lang=en 인쇄 화면을 엽니다.
+ * 소요 시간·Type/Part: 기본값은 세트 v1 (i18n/qr.js qr.time.*). window.T2D_DESIGN(data/design.js)이 있으면 그 값을 씁니다.
  * 미리 만든 이미지: qr/<id>.svg|png (make_qr.py), qr/<id>-card.png · qr/<id>-poster-a4.pdf (tools/render_qr_assets.js)
  * 기관·세션 코드(site)나 Type/Part 를 넣으면 QR 은 브라우저에서 즉석 생성합니다(qrcode-generator, 없으면 기본 이미지). */
 (function () {
   'use strict';
   var HOST = 'eval.asclep.org';
   var ORIGIN = 'https://' + HOST;
-  var GC_TIME = 'Part A 약 20–25분 · Part B 약 10–15분';
-  var CA_TIME = 'AI 답변 2건 · 약 20–30분';
-
-  var TRACKS = {
-    main: {
-      id: 'main', path: '/', img: 'main', name: '통합 QR',
-      title: '제2형 당뇨병 AI 벤치마크 평가 참여',
-      subtitle: '두 평가 중 선택 · 임상 수용성 / 가이드라인 부합도',
-      who: '처음 화면에서 두 평가 중 하나를 고릅니다. 대상이 섞인 자리(학회·병원 공지)에 권장',
-      brand: 'Hybrid Physician–AI Benchmark · 제2형 당뇨병 CDSS',
-      time: '평가별 약 10–30분',
-      hint: ['휴대폰 카메라로 QR을 비추면 평가 선택 화면이 열립니다', '두 평가 중 하나를 고르세요 · 중간에 닫아도 이어서 진행됩니다'],
-      steps: function () {
-        return ['휴대폰 기본 카메라로 위 QR 코드를 비추세요.',
-          '첫 화면에서 참여할 평가를 고르세요. 인턴·레지던트·전문의는 <b>임상 수용성 평가</b>, 내분비대사내과 분과전문의는 <b>가이드라인 부합도 검증</b>도 참여할 수 있습니다.',
-          '화면 안내에 따라 AI 답변을 읽고 평가합니다. 벤치마크 소개는 첫 화면의 <b>[벤치마크 소개]</b>에서 볼 수 있습니다.'];
-      },
-      foot: '중간에 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.',
-      message: function (url) {
-        return '[제2형 당뇨병 AI 벤치마크 평가 참여 안내]\n' +
-          '안녕하세요. 제2형 당뇨병 AI 임상 의사결정 지원 시스템(CDSS)의 답변을 의사가 직접 평가하는 연구(Hybrid Physician–AI Benchmark)에 참여를 부탁드립니다.\n\n' +
-          '첫 화면에서 해당하는 평가를 골라 주세요.\n' +
-          '• 임상 수용성 평가 — 인턴·레지던트·전문의 · ' + CA_TIME + '\n' +
-          '• 가이드라인 부합도 검증 — 내분비대사내과 분과전문의 · ' + GC_TIME + '\n' +
-          '• 휴대폰으로 바로 참여할 수 있고, 중간에 닫아도 같은 기기에서 다시 열면 이어서 진행됩니다\n\n' +
-          '▶ 참여 링크: ' + url + '\n' +
-          '▶ 벤치마크 소개: ' + ORIGIN + '/about/\n\n' +
-          '※ 여러 사람이 함께 있는 자리에서도 평가는 각자 독립적으로 해 주세요.';
-      }
-    },
-    ca: {
-      id: 'ca', path: '/ca/', img: 'ca', name: '임상 수용성 평가',
-      title: '임상 수용성 평가',
-      subtitle: 'Clinical Acceptability · 인턴·레지던트·전문의',
-      who: '인턴·레지던트·전문의 · ' + CA_TIME,
-      brand: 'AI 기반 T2D 임상 의사결정 지원 시스템',
-      time: CA_TIME,
-      hint: ['휴대폰 카메라로 QR을 비추면 평가가 시작됩니다', CA_TIME + ' · 중간에 닫아도 이어서 진행됩니다'],
-      variant: { param: 'type', label: 'Type', values: ['A', 'B'], none: '직접 선택',
-        help: '보통은 <b>직접 선택</b>으로 두세요. 한 자리에서 Type을 나눠 부탁드릴 때만 지정하면, 시작 화면에서 그 Type이 미리 선택됩니다(바꿀 수 있음).' },
-      steps: function (v) {
-        return ['휴대폰 기본 카메라로 위 QR 코드를 비추세요.',
-          '성명과 직군(인턴·레지던트·전문의)을 입력하고, ' + (v ? '<b>Type ' + v + '</b>로 시작하세요' : '평가 유형(Type A·B)을 고르세요') + '.',
-          'AI 답변 2건을 읽고 Phase별로 1–5점 평가합니다 (약 20–30분).'];
-      },
-      foot: '중간에 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.<br>한 Type을 마치면 다른 Type도 이어서 평가할 수 있습니다.',
-      message: function (url, v) {
-        return '[임상 수용성 평가 참여 안내]\n' +
-          '안녕하세요. AI 기반 제2형 당뇨병 외래 진료 권고안에 대한 임상 수용성 평가에 참여 부탁드립니다.\n\n' +
-          '• 대상: 인턴·레지던트·전문의\n' +
-          '• 소요 시간: 약 20–30분 (AI 답변 2건' + (v ? ', 이번 안내: Type ' + v : ', 시작 화면에서 Type A·B 중 선택') + ')\n' +
-          '• 휴대폰으로 바로 참여할 수 있습니다\n' +
-          '• 중간에 닫아도 같은 기기에서 다시 열면 이어서 진행됩니다\n\n' +
-          '▶ 참여 링크: ' + url + '\n\n' +
-          '※ 여러 사람이 함께 있는 자리에서도 평가는 각자 독립적으로 해 주세요.';
-      }
-    },
-    gc: {
-      id: 'gc', path: '/gc/', img: 'gc', name: '가이드라인 부합도 검증',
-      title: '가이드라인 부합도 검증',
-      subtitle: 'Physician Validation · 내분비대사내과 분과전문의',
-      who: '내분비대사내과 분과전문의 · ' + GC_TIME,
-      brand: 'AI 기반 T2D 임상 의사결정 지원 시스템',
-      time: GC_TIME,
-      hint: ['휴대폰 카메라로 QR을 비추면 검증이 시작됩니다', GC_TIME + ' · 중간에 닫아도 이어서 진행됩니다'],
-      variant: { param: 'part', label: 'Part', values: ['A', 'B'], none: '직접 선택',
-        help: '보통은 <b>직접 선택</b>으로 두세요. 한 자리에서 Part를 나눠 부탁드릴 때만 지정하면, 시작 화면에서 그 Part가 미리 선택됩니다(바꿀 수 있음).' },
-      steps: function (v) {
-        return ['휴대폰 기본 카메라로 위 QR 코드를 비추세요.',
-          '분과전문의 여부를 확인하고, 성명과 간단한 경력 정보를 입력한 뒤 ' + (v ? '<b>Part ' + v + '</b>로 시작하세요' : 'Part A·B 중 하나를 고르세요') + '.',
-          'AI 채점 판정 중 <b>AI 감사가 다시 확인이 필요하다고 표시한 판정</b>만 보고, 동의 또는 비동의를 고릅니다 (' + GC_TIME + ').'];
-      },
-      foot: '중간에 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.<br>한 Part를 마치면 다른 Part도 이어서 검증할 수 있습니다.',
-      message: function (url, v) {
-        return '[가이드라인 부합도 검증 참여 안내]\n' +
-          '안녕하세요. 내분비대사내과 분과전문의 선생님께 AI 기반 제2형 당뇨병 진료 권고안의 가이드라인 부합도 채점에 대한 전문가 검증을 부탁드립니다.\n\n' +
-          'AI가 CDSS 답변을 가이드라인 기반 채점표로 채점한 판정 가운데, AI 감사가 다시 확인이 필요하다고 표시한 판정만 보여 드립니다. ' +
-          '판정마다 동의 또는 비동의(비동의 시 올바른 판정 선택)를 골라 주시면 됩니다.\n\n' +
-          '• 대상: 내분비대사내과 분과전문의\n' +
-          '• 소요 시간: ' + GC_TIME + (v ? ' (이번 안내: Part ' + v + ')' : ' (시작 화면에서 Part A·B 중 하나 선택)') + '\n' +
-          '• 한 Part를 마치신 뒤 다른 Part도 이어서 검증해 주시면 큰 도움이 됩니다\n' +
-          '• 휴대폰으로 바로 참여할 수 있고, 중간에 닫아도 같은 기기에서 다시 열면 이어서 진행됩니다\n\n' +
-          '▶ 참여 링크: ' + url + '\n\n' +
-          '※ 여러 분이 함께 계신 자리에서도 검증은 각자 독립적으로 해 주세요.';
-      }
-    }
-  };
+  var I = window.T2D && window.T2D.t ? window.T2D : null;
+  var t = function (k, v) { return I ? I.t(k, v) : k; };
+  var lang = function () { return I ? I.lang : 'ko'; };
+  var PATHS = { main: '/', ca: '/ca/', gc: '/gc/' };
   var ORDER = ['main', 'ca', 'gc'];
   var INK = { main: '#14304a', ca: '#b4541a', gc: '#187368' };
+
+  // ---------------------------------------------------------------------------
+  // times and Types/Parts: active case set (window.T2D_DESIGN) or the set v1 defaults
+  // ---------------------------------------------------------------------------
+  function rng(m) { return m && m.length === 2 && Number(m[0]) > 0 && Number(m[1]) >= Number(m[0]) ? [Number(m[0]), Number(m[1])] : null; }
+  function design() { var d = window.T2D_DESIGN; return d && typeof d === 'object' ? d : null; }
+  function caInfo() {
+    var c = (design() || {}).ca || {};
+    var r = rng(c.minutes) || [20, 30];
+    var ids = (c.types || []).map(function (x) { return x && x.id ? String(x.id) : ''; }).filter(Boolean);
+    return { n: Number(c.per_session) > 0 ? Number(c.per_session) : 2, lo: r[0], hi: r[1], values: ids.length ? ids : ['A', 'B'] };
+  }
+  function gcInfo() {
+    var g = (design() || {}).gc || {};
+    var parts = (g.parts || []).filter(function (p) { return p && p.id; }).map(function (p) { return { p: String(p.id), r: rng(p.minutes) }; });
+    if (!parts.length) parts = [{ p: 'A', r: [20, 25] }, { p: 'B', r: [10, 15] }];
+    var time = parts.map(function (x) { return x.r ? t('qr.time.gc.part', { p: x.p, lo: x.r[0], hi: x.r[1] }) : 'Part ' + x.p; }).join(' · ');
+    var all = parts.filter(function (x) { return x.r; }).map(function (x) { return x.r; });
+    return { time: time, values: parts.map(function (x) { return x.p; }), lo: all.length ? Math.min.apply(null, all.map(function (r) { return r[0]; })) : 0,
+      hi: all.length ? Math.max.apply(null, all.map(function (r) { return r[1]; })) : 0 };
+  }
+
+  // One track's text in the current language (rebuilt on every render, so a language switch takes effect everywhere).
+  function def(id) {
+    var ca = caInfo(), gc = gcInfo();
+    var caTime = t('qr.time.ca', { n: ca.n, lo: ca.lo, hi: ca.hi });
+    var vars = { ca_time: caTime, gc_time: gc.time, n: ca.n, lo: ca.lo, hi: ca.hi };
+    var k = function (s, v) { return t('qr.' + id + '.' + s, v || vars); };
+    var mainLo = Math.min(ca.lo, gc.lo || ca.lo), mainHi = Math.max(ca.hi, gc.hi);
+    var C = {
+      id: id, path: PATHS[id], img: id,
+      name: k('name'), file: k('file'), title: k('title'), subtitle: k('subtitle'), who: k('who'), brand: k('brand'),
+      time: id === 'ca' ? caTime : id === 'gc' ? gc.time : t('qr.time.main', { lo: mainLo, hi: mainHi }),
+      hint: [k('hint1'), k('hint2')], foot: k('foot'), caTime: caTime, gcTime: gc.time
+    };
+    var values = id === 'ca' ? ca.values : gc.values, list = values.join('·');
+    if (id !== 'main') {
+      C.variant = { param: id === 'ca' ? 'type' : 'part', label: id === 'ca' ? 'Type' : 'Part', values: values, list: list,
+        none: t('qr.variant.none'), help: k('vhelp') };
+    }
+    C.steps = function (v) {
+      if (id === 'main') return [k('step1'), k('step2'), k('step3')];
+      return [t('qr.main.step1'), v ? k('step2.v', { v: v }) : k('step2.none', { list: list }), k('step3')];
+    };
+    C.message = function (url, v) {
+      var m = { url: url, about: ORIGIN + '/about/', ca_time: caTime, gc_time: gc.time, n: ca.n, lo: ca.lo, hi: ca.hi };
+      if (id !== 'main') m.vnote = v ? k('msg.v', { v: v }) : k('msg.none', { list: list });
+      return k('msg', m);
+    };
+    return C;
+  }
 
   // ---------------------------------------------------------------------------
   // helpers
@@ -110,8 +84,8 @@
   var cleanSite = function (v) { return String(v || '').replace(/[^0-9A-Za-z_\-]/g, '').slice(0, 20); };
   var toastT;
   function toast(msg) {
-    var t = document.getElementById('toast'); if (!t) return;
-    t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, 2600);
+    var el = document.getElementById('toast'); if (!el) return;
+    el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(function () { el.hidden = true; }, 2600);
   }
   function fallbackCopy(text) {
     var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
@@ -122,24 +96,33 @@
   function copy(text, done) {
     var ok = function () { toast(done); };
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(ok, function () { fallbackCopy(text) ? ok() : toast('복사하지 못했습니다. 길게 눌러 복사해 주세요.'); });
-    } else { fallbackCopy(text) ? ok() : toast('복사하지 못했습니다. 길게 눌러 복사해 주세요.'); }
+      navigator.clipboard.writeText(text).then(ok, function () { fallbackCopy(text) ? ok() : toast(t('qr.toast.copyFail')); });
+    } else { fallbackCopy(text) ? ok() : toast(t('qr.toast.copyFail')); }
   }
   function share(data) {
     if (navigator.share) {
-      navigator.share(data).catch(function (e) { if (e && e.name !== 'AbortError') copy(data.url || data.text, '공유가 지원되지 않아 복사했습니다'); });
+      navigator.share(data).catch(function (e) { if (e && e.name !== 'AbortError') copy(data.url || data.text, t('qr.toast.shareCopied')); });
     } else {
-      copy(data.url || data.text, '이 기기는 공유 기능이 없어 복사했습니다. 카카오톡에 붙여넣어 주세요');
+      copy(data.url || data.text, t('qr.toast.noShare'));
     }
   }
   function saveBlob(blob, name) {
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-    toast('이미지를 저장했습니다. 카카오톡에서 사진으로 보내 주세요');
+    toast(t('qr.toast.saved'));
   }
   function qrModel(url) {
     if (!window.qrcode) return null;
     var q = window.qrcode(0, 'Q'); q.addData(url); q.make(); return q;
+  }
+  // Re-render on a language switch, keeping keyboard focus on the language button that was pressed.
+  function onLang(app, render) {
+    window.addEventListener('t2d:lang', function () {
+      var a = document.activeElement, sel = null;
+      if (a && a.closest && a.closest('.prefs')) sel = a.hasAttribute('data-lang') ? '[data-lang="' + a.getAttribute('data-lang') + '"]' : '[data-theme-cycle]';
+      render();
+      if (sel) { var b = app.querySelector('.prefs ' + sel); if (b) b.focus(); }
+    });
   }
 
   /**
@@ -147,8 +130,9 @@
    * base = path from the current page to qr/ (where the pre-made images live).
    */
   function track(id, o) {
-    var C = TRACKS[id];
+    var C = def(id);
     var T = { C: C, id: id, base: o.base || '', site: cleanSite(o.site), variant: '' };
+    T.refresh = function () { C = T.C = def(id); };   // after a language switch
     T.setVariant = function (v) { v = String(v || '').toUpperCase(); T.variant = (C.variant && C.variant.values.indexOf(v) >= 0) ? v : ''; };
     T.setVariant(o.variant);
     T.custom = function () { return !!(T.site || T.variant); };
@@ -158,19 +142,21 @@
     };
     T.shortUrl = function () { return HOST + C.path.replace(/\/$/, ''); };
     T.img = function (ext) { return T.base + C.img + ext; };
-    T.posterHref = function () { return T.base + C.img + '-poster-a4.pdf'; };
-    T.printHref = function () {   // 코드가 들어간 안내문 (트랙 페이지의 ?mode=poster)
+    T.printHref = function (basic) {   // 인쇄 화면 (트랙 페이지의 ?mode=poster), basic = 코드 없이
       var q = ['mode=poster'];
-      if (T.variant) q.push(C.variant.param + '=' + T.variant);
-      if (T.site) q.push('site=' + T.site);
-      return T.base + (id === 'main' ? 'main' : C.img) + '/?' + q.join('&');
+      if (!basic && T.variant) q.push(C.variant.param + '=' + T.variant);
+      if (!basic && T.site) q.push('site=' + T.site);
+      if (lang() !== 'ko') q.push('lang=' + lang());
+      return T.base + C.img + '/?' + q.join('&');
     };
+    // 미리 만든 A4 PDF 는 한국어 → 영어 화면에서는 같은 안내문의 영어 인쇄 화면
+    T.posterHref = function () { return lang() === 'ko' ? T.base + C.img + '-poster-a4.pdf' : T.printHref(true); };
     T.pageHref = function () { return T.base + id + '/' + (T.site ? '?site=' + T.site : ''); };
     T.message = function () { return C.message(T.fullUrl('kakao'), T.variant); };
     // QR: 코드가 없고 forceStatic 이면 미리 만든 이미지(qr/<id>.svg = make_qr.py 가 만든 QR 과 같은 것)
     T.qrSvg = function (cls, forceStatic) {
       var q = forceStatic ? null : qrModel(T.fullUrl('qr'));
-      var label = 'QR 코드: ' + T.shortUrl();
+      var label = t('qr.alt', { url: T.shortUrl() });
       if (!q) return '<img class="' + (cls || '') + '" src="' + T.img('.svg') + '" alt="' + esc(label) + '">';
       var n = q.getModuleCount(), m = 4, d = '';
       for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (q.isDark(r, c)) d += 'M' + (c + m) + ' ' + (r + m) + 'h1v1h-1z';
@@ -178,7 +164,7 @@
         '<rect width="100%" height="100%" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
     };
     T.cardName = function () {
-      return C.title.replace(/\s/g, '') + (T.variant ? '_' + C.variant.label + T.variant : '') + (T.site ? '_' + T.site : '') + '_QR.png';
+      return C.file + (T.variant ? '_' + C.variant.label + T.variant : '') + (T.site ? '_' + T.site : '') + '_QR.png';
     };
     // ---------- share image (canvas) ----------
     var FONT = function () { return getComputedStyle(document.body).fontFamily; };
@@ -189,7 +175,7 @@
     T.preloadFonts = function () {
       if (!document.fonts || !document.fonts.load) return;
       [['800 64px', C.title], ['600 32px', C.subtitle], ['800 40px', 'Type Part AB'], ['800 56px', T.shortUrl()],
-        ['500 32px', C.hint.join(' ')], ['600 28px', '기관·세션 코드: ' + T.site]].forEach(function (f) {
+        ['500 32px', C.hint.join(' ')], ['600 28px', t('qr.site.line', { site: T.site })]].forEach(function (f) {
         try { document.fonts.load(f[0] + ' ' + FONT(), f[1]).catch(function () {}); } catch (_) {}
       });
     };
@@ -217,11 +203,11 @@
       g.fillStyle = '#5a6b7c';
       y += 70; fitText(g, C.hint[0], '500', 32, maxW); g.fillText(C.hint[0], W / 2, y);
       y += 48; fitText(g, C.hint[1], '500', 32, maxW); g.fillText(C.hint[1], W / 2, y);
-      if (T.site) { y += 52; fitText(g, '기관·세션 코드: ' + T.site, '600', 28, maxW); g.fillText('기관·세션 코드: ' + T.site, W / 2, y); }
+      if (T.site) { var sl = t('qr.site.line', { site: T.site }); y += 52; fitText(g, sl, '600', 28, maxW); g.fillText(sl, W / 2, y); }
       return new Promise(function (res, rej) { cv.toBlob(function (b) { b ? res(b) : rej(new Error('toBlob')); }, 'image/png'); });
     };
     T.saveImage = function () {
-      T.cardBlob().then(function (b) { saveBlob(b, T.cardName()); }, function () { toast('이미지를 만들지 못했습니다. [링크 복사]를 이용해 주세요'); });
+      T.cardBlob().then(function (b) { saveBlob(b, T.cardName()); }, function () { toast(t('qr.toast.imgFailCopy')); });
     };
     T.shareImage = function () {
       T.cardBlob().then(function (blob) {
@@ -230,10 +216,10 @@
           return navigator.share({ files: [file], title: C.title, text: T.fullUrl('kakao') }).catch(function (e) { if (e && e.name !== 'AbortError') saveBlob(blob, T.cardName()); });
         }
         saveBlob(blob, T.cardName());
-      }).catch(function () { toast('이미지를 만들지 못했습니다. [링크 보내기]를 이용해 주세요'); });
+      }).catch(function () { toast(t('qr.toast.imgFailSend')); });
     };
-    T.copyLink = function () { copy(T.fullUrl('link'), '링크를 복사했습니다'); };
-    T.copyMessage = function (text) { copy(text || T.message(), '안내 문구를 복사했습니다'); };
+    T.copyLink = function () { copy(T.fullUrl('link'), t('qr.toast.linkCopied')); };
+    T.copyMessage = function (text) { copy(text || T.message(), t('qr.toast.msgCopied')); };
     T.shareLink = function () { share({ title: C.title, url: T.fullUrl('kakao') }); };
     T.shareMessage = function (text) { share({ title: C.title, text: text || T.message() }); };
     T.present = function () {
@@ -243,13 +229,13 @@
       el.setAttribute('data-track', id);
       el.setAttribute('role', 'dialog');
       el.setAttribute('aria-modal', 'true');
-      el.setAttribute('aria-label', C.title + ' QR 코드');
+      el.setAttribute('aria-label', t('qr.present.label', { title: C.title }));
       el.innerHTML = '<div><h1>' + esc(C.title) + '</h1><div class="p-sub">' + esc(C.subtitle) + '</div>' +
           (T.variant ? '<span class="pill">' + esc(T.variantLabel()) + '</span>' : '') + '</div>' +
         T.qrSvg('p-qr') +
         '<div><div class="p-url">' + esc(T.shortUrl()) + (T.site ? ' <small>· ' + esc(T.site) + '</small>' : '') + '</div>' +
-          '<div class="p-hint">휴대폰 카메라로 QR 코드를 비춰 주세요 · ' + esc(C.time) + ' · 중간에 닫아도 이어서 진행됩니다</div></div>' +
-        '<button type="button" class="p-close" aria-label="닫기">✕</button>';
+          '<div class="p-hint">' + esc(t('qr.present.hint', { time: C.time })) + '</div></div>' +
+        '<button type="button" class="p-close" aria-label="' + esc(t('qr.close')) + '">✕</button>';
       document.body.appendChild(el);
       var btn = el.querySelector('.p-close');
       var close = function () {
@@ -267,126 +253,133 @@
   }
 
   // ---------------------------------------------------------------------------
-  // header (hub + track pages): brand, back to the hub, site links
+  // header (hub + track pages): same brand and menu as the landing page and About (brand → home, 소개, KO/EN + theme)
+  // title = this page's name, shown under the brand; extra = leading nav links (track pages: back to all QR codes)
   // ---------------------------------------------------------------------------
   var ARROW = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>';
-  // Same brand and menu as the landing page and About (site.css .site-header): brand → home, 홈 · 벤치마크 소개 · 평가 참여.
-  // title = this page's name, shown under the brand. (sub is no longer shown in the header.)
-  function headerHTML(title, sub, siteRoot, extra) {
+  function headerHTML(title, siteRoot, extra) {
     return '<header class="top"><div class="top-inner">' +
-      '<a class="brand" href="' + siteRoot + '" aria-label="홈 — T2D 벤치마크"><span class="mark" aria-hidden="true"></span>' +
-        '<span class="title"><strong>T2D 벤치마크</strong><small>' + esc(title) + '</small></span></a>' +
-      '<nav aria-label="사이트 메뉴">' + (extra || '') +
-        '<a class="nav-home" href="' + siteRoot + '">홈</a><a href="' + siteRoot + 'about/">벤치마크 소개</a>' +
-        '<a class="nav-cta" href="' + siteRoot + '#tracks">평가 참여</a></nav>' +
+      '<a class="brand" href="' + siteRoot + '" aria-label="' + esc(t('site.brand.home')) + '"><span class="mark" aria-hidden="true"></span>' +
+        '<span class="title"><strong>' + esc(t('site.brand.name')) + '</strong><small>' + esc(title) + '</small></span></a>' +
+      '<div class="top-end"><nav' + (extra ? ' class="with-back"' : '') + ' aria-label="' + esc(t('qr.nav.label')) + '">' + (extra || '') +
+        '<a class="nav-about" href="' + siteRoot + 'about/">' + t('site.nav.about') + '</a></nav>' +
+        (I && I.controlsHTML ? I.controlsHTML() : '') + '</div>' +
       '</div></header>';
   }
+  function bindHeader(app) { if (I && I.bindControls) I.bindControls(app); }
+  var small = function () { return ' <small>' + esc(t('qr.opt')) + '</small>'; };
 
   // ---------------------------------------------------------------------------
   // track page (qr/main/, qr/ca/, qr/gc/)
   // ---------------------------------------------------------------------------
   function page() {
     var body = document.body, id = body.getAttribute('data-track'), base = body.getAttribute('data-base') || '../';
-    var C = TRACKS[id];
     var params = new URLSearchParams(location.search);
     var mode = params.get('mode') || '';
-    var T = track(id, { base: base, site: params.get('site'), variant: C.variant ? params.get(C.variant.param) : '' });
     var app = document.getElementById('app');
 
     // ---------- printable outputs (tools/render_qr_assets.js: ?mode=card / ?mode=poster) ----------
     if (mode === 'poster' || mode === 'card') {
+      // Printed material is Korean unless ?lang=en asks otherwise. Not saved: the visitor's own language choice stays as it was.
+      if (I && params.get('lang') !== 'en' && I.lang !== 'ko') { I.lang = 'ko'; document.documentElement.setAttribute('lang', 'ko'); }
+      var T0 = track(id, { base: base, site: params.get('site'), variant: params.get(id === 'ca' ? 'type' : 'part') });
+      var C0 = T0.C;
       body.classList.add('print');
-      if (T.custom() && !window.qrcode) { T.site = ''; T.variant = ''; }   // QR 에 코드를 담을 수 없으면 기본 안내문으로
+      if (T0.custom() && !window.qrcode) { T0.site = ''; T0.variant = ''; }   // QR 에 코드를 담을 수 없으면 기본 안내문으로
       // 기본(코드 없음)은 미리 만든 qr/<id>.svg 를 그대로 써서 qr/<id>.png 와 같은 QR 이 되게 합니다
-      var qr = T.qrSvg('qr', !T.custom());
-      var badge = T.variant ? '<span class="type">' + esc(T.variantLabel()) + '</span>' : '';
+      var qr = T0.qrSvg('qr', !T0.custom());
+      var badge = T0.variant ? '<span class="type">' + esc(T0.variantLabel()) + '</span>' : '';
       if (mode === 'card') {
         app.innerHTML = '<div class="card-img">' +
-          '<h1>' + esc(C.title) + '</h1><div class="en">' + esc(C.subtitle) + '</div>' + badge + qr +
-          '<div class="url">' + esc(T.shortUrl()) + '</div>' +
-          '<div class="hint">' + esc(C.hint[0]) + '<br>' + esc(C.hint[1]) + '</div>' +
-          (T.site ? '<div class="site">기관·세션 코드: ' + esc(T.site) + '</div>' : '') + '</div>';
+          '<h1>' + esc(C0.title) + '</h1><div class="en">' + esc(C0.subtitle) + '</div>' + badge + qr +
+          '<div class="url">' + esc(T0.shortUrl()) + '</div>' +
+          '<div class="hint">' + esc(C0.hint[0]) + '<br>' + esc(C0.hint[1]) + '</div>' +
+          (T0.site ? '<div class="site">' + esc(t('qr.site.line', { site: T0.site })) + '</div>' : '') + '</div>';
         return;
       }
       var tracks = id === 'main' ? '<div class="tracks">' +
-        '<div style="--c:var(--orange)"><b>임상 수용성 평가</b><span>인턴·레지던트·전문의<br>' + esc(CA_TIME) + '</span></div>' +
-        '<div style="--c:var(--teal)"><b>가이드라인 부합도 검증</b><span>내분비대사내과 분과전문의<br>' + esc(GC_TIME) + '</span></div></div>' : '';
-      app.innerHTML = '<section class="sheet' + (T.variant ? ' with-part' : '') + (tracks ? ' with-tracks' : '') + '">' +
-        '<div class="brand"><span class="mark"></span>' + esc(C.brand) + '</div>' +
-        '<h1>' + esc(C.title) + '</h1><div class="en">' + esc(C.subtitle) + '</div>' + badge + qr +
-        '<div class="url">' + esc(T.shortUrl()) + (T.site ? '<small>기관·세션 코드: ' + esc(T.site) + '</small>' : '') + '</div>' +
+        '<div style="--c:var(--orange)"><b>' + esc(t('qr.ca.title')) + '</b><span>' + esc(t('qr.ca.audience')) + '<br>' + esc(C0.caTime) + '</span></div>' +
+        '<div style="--c:var(--teal)"><b>' + esc(t('qr.gc.title')) + '</b><span>' + esc(t('qr.gc.audience')) + '<br>' + esc(C0.gcTime) + '</span></div></div>' : '';
+      app.innerHTML = '<section class="sheet' + (T0.variant ? ' with-part' : '') + (tracks ? ' with-tracks' : '') + '">' +
+        '<div class="brand"><span class="mark"></span>' + esc(C0.brand) + '</div>' +
+        '<h1>' + esc(C0.title) + '</h1><div class="en">' + esc(C0.subtitle) + '</div>' + badge + qr +
+        '<div class="url">' + esc(T0.shortUrl()) + (T0.site ? '<small>' + esc(t('qr.site.line', { site: T0.site })) + '</small>' : '') + '</div>' +
         tracks +
-        '<ol class="steps">' + C.steps(T.variant).map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>' +
-        '<div class="foot">' + C.foot + '</div></section>' +
-        '<button type="button" class="print-btn" id="printBtn">인쇄하기</button>';
+        '<ol class="steps">' + C0.steps(T0.variant).map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>' +
+        '<div class="foot">' + C0.foot + '</div></section>' +
+        '<button type="button" class="print-btn" id="printBtn">' + esc(t('qr.print')) + '</button>';
       document.getElementById('printBtn').addEventListener('click', function () { window.print(); });
       return;
     }
 
     // ---------- interactive page ----------
+    var T = track(id, { base: base, site: params.get('site'), variant: params.get(id === 'ca' ? 'type' : 'part') });
     function syncUrl() {
       var q = [];
-      if (T.variant) q.push(C.variant.param + '=' + T.variant);
+      if (T.variant) q.push(T.C.variant.param + '=' + T.variant);
       if (T.site) q.push('site=' + T.site);
       try { history.replaceState(null, '', q.length ? '?' + q.join('&') : location.pathname); } catch (_) {}
     }
     function render() {
+      T.refresh();
+      var C = T.C, V = C.variant;
       var noLib = !window.qrcode;
-      var V = C.variant;
+      var allHref = '../' + (T.site ? '?site=' + T.site : '');
       app.innerHTML =
-        headerHTML(C.title + ' · QR 안내', '화면에 띄우거나 카카오톡으로 보내 참여를 안내하세요', '../../',
-          '<a href="../' + (T.site ? '?site=' + T.site : '') + '">' + ARROW + '모든 QR</a>') +
+        headerHTML(t('qr.hdr.page', { title: C.title }), '../../',
+          '<a class="nav-back" href="' + allHref + '">' + ARROW + '<span>' + esc(t('qr.nav.all')) + '</span></a>') +
         '<main class="share">' +
           '<section class="card qr-wrap" aria-labelledby="qrTitle">' +
             '<h1 class="qr-title" id="qrTitle">' + esc(C.title) + '</h1>' +
             '<p class="qr-en">' + esc(C.subtitle) + '</p>' +
-            (T.variant ? '<span class="pill">' + esc(T.variantLabel()) + ' 지정</span>' : '') +
+            (T.variant ? '<span class="pill">' + esc(t('qr.variant.pill', { v: T.variantLabel() })) + '</span>' : '') +
             T.qrSvg('qr-img') +
             '<div class="qr-url">' + esc(T.shortUrl()) + (T.site ? ' <small>· ' + esc(T.site) + '</small>' : '') + '</div>' +
-            (noLib && T.custom() ? '<p class="warn">QR 생성 도구를 불러오지 못해 코드가 없는 기본 QR을 보여 드립니다. 링크와 안내 문구에는 코드가 그대로 들어갑니다.</p>' : '') +
+            (noLib && T.custom() ? '<p class="warn">' + esc(t('qr.warn.noLib')) + '</p>' : '') +
             '<p class="qr-sub">' + esc(C.who) + '</p>' +
             '<div class="btns">' +
-              '<button type="button" class="btn primary wide" id="present">화면에 크게 띄우기</button>' +
-              '<button type="button" class="btn accent" id="shareImg">QR 이미지 보내기</button>' +
-              '<button type="button" class="btn" id="shareLink">링크 보내기</button>' +
-              '<button type="button" class="btn" id="copyLink">링크 복사</button>' +
-              '<button type="button" class="btn" id="dl">QR 이미지 저장</button>' +
+              '<button type="button" class="btn primary wide" id="present">' + esc(t('qr.btn.presentWide')) + '</button>' +
+              '<button type="button" class="btn accent" id="shareImg">' + esc(t('qr.btn.shareImg')) + '</button>' +
+              '<button type="button" class="btn" id="shareLink">' + esc(t('qr.btn.shareLink')) + '</button>' +
+              '<button type="button" class="btn" id="copyLink">' + esc(t('qr.btn.copyLink')) + '</button>' +
+              '<button type="button" class="btn" id="dl">' + esc(t('qr.btn.saveImg')) + '</button>' +
             '</div>' +
           '</section>' +
 
           '<section class="card">' +
-            '<h2>카카오톡 안내 문구</h2>' +
-            '<textarea id="msg" aria-label="안내 문구">' + esc(T.message()) + '</textarea>' +
-            '<div class="btns" style="max-width:none;margin-top:8px"><button type="button" class="btn primary" id="copyMsg">문구 복사</button><button type="button" class="btn" id="shareMsg">문구와 함께 공유</button></div>' +
+            '<h2>' + esc(t('qr.msg.h')) + '</h2>' +
+            '<textarea id="msg" aria-label="' + esc(t('qr.msg.aria')) + '">' + esc(T.message()) + '</textarea>' +
+            '<div class="btns btns-row"><button type="button" class="btn primary" id="copyMsg">' + esc(t('qr.btn.copyMsg')) + '</button>' +
+              '<button type="button" class="btn" id="shareMsg">' + esc(t('qr.btn.shareMsg')) + '</button></div>' +
 
-            '<h2 style="margin-top:18px">기관·세션 코드 <small>(선택)</small></h2>' +
-            '<p class="muted" style="margin:0 0 8px">여러 병원·학회·회차에서 모집할 때 코드를 넣으면 QR과 링크에 담겨, 어디서 참여했는지 결과에 함께 기록됩니다. 영문·숫자만.</p>' +
-            '<div class="site-row"><input id="siteCode" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="기관·세션 코드" placeholder="예: SNUH01, kes2026" value="' + esc(T.site) + '">' +
-            '<button type="button" class="btn primary" id="applySite">적용</button></div>' +
+            '<h2 class="gap"><span>' + esc(t('qr.site.h')) + small() + '</span></h2>' +
+            '<p class="muted help">' + esc(t('qr.site.help')) + '</p>' +
+            '<div class="site-row"><input id="siteCode" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="' + esc(t('qr.site.h')) + '" placeholder="' + esc(t('qr.site.ph')) + '" value="' + esc(T.site) + '">' +
+            '<button type="button" class="btn primary" id="applySite">' + esc(t('qr.site.apply')) + '</button></div>' +
 
-            (V ? '<h2 style="margin-top:18px">' + esc(V.label) + ' 지정 <small>(선택)</small></h2>' +
-              '<p class="muted" style="margin:0 0 8px">' + V.help + '</p>' +
-              '<div class="seg" role="group" aria-label="' + esc(V.label) + ' 지정">' +
+            (V ? '<h2 class="gap"><span>' + esc(t('qr.variant.h', { label: V.label })) + small() + '</span></h2>' +
+              '<p class="muted help">' + V.help + '</p>' +
+              '<div class="seg" role="group" aria-label="' + esc(t('qr.variant.h', { label: V.label })) + '" style="--n:' + (V.values.length + 1) + '">' +
                 [''].concat(V.values).map(function (p) {
                   return '<button type="button" data-variant="' + p + '" aria-pressed="' + (T.variant === p) + '">' + (p ? esc(V.label) + ' ' + p : esc(V.none)) + '</button>';
                 }).join('') +
               '</div>' : '') +
 
-            '<h2 style="margin-top:18px">이렇게 쓰세요</h2>' +
+            '<h2 class="gap">' + esc(t('qr.how.h')) + '</h2>' +
             '<ul class="muted">' +
-              '<li><b>카카오톡:</b> [QR 이미지 보내기] 또는 [링크 보내기] → 공유 목록에서 카카오톡 선택. PC에서는 [문구 복사] 후 대화창에 붙여넣기.</li>' +
-              '<li><b>학회·회의실:</b> [화면에 크게 띄우기] → 참가자가 카메라로 스캔.</li>' +
-              '<li><b>인쇄:</b> <a href="' + T.posterHref() + '" target="_blank" rel="noopener">A4 안내문 PDF</a>' +
-                (T.custom() ? ' (기본 QR) · <a href="' + esc('?' + T.printHref().split('?')[1]) + '" target="_blank" rel="noopener">코드가 들어간 안내문 인쇄</a>' : '') + '</li>' +
-              (id === 'main' ? '<li>QR을 찍으면 <b>처음 화면</b>이 열리고, 참여자가 임상 수용성 평가와 가이드라인 부합도 검증 중 하나를 고릅니다.</li>' : '') +
-              (id === 'ca' ? '<li>평가자는 시작 화면에서 <b>Type A·B 중 하나를 직접</b> 고릅니다. 끝나면 다른 Type도 이어서 평가할 수 있습니다.</li>' : '') +
-              (id === 'gc' ? '<li><b>대상:</b> 내분비대사내과 분과전문의만 참여합니다. 시작 화면에서 본인이 확인합니다.</li>' +
-                '<li>검증자는 시작 화면에서 <b>Part A·B 중 하나를 직접</b> 고릅니다. 끝나면 다른 Part도 이어서 검증할 수 있습니다.</li>' : '') +
-              '<li>다른 QR(통합 · 임상 수용성 · 가이드라인 부합도)은 <a href="../' + (T.site ? '?site=' + T.site : '') + '">모든 QR</a>에 있습니다.</li>' +
+              '<li>' + t('qr.page.how.kakao') + '</li>' +
+              '<li>' + t('qr.page.how.room') + '</li>' +
+              '<li>' + t('qr.page.how.print') + ' <a href="' + esc(T.posterHref()) + '" target="_blank" rel="noopener">' + esc(t('qr.page.pdf')) + '</a>' +
+                (T.custom() ? esc(t('qr.page.pdf.basic')) + ' · <a href="' + esc('?' + T.printHref().split('?')[1]) + '" target="_blank" rel="noopener">' + esc(t('qr.page.printCode')) + '</a>' : '') + '</li>' +
+              (id === 'main' ? '<li>' + t('qr.page.how.main') + '</li>' : '') +
+              (id === 'ca' ? '<li>' + t('qr.page.how.ca', { list: V.list }) + '</li>' : '') +
+              (id === 'gc' ? '<li>' + t('qr.page.how.gc1') + '</li><li>' + t('qr.page.how.gc2', { list: V.list }) + '</li>' : '') +
+              '<li>' + t('qr.page.how.all', { link: '<a href="' + allHref + '">' + esc(t('qr.nav.all')) + '</a>' }) + '</li>' +
             '</ul>' +
           '</section>' +
         '</main>';
 
+      bindHeader(app);
       var $ = function (x) { return document.getElementById(x); };
       $('present').addEventListener('click', T.present);
       $('copyLink').addEventListener('click', T.copyLink);
@@ -399,7 +392,7 @@
           T.setVariant(b.getAttribute('data-variant'));
           if (T.variant === before) return;
           syncUrl(); render();
-          toast(T.variant ? T.variantLabel() + '가 QR과 링크에 반영되었습니다' : V.label + ' 지정을 해제했습니다 (참여자가 직접 선택)');
+          toast(T.variant ? t('qr.toast.variantSet', { v: T.variantLabel() }) : t('qr.toast.variantOff', { label: V.label }));
         });
       });
       $('copyMsg').addEventListener('click', function () { T.copyMessage($('msg').value); });
@@ -412,9 +405,10 @@
       var v = document.getElementById('siteCode').value, s = cleanSite(v);
       if (s === T.site && v === s) return;
       T.site = s; syncUrl(); render();
-      toast(T.site ? '기관·세션 코드 "' + T.site + '"가 QR과 링크에 반영되었습니다' : '기관·세션 코드를 지웠습니다');
+      toast(T.site ? t('qr.toast.siteSet', { site: T.site }) : t('qr.toast.siteCleared'));
     }
     render();
+    onLang(app, render);
   }
 
   // ---------------------------------------------------------------------------
@@ -429,32 +423,31 @@
       ORDER.forEach(function (id) { Ts[id] = track(id, { base: '', site: site }); });
       var noLib = !window.qrcode;
       app.innerHTML =
-        headerHTML('QR · 참여 안내', '평가 참여를 안내할 QR 코드와 링크', '../') +
+        headerHTML(t('qr.hdr.hub'), '../') +
         '<main>' +
           '<section class="card hub-intro">' +
-            '<h1>어떤 QR을 쓸까요?</h1>' +
-            '<ul class="which">' +
-              '<li><span class="dot" data-track="main" aria-hidden="true"></span><span><b>통합 QR (권장)</b> — 대상이 섞인 자리. 처음 화면에서 참여자가 두 평가 중 하나를 고릅니다.</span></li>' +
-              '<li><span class="dot" data-track="ca" aria-hidden="true"></span><span><b>임상 수용성 평가</b> — 인턴·레지던트·전문의에게 바로 평가 화면을 열어 줄 때.</span></li>' +
-              '<li><span class="dot" data-track="gc" aria-hidden="true"></span><span><b>가이드라인 부합도 검증</b> — 내분비대사내과 분과전문의 모임에서.</span></li>' +
-            '</ul>' +
-            (site ? '<p>기관·세션 코드 <b>' + esc(site) + '</b>가 아래 QR과 링크에 모두 들어가 있습니다.</p>' : '') +
-            (noLib && site ? '<p class="warn" style="margin-top:8px">QR 생성 도구를 불러오지 못해 QR에는 코드가 들어가지 않습니다. 링크에는 들어갑니다.</p>' : '') +
+            '<h1>' + esc(t('qr.hub.h')) + '</h1>' +
+            '<ul class="which">' + ORDER.map(function (id) {
+              return '<li><span class="dot" data-track="' + id + '" aria-hidden="true"></span><span>' + t('qr.hub.which.' + id) + '</span></li>';
+            }).join('') + '</ul>' +
+            (site ? '<p>' + t('qr.hub.siteOn', { site: esc(site) }) + '</p>' : '') +
+            (noLib && site ? '<p class="warn" style="margin-top:8px">' + esc(t('qr.hub.warnNoLib')) + '</p>' : '') +
           '</section>' +
           '<div class="qr-grid">' + ORDER.map(cardHTML).join('') + '</div>' +
           '<section class="card">' +
-            '<h2>기관·세션 코드 <small>(선택 · 세 QR 모두에 적용)</small></h2>' +
-            '<p class="muted" style="margin:0 0 8px">여러 병원·학회·회차에서 모집할 때 코드를 넣으면 QR과 링크에 담겨, 어디서 참여했는지 결과에 함께 기록됩니다. 영문·숫자만.</p>' +
-            '<div class="site-row"><input id="siteCode" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="기관·세션 코드" placeholder="예: SNUH01, kes2026" value="' + esc(site) + '">' +
-            '<button type="button" class="btn primary" id="applySite">적용</button></div>' +
-            '<h2 style="margin-top:18px">이렇게 쓰세요</h2>' +
+            '<h2><span>' + esc(t('qr.site.h')) + ' <small>' + esc(t('qr.hub.site.small')) + '</small></span></h2>' +
+            '<p class="muted help">' + esc(t('qr.site.help')) + '</p>' +
+            '<div class="site-row"><input id="siteCode" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="' + esc(t('qr.site.h')) + '" placeholder="' + esc(t('qr.site.ph')) + '" value="' + esc(site) + '">' +
+            '<button type="button" class="btn primary" id="applySite">' + esc(t('qr.site.apply')) + '</button></div>' +
+            '<h2 class="gap">' + esc(t('qr.how.h')) + '</h2>' +
             '<ul class="muted">' +
-              '<li><b>회의·강의실:</b> [크게 띄우기] → 참가자가 휴대폰 카메라로 스캔.</li>' +
-              '<li><b>카카오톡:</b> [QR 이미지 보내기] 또는 [안내 문구 복사] → 대화창에 붙여넣기. 문구를 고치거나 Type·Part를 지정하려면 각 카드의 <b>[안내 문구·설정]</b>.</li>' +
-              '<li><b>인쇄:</b> 각 카드의 [A4 PDF]. 이미 인쇄해 둔 예전 임상 수용성 평가 QR(eval.asclep.org)은 이제 처음 화면으로 열립니다.</li>' +
+              '<li>' + t('qr.hub.how.room') + '</li>' +
+              '<li>' + t('qr.hub.how.kakao') + '</li>' +
+              '<li>' + t('qr.hub.how.print') + '</li>' +
             '</ul>' +
           '</section>' +
         '</main>';
+      bindHeader(app);
       Array.prototype.forEach.call(app.querySelectorAll('[data-act]'), function (b) {
         b.addEventListener('click', function () {
           var T = Ts[b.getAttribute('data-id')], act = b.getAttribute('data-act');
@@ -471,19 +464,19 @@
     }
     function cardHTML(id) {
       var T = Ts[id], C = T.C;
-      var b = function (act, label, cls) { return '<button type="button" class="btn' + (cls ? ' ' + cls : '') + '" data-act="' + act + '" data-id="' + id + '">' + label + '</button>'; };
+      var b = function (act, label, cls) { return '<button type="button" class="btn' + (cls ? ' ' + cls : '') + '" data-act="' + act + '" data-id="' + id + '">' + esc(label) + '</button>'; };
       return '<section class="card qr-card' + (id === 'main' ? ' featured' : '') + '" data-track="' + id + '" aria-labelledby="h_' + id + '">' +
         T.qrSvg('qr-img') +
-        '<div class="head">' + (id === 'main' ? '<span class="badge">추천 · 통합</span>' : '') +
+        '<div class="head">' + (id === 'main' ? '<span class="badge">' + esc(t('qr.hub.badge')) + '</span>' : '') +
           '<h2 id="h_' + id + '">' + esc(C.title) + '</h2>' +
           '<p class="who">' + esc(C.who) + '</p></div>' +
         '<div class="qr-url">' + esc(T.shortUrl()) + (site ? ' <small>· ' + esc(site) + '</small>' : '') + '</div>' +
         '<div class="btns">' +
-          b('present', '크게 띄우기', 'primary wide') +
-          b('copy', '링크 복사') + b('msg', '안내 문구 복사') +
-          b('share', 'QR 이미지 보내기', 'accent') + b('png', 'PNG 저장') +
-          '<a class="btn" href="' + esc(site ? T.printHref() : T.posterHref()) + '" target="_blank" rel="noopener">' + (site ? 'A4 인쇄 (코드 포함)' : 'A4 PDF') + '</a>' +
-          '<a class="btn" href="' + esc(T.pageHref()) + '">안내 문구·설정</a>' +
+          b('present', t('qr.btn.present'), 'primary wide') +
+          b('copy', t('qr.btn.copyLink')) + b('msg', t('qr.btn.copyMsgCard')) +
+          b('share', t('qr.btn.shareImg'), 'accent') + b('png', t('qr.btn.png')) +
+          '<a class="btn" href="' + esc(site ? T.printHref() : T.posterHref()) + '" target="_blank" rel="noopener">' + esc(t(site ? 'qr.btn.a4code' : 'qr.btn.a4')) + '</a>' +
+          '<a class="btn" href="' + esc(T.pageHref()) + '">' + esc(t('qr.btn.settings')) + '</a>' +
         '</div>' +
       '</section>';
     }
@@ -493,10 +486,11 @@
       site = s;
       try { history.replaceState(null, '', site ? '?site=' + site : location.pathname); } catch (_) {}
       render();
-      toast(site ? '기관·세션 코드 "' + site + '"가 세 QR과 링크에 반영되었습니다' : '기관·세션 코드를 지웠습니다');
+      toast(site ? t('qr.toast.siteSet3', { site: site }) : t('qr.toast.siteCleared'));
     }
     render();
+    onLang(app, render);
   }
 
-  window.QRSite = { HOST: HOST, TRACKS: TRACKS, ORDER: ORDER, track: track, page: page, hub: hub };
+  window.QRSite = { HOST: HOST, ORDER: ORDER, def: def, track: track, page: page, hub: hub };
 })();

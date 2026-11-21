@@ -29,4 +29,6 @@
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.4"/></symbol>
   <symbol id="i-scale" viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M6 18v-3M10 18v-6M14 18v-8M18 18v-11"/></symbol>
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M8 3h8l-1.5 5.5L18 12H6l3.5-3.5z"/><path d="M12 12v9"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v4.5M15 3v4.5"/><path d="M6.5 7.5h11v3.2a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.2V21"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.5l9 4.5-9 4.5-9-4.5z"/><path d="M3 12.2l9 4.5 9-4.5"/><path d="M3 16.4l9 4.5 9-4.5"/></symbol>
 </svg>

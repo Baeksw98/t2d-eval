@@ -3,12 +3,19 @@
  * Apps Script project with its own spreadsheet) answers at /gc-exec.
  *
  *   node tools/mock_gas_server.js 8791 &
- *   node tools/e2e_gc.js [baseUrl=http://localhost:8791] [outDir] [--noendpoint] [--live] [--no-layout] [--allow-no-backend]
+ *   node tools/e2e_gc.js [baseUrl=http://localhost:8791] [outDir] [--noendpoint] [--live] [--no-layout] [--allow-no-backend] [--lang=en]
  *
  *   --noendpoint        ENDPOINT emptied (pure test mode: nothing is sent, done screen offers the JSON file)
  *   --live              no ?test=1 (sessions are not marked IsTest; default is test mode)
  *   --no-layout         skip the extra layout probes (Galaxy S8, iPad, iPhone landscape)
  *   --allow-no-backend  do not fail when the backend has no GC sheets (e.g. a server without the GC project)
+ *   --lang=en           run the whole flow in English (?lang=en): expected screen texts come from i18n/gc.js + i18n/ca.js and
+ *                       gc-config.js `en`; every screen also checks <html lang> and that no Hangul shows outside case content
+ *                       ([lang="ko"] = CDSS answers, AI rater/audit texts, patient record; [data-ugc] = the physician's name).
+ *                       Default (ko) runs the Korean screens exactly as before.
+ * Payloads (both languages): every POST to /gc-exec and every beacon carries ui_lang = the UI language and set_id = 'v1';
+ * the backend checks below compare the stored values with the canonical Korean labels + codes, so an English run proves the
+ * payload stays language-independent.
  *
  * Runs
  *   1. iPhone 13: intro → eligibility "아니요" → blocked → back → eligible, profile, consent, Part A → all items
@@ -48,6 +55,7 @@ const NO_ENDPOINT = flags.has('--noendpoint');
 const TEST = !flags.has('--live');
 const LAYOUT = !flags.has('--no-layout');
 const ALLOW_NO_BACKEND = flags.has('--allow-no-backend');
+const LANG = flags.has('--lang=en') ? 'en' : 'ko';
 const GC_EXEC = BASE + '/gc-exec';
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -63,6 +71,16 @@ function loadWindowScript(file) {
   return w;
 }
 const GC_CONFIG = loadWindowScript('gc/gc-config.js').GC_CONFIG;
+// UI dictionaries, read the same way the page reads them; T(key) = the text the page shows in LANG
+const DICT = (() => {
+  const d = { ko: {}, en: {} };
+  const reg = { i18n: { add: (x) => { Object.assign(d.ko, x.ko); Object.assign(d.en, x.en); } } };
+  ['i18n/ca.js', 'i18n/gc.js'].forEach(f => new Function('T2D', fs.readFileSync(path.join(__dirname, '..', f), 'utf8'))(reg));
+  return d;
+})();
+const T = (key, vars) => String(DICT[LANG][key] !== undefined ? DICT[LANG][key] : DICT.ko[key]).replace(/\{(\w+)\}/g, (m, n) => (vars && n in vars ? vars[n] : m));
+// config text as the page shows it (o.en[k] in English when present)
+const CT = (o, k) => (LANG === 'en' && o.en && o.en[k] != null ? o.en[k] : o[k]);
 const GC_DATA = loadWindowScript('gc/data/gc_items.js').GC_DATA;
 const T2D_DATA = loadWindowScript('data/cases.js').T2D_DATA;
 const ITEM = {};
@@ -90,17 +108,34 @@ function expectedCited(it) {
 }
 const partItems = (pid) => GC_CONFIG.PARTS.find(p => p.id === pid).sequences[0].reduce((a, k) => a + GC_DATA.units[k].items.length, 0);
 const altsFor = (it) => GC_CONFIG.VERDICTS.map(v => v.id).filter(v => v !== it.final);
-const VLABEL = Object.fromEntries(GC_CONFIG.VERDICTS.map(v => [v.id, v.label]));
+const VLABEL = Object.fromEntries(GC_CONFIG.VERDICTS.map(v => [v.id, CT(v, 'label')]));
 const PF = Object.fromEntries(GC_CONFIG.PROFILE_FIELDS.map(f => [f.id, f]));
 const PF_AI_LAST = GC_CONFIG.PROFILE_FIELDS.find(f => f.id === 'ai_freq').options[4];
 const changedByAudit = (it) => !!it.audit.corrected && it.audit.corrected !== it.rater.verdict;
 const storyStats = { items: 0, changed: 0, unchanged: 0, cited: 0 };
+const SENT = [];   // every payload sent to /gc-exec (POSTs; beacons added by takeBeacons)
+async function takeBeacons(page) {
+  const list = await page.evaluate(() => (window.__beacons || []).splice(0)).catch(() => []);
+  list.forEach(t => { try { const j = JSON.parse(t); if (j && j.action) SENT.push(j); } catch (_) {} });
+}
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function newPage(browser, kind) {
   const opts = kind === 'desktop' ? { viewport: { width: 1366, height: 860 }, deviceScaleFactor: 1 } : { ...devices[kind] };
   const ctx = await browser.newContext({ ...opts, locale: 'ko-KR', acceptDownloads: true });
+  // the UI language for this whole context (as if the physician had chosen it once; ?lang= is also on the intro URLs)
+  await ctx.addInitScript((l) => { try { localStorage.setItem('t2d:lang', l); } catch (_) {} }, LANG);
+  // beacons do not expose their body to the request event: keep a copy in the page (read by takeBeacons)
+  await ctx.addInitScript(() => {
+    const nb = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
+    if (!nb) return;
+    window.__beacons = [];
+    navigator.sendBeacon = function (url, data) {
+      try { if (data && data.text) data.text().then(t => window.__beacons.push(t)); else window.__beacons.push(String(data)); } catch (_) {}
+      return nb(url, data);
+    };
+  });
   // ENDPOINT → this mock's GC web app /gc-exec (or empty for --noendpoint), whether or not the mock rewrites gc-config.js itself
   await ctx.route('**/gc/gc-config.js*', async (route) => {
     const res = await route.fetch();
@@ -109,7 +144,12 @@ async function newPage(browser, kind) {
   });
   const page = await ctx.newPage();
   page.on('pageerror', e => fail(`[${kind}] pageerror: ${e.message}`));
+  page.on('request', r => {
+    if (r.method() !== 'POST' || !/\/gc-exec(\?|$)/.test(r.url())) return;
+    try { const j = JSON.parse(r.postData() || ''); if (j && j.action) SENT.push(j); } catch (_) {}
+  });
   page.on('console', m => {
+    if (m.type() === 'warning' && /\[i18n\]/.test(m.text())) { fail(`[${kind}] ${m.text()}`); return; }
     if (m.type() !== 'error') return;
     const url = (m.location() && m.location().url) || '';
     if (/jsdelivr|fonts\.|pretendard/i.test(url + m.text())) return;   // web font CDN may be unreachable offline
@@ -139,13 +179,30 @@ function makeRunner(page, kind) {
     await page.screenshot({ path: path.join(OUT, `${kind.replace(/\W+/g, '')}_${String(shot).padStart(2, '0')}_${label}.png`), fullPage: full });
   };
   const checkLayout = async (label) => {
-    const r = await page.evaluate(() => ({
-      sw: document.documentElement.scrollWidth, w: window.innerWidth,
-      text: document.body.innerText
-    }));
+    const r = await page.evaluate(() => {
+      // visible text with Hangul outside case content ([lang="ko"]) and the physician's own name ([data-ugc])
+      const re = /[\uac00-\ud7a3]/, bad = [];
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = w.nextNode())) {
+        if (!re.test(n.nodeValue)) continue;
+        const el = n.parentElement;
+        if (!el || el.closest('[lang="ko"], [data-ugc], script, style, noscript, [hidden]')) continue;
+        if (!el.getClientRects().length) continue;
+        bad.push(n.nodeValue.trim().slice(0, 50));
+      }
+      document.querySelectorAll('[placeholder], [aria-label], [title]').forEach(el => {
+        if (el.closest('[lang="ko"], [hidden]')) return;
+        ['placeholder', 'aria-label', 'title'].forEach(a => { const v = el.getAttribute(a); if (v && re.test(v)) bad.push('@' + a + ': ' + v.slice(0, 40)); });
+      });
+      if (re.test(document.title)) bad.push('title: ' + document.title);
+      return { sw: document.documentElement.scrollWidth, w: window.innerWidth, text: document.body.innerText, lang: document.documentElement.lang, bad: bad.slice(0, 8) };
+    });
     if (r.sw > r.w + 1) fail(`[${kind}] horizontal scroll on ${label}: scrollWidth ${r.sw} > ${r.w}`);
     const m = r.text.match(/gpt|deepseek|openai|gemini|claude|anthropic|20261118_ko/i);
     if (m) fail(`[${kind}] blinding: "${m[0]}" visible on ${label}`);
+    if (r.lang !== LANG) fail(`[${kind}] <html lang> = ${r.lang} on ${label}`);
+    if (LANG === 'en' && r.bad.length) fail(`[${kind}] Hangul in the UI chrome on ${label}: ${JSON.stringify(r.bad)}`);
   };
   // the app ignores next/back for 450 ms after each screen change (double-tap guard) — act like a person
   const clickNext = async () => {
@@ -220,12 +277,12 @@ async function checkItemScreen(page, kind, it) {
   if (!d.elemFirst) bad.push('채점 항목 card not before the steps');
   if (!d.basisAfter) bad.push('채점표 적용 근거 not after ④');
   ['gc-answer', 'gc-rater', 'gc-audit', 'gc-final'].forEach((c, i) => { if (d.cls[i].split(' ').indexOf(c) < 0) bad.push(`step ${i + 1} is not .${c}`); });
-  const titles = ['CDSS 답변', 'AI 채점', 'AI 감사', '최종 판정'];
+  const titles = LANG === 'en' ? ['CDSS answer', 'AI rater', 'AI audit', 'final verdict'] : ['CDSS 답변', 'AI 채점', 'AI 감사', '최종 판정'];
   d.heads.forEach((h, i) => { if (!h.startsWith('H2|') || h.indexOf(titles[i]) < 0) bad.push(`step ${i + 1} heading "${h}"`); });
   if (d.labelled.some(x => !x)) bad.push('step sections not labelled by their headings');
   if (d.badges.join('') !== '1234') bad.push('step badges ' + d.badges.join(','));
   if (d.h1 !== it.title) bad.push(`h1 "${d.h1}" ≠ element title`);
-  const why = it.rater.verdict === 'deducted' ? '왜 감점했나' : it.rater.verdict === 'met' ? '왜 충족으로 봤나' : '';
+  const why = it.rater.verdict === 'deducted' ? T('gc.rater.whyDeducted') : it.rater.verdict === 'met' ? T('gc.rater.whyMet') : '';
   if (why && d.heads[1].indexOf(why) < 0) bad.push(`② heading lacks "${why}"`);
   if (d.raterChip !== VLABEL[it.rater.verdict]) bad.push(`② verdict chip "${d.raterChip}" ≠ ${VLABEL[it.rater.verdict]}`);
   if (it.rater.reason && d.why !== screenTerms(it.rater.reason).replace(/\s+/g, ' ').trim()) bad.push('② reason text differs from rater.reason');
@@ -235,20 +292,20 @@ async function checkItemScreen(page, kind, it) {
   if (d.rater) bad.push("the word 'Rater' is visible (the screen calls it AI 채점)");
   if (d.navyPill) bad.push("duplicate '판정 N / M' pill in the case head");
   if (d.vkey) bad.push('충족/감점 legend still in the 채점 항목 card');
-  if (it.question_text && (d.qk.indexOf('채점표 질문') !== 0 || d.qtext.indexOf('「' + it.question_text.replace(/\s+/g, ' ').trim() + '」') < 0)) bad.push(`rubric question not labelled/quoted: "${d.qtext}"`);
-  if (d.raterMini[0] !== '판정 사유') bad.push(`② first label "${d.raterMini[0]}" (expected 판정 사유)`);
+  if (it.question_text && (d.qk.indexOf(T('gc.ans.qtextK')) !== 0 || d.qtext.indexOf(T('gc.ans.quote', { q: it.question_text.replace(/\s+/g, ' ').trim() })) < 0)) bad.push(`rubric question not labelled/quoted: "${d.qtext}"`);
+  if (d.raterMini[0] !== T('gc.rater.reason')) bad.push(`② first label "${d.raterMini[0]}" (expected ${T('gc.rater.reason')})`);
   const wantCited = expectedCited(it);
   if (d.cited.join(',') !== wantCited.join(',')) bad.push(`① cited other answers [${d.cited}] ≠ expected [${wantCited}]`);
   if (d.cited.length && !d.citedMarked) bad.push('① cited other answer shown without its highlight');
   if (d.oldLoc) bad.push("old location note '전체 답변 보기에서 표시' still shown");
   if (wantCited.length) storyStats.cited++;
   // ④: '바뀜' iff audit.corrected differs from the rater verdict
-  if (/바뀜/.test(d.badge) !== changed) bad.push(`④ badge "${d.badge}" but changed = ${changed}`);
-  if (!changed && d.badge !== '변경 없음') bad.push(`④ badge "${d.badge}" (expected 변경 없음)`);
+  if ((d.badge === T('gc.s4.changed')) !== changed) bad.push(`④ badge "${d.badge}" but changed = ${changed}`);
+  if (!changed && d.badge !== T('gc.s4.unchanged')) bad.push(`④ badge "${d.badge}" (expected ${T('gc.s4.unchanged')})`);
   if (d.struck !== changed) bad.push(`④ AI 채점 verdict struck = ${d.struck}, changed = ${changed}`);
   if (d.from.indexOf(VLABEL[it.rater.verdict]) !== 0) bad.push(`④ from "${d.from}" ≠ ${VLABEL[it.rater.verdict]}`);
   if (d.to !== VLABEL[it.final]) bad.push(`④ to "${d.to}" ≠ final ${VLABEL[it.final]}`);
-  if (!d.askJump || d.ask.indexOf('최종 판정') < 0 || d.ask.indexOf(VLABEL[it.final]) < 0) bad.push(`dock question "${d.ask}" does not point at ④ (${VLABEL[it.final]})`);
+  if (!d.askJump || d.ask.indexOf(T('gc.instrument.askStep')) < 0 || d.ask.indexOf(VLABEL[it.final]) < 0) bad.push(`dock question "${d.ask}" does not point at ④ (${VLABEL[it.final]})`);
   bad.forEach(b => fail(`${tag}: ${b}`));
   storyStats.items++; storyStats[changed ? 'changed' : 'unchanged']++;
   return d;
@@ -270,8 +327,11 @@ async function intro(page, R, kind, firstPart, urlPart) {
   const q = new URLSearchParams({ reset: '1', src: 'e2e' });
   if (TEST) q.set('test', '1');
   if (urlPart) q.set('part', urlPart);
+  q.set('lang', LANG);
   await page.goto(`${BASE}/gc/?${q}`);
   await page.waitForSelector('#eligCard');
+  await sleep(150);
+  await takeBeacons(page);
   if (await page.$('#evaluatorCard')) fail(`[${kind}] evaluator form visible before eligibility`);
   // intro only: discreet links to the landing page (../) and About (../about/), carrying src·site·wave (never test/part/reset)
   const links = await page.evaluate(() => ({ home: (document.getElementById('homeLink') || {}).href, about: (document.getElementById('aboutLink') || {}).href }));
@@ -310,7 +370,7 @@ async function intro(page, R, kind, firstPart, urlPart) {
     otherNumbered: document.querySelectorAll('#main ol:not(.gc-order), main ol:not(.gc-order)').length
   }));
   if (prof.fields.join(',') !== 'board_years,setting,ai_freq') fail(`[${kind}] intro profile fields ${prof.fields.join(',')}`);
-  else if (JSON.stringify(prof.ai) !== JSON.stringify(PF.ai_freq.options)) fail(`[${kind}] ai_freq options ${JSON.stringify(prof.ai)}`);
+  else if (JSON.stringify(prof.ai) !== JSON.stringify(CT(PF.ai_freq, 'options'))) fail(`[${kind}] ai_freq options ${JSON.stringify(prof.ai)}`);
   else ok('intro profile: board_years, setting, ai_freq (5 options in order)');
   if (prof.order !== 4) fail(`[${kind}] intro reading order shows ${prof.order} steps`);
   if (prof.otherNumbered) fail(`[${kind}] intro has another numbered list besides the ①→④ reading order`);
@@ -431,8 +491,27 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
       await R.clickNext();
       ok('edited a previous judgment via [이전]');
     }
+    if (extras && k === 4) {
+      // mid-item language switch (and back): same item, same decision, dock re-rendered in the other language
+      const other = LANG === 'en' ? 'ko' : 'en';
+      const before = await R.S();
+      await page.click(`#topbar .prefs [data-lang="${other}"]`);
+      await page.waitForFunction(l => document.documentElement.lang === l, other);
+      const mid = await R.S();
+      const ask = await page.$eval('#gcAsk', e => e.textContent);
+      const otherAsk = String(DICT[other]['gc.instrument.askStep']);
+      if (mid.stepIdx !== before.stepIdx || JSON.stringify(mid.judgments[it.id].agree) !== JSON.stringify(before.judgments[it.id].agree) ||
+        mid.session_id !== before.session_id) fail(`[${kind}] language switch changed the state`);
+      if (ask.indexOf(otherAsk) < 0) fail(`[${kind}] dock not re-rendered in ${other}: "${ask}"`);
+      await R.snap(`s${sessionNo}_item${k}_lang_${other}`);
+      await page.click(`#topbar .prefs [data-lang="${LANG}"]`);
+      await page.waitForFunction(l => document.documentElement.lang === l, LANG);
+      await checkItemScreen(page, kind, it);
+      ok(`language switch ${LANG} → ${other} → ${LANG} keeps the item and the decision`);
+    }
     if (extras && k === 5) {
       // reload mid-item → resume with the decision kept
+      await takeBeacons(page);
       await page.reload();
       await page.waitForSelector('.gc-title');
       const r = await R.S();
@@ -482,8 +561,8 @@ async function finalAndSubmit(page, R, kind, sessionNo, expected, extras) {
   await sleep(500);
   await page.click('#submitBtn');
   await page.waitForSelector('.status-line');
-  await page.waitForFunction(() => document.querySelector('.status-line.ok, .status-line.fail') ||
-    /테스트 모드/.test((document.querySelector('.status-line') || {}).textContent || ''), null, { timeout: 40000 }).catch(() => {});
+  await page.waitForFunction((tm) => document.querySelector('.status-line.ok, .status-line.fail') ||
+    ((document.querySelector('.status-line') || {}).textContent || '').indexOf(tm) >= 0, T('gc.done.testMode').slice(0, 12), { timeout: 40000 }).catch(() => {});
   await R.checkLayout('done');
   const st = await R.S();
   const status = await page.$eval('.status-line', e => e.className.replace('status-line', '').trim());
@@ -556,7 +635,7 @@ async function v1DraftProbe(browser) {
   console.log('\n=== v1 continuation draft ===');
   const kind = 'iPhone 13';
   const { ctx, page } = await newPage(browser, kind);
-  const q = new URLSearchParams({ src: 'e2e-layout', test: '1' });
+  const q = new URLSearchParams({ src: 'e2e-layout', test: '1', lang: LANG });
   await page.goto(`${BASE}/gc/?reset=1&${q}`);
   await page.waitForSelector('#eligCard');
   const v1draft = {
@@ -573,7 +652,7 @@ async function v1DraftProbe(browser) {
     notice: (document.querySelector('.notice.info') || {}).textContent || ''
   }));
   if (info.ask.join(',') !== 'ai_freq') fail(`[v1 draft] continuation asks [${info.ask}] (expected ai_freq)`);
-  if (info.notice.indexOf('AI 사용 빈도') < 0) fail(`[v1 draft] notice does not name the new question: "${info.notice}"`);
+  if (info.notice.indexOf(CT(PF.ai_freq, 'short')) < 0) fail(`[v1 draft] notice does not name the new question: "${info.notice}"`);
   await page.click('.seg[data-field="ai_freq"] button >> nth=4');
   await page.click('#startBtn');
   const started = await page.waitForFunction(() => window.__GC_APP__.state() && window.__GC_APP__.state().screen === 'eval', null, { timeout: 20000 }).then(() => true, () => false);
@@ -591,7 +670,7 @@ async function v1DraftProbe(browser) {
 async function layoutProbe(browser, kind, part = 'A', allItems = false) {
   const { ctx, page } = await newPage(browser, kind);
   const R = makeRunner(page, kind);
-  const q = new URLSearchParams({ reset: '1', src: 'e2e-layout', test: '1' });
+  const q = new URLSearchParams({ reset: '1', src: 'e2e-layout', test: '1', lang: LANG });
   await page.goto(`${BASE}/gc/?${q}`);
   await page.waitForSelector('#eligCard');
   await page.click('[data-elig="yes"]');
@@ -642,6 +721,7 @@ async function layoutProbe(browser, kind, part = 'A', allItems = false) {
 // (ENDPOINT emptied for this page: nothing is sent). Checks the ①→④ story, the Phase 1 answer and its expander.
 async function phase1Probe(browser, kind) {
   const ctx = await browser.newContext({ ...devices[kind], locale: 'ko-KR' });
+  await ctx.addInitScript((l) => { try { localStorage.setItem('t2d:lang', l); } catch (_) {} }, LANG);
   const CASES = loadWindowScript('data/cases.js').T2D_DATA;
   const unit = GC_CONFIG.PARTS.find(p => p.id === 'A').sequences[0][0];
   const p1 = (CASES.outputs[unit].phase_1 || {})['1.1'] || {};
@@ -692,10 +772,10 @@ async function phase1Probe(browser, kind) {
     hl: document.querySelectorAll('#gcStep1 .gc-ans-body mark.gc-hl.r').length,
     summary: (document.querySelector('.gc-answer details.gc-more > summary') || {}).textContent || ''
   }));
-  if (!/^Phase 1 · 답 1\.1/.test(p.sub)) fail(`[${tag}] ① sub "${p.sub}"`);
+  if (p.sub.indexOf(T('gc.ans.where', { loc: 'Phase 1', q: '1.1', label: '' }).trim()) !== 0) fail(`[${tag}] ① sub "${p.sub}"`);
   if (p.chips) fail(`[${tag}] drug chips shown for a Phase 1 item`);
   if (quote && !p.hl) fail(`[${tag}] AI 채점 quote not highlighted in the Phase 1 answer`);
-  if (p.summary.indexOf('Phase 1 전체 답변') < 0) fail(`[${tag}] expander "${p.summary}"`);
+  if (p.summary.indexOf(T('gc.ans.moreP1')) < 0) fail(`[${tag}] expander "${p.summary}"`);
   await page.click('.gc-answer details.gc-more > summary');
   const rows = await page.$$eval('.gc-answer .gc-full-row', els => els.length);
   if (rows !== 2) fail(`[${tag}] Phase 1 full answer shows ${rows} rows`);
@@ -707,6 +787,32 @@ async function phase1Probe(browser, kind) {
   await R.snap('phase1_item', true);
   ok(`${tag}: ①→④ story, Phase 1 answer + expander, decision recorded`);
   await ctx.close();
+}
+
+// every message sent to the GC web app: ui_lang = the UI language, set_id = 'v1'; values canonical (Korean labels + codes, verdict ids)
+function checkPayloads(allSessions) {
+  console.log('\n=== payloads (' + SENT.length + ' captured) ===');
+  if (NO_ENDPOINT) { console.log('  (skipped: --noendpoint)'); return; }
+  const ids = new Set(allSessions.map(s => s.session_id));
+  const mine = SENT.filter(p => p.action === 'view' || ids.has(p.session_id));
+  const acts = new Set(mine.map(p => p.action));
+  ['view', 'gc_start', 'gc_judgment', 'gc_finish'].forEach(a => { if (!acts.has(a)) fail(`no ${a} payload captured`); });
+  // a judgment re-rendered after a language switch keeps ui_lang of the moment it was sent; only switches inside runItems k=4
+  const badLang = mine.filter(p => p.ui_lang !== LANG);
+  if (badLang.length) fail(`${badLang.length} payload(s) with ui_lang ≠ ${LANG}: ${badLang.slice(0, 3).map(p => p.action + ':' + p.ui_lang).join(', ')}`);
+  const badSet = mine.filter(p => p.set_id !== 'v1');
+  if (badSet.length) fail(`${badSet.length} payload(s) with set_id ≠ v1`);
+  const opts = (f) => GC_CONFIG.PROFILE_FIELDS.find(x => x.id === f).options;
+  mine.filter(p => p.action === 'gc_finish').forEach(p => {
+    const f = p.evaluator.fields || {};
+    Object.keys(f).forEach(k => { if (opts(k).indexOf(f[k]) < 0) fail(`gc_finish evaluator.${k} = ${f[k]} is not a canonical option`); });
+    Object.keys(p.end_items || {}).forEach(k => {
+      const it = GC_CONFIG.END_ITEMS.find(x => x.id === k), v = p.end_items[k];
+      if (!it || it.options.indexOf(v.value) !== v.code - 1) fail(`gc_finish end_items.${k} = ${JSON.stringify(v)} not canonical`);
+    });
+    (p.judgments || []).forEach(j => { if (['met', 'deducted', 'not_applicable'].indexOf(j.phys_verdict) < 0) fail(`judgment ${j.item_id} phys_verdict ${j.phys_verdict}`); });
+  });
+  if (!errors.some(e => /payload|canonical|phys_verdict/.test(e))) ok(`${mine.length} payloads (${[...acts].sort().join(', ')}): ui_lang = ${LANG}, set_id = v1, canonical values`);
 }
 
 async function checkBackend(allSessions) {
@@ -907,6 +1013,7 @@ async function checkSummary(J, S, V) {
   }
   await v1DraftProbe(browser);
   await sleep(800);   // let the last beacons land
+  checkPayloads(all);
   await checkBackend(all);
   await browser.close();
   console.log(`\nitem screens checked (①→④ order, ④ 바뀜 iff corrected ≠ rater): ${storyStats.items} (바뀜 ${storyStats.changed}, 변경 없음 ${storyStats.unchanged}, with cited other answers ${storyStats.cited})`);

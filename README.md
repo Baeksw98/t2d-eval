@@ -247,7 +247,7 @@ QR 이미지 보내기(휴대폰 공유 → 카카오톡), PNG 저장, A4 PDF, �
 | 가이드라인 부합도 검증 | `https://eval.asclep.org/gc/?src=qr` | 내분비대사내과 분과전문의 | `qr/gc.png` · `gc.svg` · `gc-card.png` · `gc-poster-a4.pdf` | `qr/gc/` (Part 지정 가능) |
 | (예전 CA QR, 인쇄됨) | `https://eval.asclep.org/?src=qr` = 통합과 같은 주소 | — | `qr/select.png` · `select.svg` · `select-card.png` · `poster-a4.pdf` (그대로 둠) | — |
 
-- 공용 코드: `qr/qr.js`(문구·주소·QR 즉석 생성·공유·발표 화면) + `qr/qr.css`. 문구를 바꾸면 이 파일의 `TRACKS` 만 고치면 됩니다.
+- 공용 코드: `qr/qr.js`(주소·QR 즉석 생성·공유·발표 화면) + `qr/qr.css`. 화면·안내 문구(한국어·영어)는 `i18n/qr.js` 에 있으며, 문구를 바꾸면 이 파일만 고치면 됩니다.
 - 링크로 공유하면 `src=kakao`(문구·공유) / `src=link`(복사), QR 은 `src=qr` 로 접속 경로가 기록됩니다.
 - 예전 인쇄용 주소 `qr/?mode=card|poster` 는 `qr/main/` 으로 넘어갑니다.
 

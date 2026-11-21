@@ -149,6 +149,21 @@ scroll_at_fr, drawer_opens, drawer_ms, interruptions}}, combo_resets, case_activ
 case_hidden_ms, case_wall_ms, drawer_opens, drawer_ms}`
 
 `session` summary: `started_at, finished_at, total_active_ms, total_idle_ms, total_hidden_ms, total_wall_ms,
-intro_ms, final_ms, resumes, cases_completed, interruptions, send_failures`
+intro_ms, final_ms, resumes, cases_completed, interruptions, send_failures, ui_lang_start, ui_lang_switches, ui_langs[]`
+
+### UI language and case set (site v3.6, `APP_VERSION 2026-11-20.ca-v3.6`)
+The site can be shown in Korean or English (header KO/EN; Korean is the default, English only by the visitor's choice or `?lang=en`).
+Answer values never depend on the UI language: `evaluator.fields`, `items`, `end_items` keep the canonical Korean label + `code`.
+- `ui_lang` (`'ko'|'en'`, top level of every payload incl. `view`): the UI language **at the moment the payload was sent**. It is not
+  the language a case was rated in when the person switched mid-case — use the fields below for that.
+- `set_id` (top level of every payload): the case set of the session (`'v1'` = the current study; absent in pre-v3.6 payloads = v1).
+- `session.ui_lang_start` (language the session started in; `null` = a session started before v3.6, i.e. Korean),
+  `session.ui_lang_switches` (number of language changes), `session.ui_langs[]` (languages the session was shown in).
+- `case.ui_langs[]` (languages the case screens were shown in; `[]` = no record, a pre-v3.6 case = Korean) and
+  `case.ui_lang_mixed` (true = the case was seen in both languages); per step `metrics.steps[<step>].ui_lang` (language when the
+  score/regimen was last chosen) and `.ui_langs[]`.
+- A resumed session keeps the language it started in unless the visitor chose a language (`?lang=` or the KO/EN button).
+- Until the PI signs off the English instrument wording, analyse responses with `ui_lang_mixed` or an English `ui_langs` separately.
+  The current backend keeps these fields only in RawJSON; the Stage 2 backend adds the `UiLang` and `SetId` columns (blank in old rows = ko / v1).
 
 > GC (guideline-concordance physician validation, `/gc/`) is a separate evaluation procedure with its own Apps Script project and spreadsheet: see [`docs/GC_CONTRACT.md`](GC_CONTRACT.md).

@@ -1,9 +1,13 @@
-/* 임상 수용성 평가 (Physician Clinical Acceptability Assessment) — app */
+/* 임상 수용성 평가 (Physician Clinical Acceptability Assessment) — app
+ * 화면 문구: i18n/ca.js (T2D.t) · 언어/테마 런타임: assets/i18n.js · 문항 설정: config.js (한국어 = 저장 값, en = 영어 화면 번역)
+ * 케이스 세트: data/cases.js (window.T2D_DATA, set_id) + data/design.js (window.T2D_DESIGN, Type 배정).
+ *   저장된 진행 상태의 세트가 활성 세트와 다르면 data/sets/<id>/ 의 보관본을 불러온 뒤 이어서 진행합니다. */
 (function () {
   'use strict';
 
   var CFG = window.T2D_CONFIG;
-  var DATA = window.T2D_DATA;
+  var DATA = window.T2D_DATA;          // 부팅(boot) 때 진행 중인 세션의 세트로 바뀔 수 있음
+  var ACTIVE_SET = (DATA && DATA.set_id) || 'v1';
   var STORE_KEY = 't2d-ca:' + CFG.STUDY_ID + ':v3';
   var IDLE_MS = 180000;          // 3분 이상 조작이 없으면 idle 로 분류
   var START_TIMEOUT_MS = 15000;  // 순서 배정 요청 대기 한도 (Apps Script 첫 호출 지연 고려)
@@ -19,60 +23,89 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Language (assets/i18n.js + i18n/ca.js). 화면은 T2D.lang 으로 그리고, 응답(payload)에는 항상 한국어 원문 + code 를 저장한다.
+  // ---------------------------------------------------------------------------
+  var I18N = window.T2D || {};
+  function t(key, vars) { return I18N.t ? I18N.t(key, vars) : key; }
+  function uiLang() { return I18N.lang === 'en' ? 'en' : 'ko'; }
+  function pick(v) {   // {ko, en} 또는 문자열 → 화면 언어의 문자열
+    if (I18N.pick) return I18N.pick(v);
+    return v && typeof v === 'object' ? String(v.ko == null ? '' : v.ko) : String(v == null ? '' : v);
+  }
+  // 저장용 값(canonical): {ko, en} 이면 ko, 문자열이면 그대로. 응답에 라벨을 넣는 곳은 모두 이 함수를 거친다.
+  function canon(v) { return v && typeof v === 'object' ? String(v.ko == null ? '' : v.ko) : String(v == null ? '' : v); }
+  // config 항목의 화면 문구: 영어 화면이면 o.en[k] (있을 때), 아니면 o[k] (한국어 원문). {ko, en} 객체도 받는다.
+  function tr(o, k) {
+    if (!o) return '';
+    var v = o[k];
+    if (uiLang() === 'en' && o.en && o.en[k] != null) v = o.en[k];
+    return pick(v);
+  }
+  // 선택지 i 의 화면 문구 (o.options[i] 는 저장 값, o.en.options[i] 는 영어 화면 번역)
+  function optLabel(o, i) {
+    var raw = o.options[i], lab = Array.isArray(raw) ? raw[1] : raw;
+    if (uiLang() === 'en' && o.en && o.en.options && o.en.options[i] != null) return pick(o.en.options[i]);
+    return pick(lab);
+  }
+  // 저장된 값(한국어 원문) → 화면 문구 (완료 화면·이어서 평가 안내 등)
+  function valueLabel(f, v) {
+    if (!f || v == null || v === '') return String(v == null ? '' : v);
+    var lists = f.groups ? f.groups : [f];
+    for (var g = 0; g < lists.length; g++) {
+      var i = (lists[g].options || []).indexOf(v);
+      if (i >= 0) return optLabel(lists[g], i);
+    }
+    if (f.other && v === f.other) return tr(f, 'other');
+    if (f.other && String(v).indexOf('기타: ') === 0) return t('ca.field.otherValue', { v: String(v).slice(4) });
+    return String(v);
+  }
+
+  // ---------------------------------------------------------------------------
   // Study definitions
   // ---------------------------------------------------------------------------
-  var SCALE = [
-    { v: 1, label: '전혀 그렇지 않다' },
-    { v: 2, label: '그렇지 않다' },
-    { v: 3, label: '보통이다' },
-    { v: 4, label: '그렇다' },
-    { v: 5, label: '매우 그렇다' }
-  ];
+  var SCALE = [1, 2, 3, 4, 5].map(function (v) { return { v: v, key: 'ca.instrument.scale.' + v }; });
+  function scaleLabel(v) { return t('ca.instrument.scale.' + v); }
 
+  // Delphi 확정 문항 (Phase 1–5). 문구는 i18n/ca.js 의 ca.instrument.<phase>.* (한국어 = Delphi 원문)
   var PHASES = {
-    p1: {
-      num: 'Phase 1', title: '환자 분류 및 의뢰', en: 'Patient classification and referral',
-      statement: 'AI가 제공한 환자 분류 및 의뢰 권장 사항은 의뢰 여부 결정(referral decision)에 유의미한 참고가 된다.',
-      short: '의뢰 여부 결정',
-      items: [['1.1', '의뢰 판단'], ['1.2', '환자 평가']]
-    },
-    p2: {
-      num: 'Phase 2', title: '약물 조합 추천 요약', en: 'Drug-combination summary',
-      statement: 'AI가 제공한 약물 조합 추천 요약은 환자와의 공유 의사결정(shared decision-making)에 유의미한 참고가 된다.',
-      short: '공유 의사결정',
-      items: [['2.1', '효능'], ['2.2', '안전성'], ['2.3', '실행 가능성']]
-    },
-    p3: {
-      num: 'Phase 3', title: '약물 선택 시 고려사항', en: 'Drug-selection considerations',
-      statement: 'AI가 제공한 약물 선택 시 고려사항은 약물 처방 결정(pharmacotherapy decision)에 유의미한 참고가 된다.',
-      short: '약물 처방 결정',
-      items: [['3.1', '동반질환 기반 선택'], ['3.2', '체중 및 BMI'], ['3.3', 'HbA1c 목표'], ['3.4', '용량'],
-        ['3.5', '금기 및 주의사항'], ['3.6', '복약 순응도'], ['3.7', '비용 및 급여'], ['3.8', '비당뇨 약물 및 상호작용']]
-    },
-    p4: {
-      num: 'Phase 4', title: '추적관찰 및 모니터링', en: 'Follow-up and monitoring',
-      statement: 'AI가 제공한 추적관찰 계획은 환자의 추적관찰(follow-up monitoring) 계획 수립에 유의미한 참고가 된다.',
-      short: '추적관찰 계획 수립',
-      items: [['4.1', '추적 시기'], ['4.2', '평가 항목'], ['4.3', '이상반응 모니터링']]
-    },
-    p5: {
-      num: 'Phase 5', title: '환자 교육', en: 'Patient education',
-      statement: 'AI가 제공한 환자교육 자료는 실제 환자 교육(patient education)에 유의미한 참고가 된다.',
-      short: '환자 교육',
-      items: [['5.1', '자가 혈당 측정'], ['5.2', '합병증 관리'], ['5.3', '약물 및 주사 교육'], ['5.4', '생활습관 및 응급 대응']]
-    }
+    p1: { num: 'Phase 1', items: ['1.1', '1.2'] },
+    p2: { num: 'Phase 2', items: ['2.1', '2.2', '2.3'] },
+    p3: { num: 'Phase 3', items: ['3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8'] },
+    p4: { num: 'Phase 4', items: ['4.1', '4.2', '4.3'] },
+    p5: { num: 'Phase 5', items: ['5.1', '5.2', '5.3', '5.4'] }
   };
+  function phTitle(k) { return t('ca.instrument.' + k + '.title'); }
+  function phStatement(k) { return t('ca.instrument.' + k + '.statement'); }
+  function qLabel(q) { return t('ca.instrument.q.' + q); }
   var PHASE_KEYS = ['p1', 'p2', 'p3', 'p4', 'p5'];
   var STEPS = ['vignette', 'p1', 'combo', 'p2', 'p3', 'p4', 'p5', 'comment'];
-  var STEP_LABEL = {
-    vignette: '환자 정보', p1: 'Phase 1', combo: '조합 선택', p2: 'Phase 2', p3: 'Phase 3',
-    p4: 'Phase 4', p5: 'Phase 5', comment: '의견'
-  };
+  function stepLabel(st) { return /^p\d$/.test(st) ? PHASES[st].num : t('ca.step.' + st); }
   var ROLES = CFG.EVALUATOR_ROLES;
-  var TYPES = CFG.STUDY_TYPES;
+  // Type(배정 단위): 활성 세트의 data/design.js → 없거나 이 세트의 케이스와 맞지 않으면 config.js STUDY_TYPES
+  function validTypes(list) {
+    return Array.isArray(list) && list.length > 0 && list.every(function (ty) {
+      return ty && ty.id && Array.isArray(ty.sequences) && ty.sequences.length > 0 && ty.sequences.every(function (seq) {
+        return Array.isArray(seq) && seq.length > 0 && seq.every(function (k) { return !!(DATA && DATA.outputs && DATA.outputs[k]); });
+      });
+    });
+  }
+  function resolveTypes() {
+    var d = window.T2D_DESIGN;
+    var fromDesign = d && d.ca && d.ca.types;
+    if (validTypes(fromDesign) && (!d.set_id || !DATA.set_id || d.set_id === DATA.set_id)) return fromDesign;
+    return CFG.STUDY_TYPES;
+  }
+  function resolveMinutes() {
+    var d = window.T2D_DESIGN, m = d && d.ca && d.ca.minutes;
+    if (Array.isArray(m) && m.length === 2 && m.every(function (x) { return x > 0; })) return m;
+    return CFG.ESTIMATED_MINUTES_RANGE || [20, 30];
+  }
+  var TYPES = resolveTypes();
   function roleById(id) { for (var i = 0; i < ROLES.length; i++) if (ROLES[i].id === id) return ROLES[i]; return null; }
   function typeById(id) { for (var i = 0; i < TYPES.length; i++) if (TYPES[i].id === id) return TYPES[i]; return null; }
-  var URL_TYPE = typeById(String(params.get('type') || '').toUpperCase()) ? String(params.get('type')).toUpperCase() : '';
+  function typeLabel(id) { var ty = typeById(id); return ty ? pick(ty.label) : String(id || ''); }
+  function urlType() { var v = String(params.get('type') || '').toUpperCase(); return typeById(v) ? v : ''; }
+  var URL_TYPE = urlType();
   var COMMON = CFG.COMMON_FIELDS || [];
   var CASE_ITEMS = CFG.CASE_ITEMS || [];
   var END_ITEMS = CFG.END_ITEMS || [];
@@ -101,10 +134,15 @@
     var q = new URLSearchParams();
     ['src', 'site', 'wave'].forEach(function (k) { var v = safeParam(k); if (v) q.set(k, v); });
     var qs = q.toString() ? '?' + q.toString() : '';
-    return '<nav class="site-links" aria-label="사이트 메뉴">' +
-      '<a href="../' + qs + '" id="homeLink"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>처음 화면</a>' +
+    return '<nav class="site-links" aria-label="' + esc(t('ca.nav.aria')) + '">' +
+      '<a href="../' + qs + '" id="homeLink"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>' + esc(t('ca.nav.home')) + '</a>' +
       '<span class="sep" aria-hidden="true">·</span>' +
-      '<a href="../about/' + qs + '" id="aboutLink">벤치마크 소개</a></nav>';
+      '<a href="../about/' + qs + '" id="aboutLink">' + esc(t('ca.nav.about')) + '</a></nav>';
+  }
+  // 영어 화면에서 케이스 내용(환자 기록·AI 답변)은 원문(한국어)으로 보인다는 안내 — 화면 영역마다 한 번
+  function srcNoteHTML() {
+    return uiLang() === 'en' ? '<p class="src-note"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8 8 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4H4.3zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8.9 5.5 8.4 6.7 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8 8 0 0 1 0 4h-3.4z"/></svg>' +
+      esc(t('ca.srcNote')) + '</p>' : '';
   }
   var DEVICE_ID = (function () {
     var k = 't2d-ca:device';
@@ -126,7 +164,7 @@
   }
   function nCases() { return (S && S.order) ? S.order.length : 2; }
   function totalSteps() { return nCases() * STEPS.length; }
-  function typeSeqs() { var t = S && typeById(S.study_type); return t ? t.sequences : TYPES[0].sequences; }
+  function typeSeqs() { var ty = S && typeById(S.study_type); return ty ? ty.sequences : TYPES[0].sequences; }
 
   // ---------------------------------------------------------------------------
   // DOM
@@ -159,20 +197,21 @@
   }
   function fmtMin(ms) {
     var m = Math.round(ms / 60000);
-    if (m < 1) return '1분 미만';
-    if (m < 60) return m + '분';
-    return Math.floor(m / 60) + '시간 ' + (m % 60) + '분';
+    if (m < 1) return t('ca.time.lt1');
+    if (m < 60) return t('ca.time.min', { m: m });
+    return t('ca.time.hm', { h: Math.floor(m / 60), m: m % 60 });
   }
+  // 월 비용: 숫자(범위)면 화면 언어 형식으로, 아니면 원문 그대로(케이스 내용, lang="ko")
   function fmtCost(v) {
     var raw = String(v == null ? '' : v).trim();
-    var t = raw.replace(/원/g, '').trim();
-    if (!t || /^[-–—]$/.test(t)) return '—';
-    var parts = t.split(/\s*[–—-]\s*/);
+    var s = raw.replace(/원/g, '').trim();
+    if (!s || /^[-–—]$/.test(s)) return '—';
+    var parts = s.split(/\s*[–—-]\s*/);
     var NUM = /^(\d{1,3}(,\d{3})+|\d+)$/;
-    if (parts.length > 2 || !parts.every(function (x) { return NUM.test(x); })) return esc(raw);
+    if (parts.length > 2 || !parts.every(function (x) { return NUM.test(x); })) return '<span lang="ko">' + esc(raw) + '</span>';
     var nums = parts.map(function (x) { return Number(x.replace(/,/g, '')); });
     if (nums.length === 2 && nums[0] === nums[1]) nums = [nums[0]];
-    return nums.map(function (n) { return n.toLocaleString('ko-KR'); }).join('–') + '원';
+    return esc(t('ca.rx.krw', { n: nums.map(function (n) { return n.toLocaleString('ko-KR'); }).join('–') }));
   }
   var toastTimer = null;
   function toast(msg, ms) {
@@ -213,6 +252,9 @@
       study_id: CFG.STUDY_ID,
       app_version: CFG.APP_VERSION,
       data_version: DATA.data_version,
+      set_id: DATA.set_id || 'v1',      // 케이스 세트 (이 필드가 없는 이전 상태 = v1)
+      ui_lang_start: uiLang(),          // 세션을 시작한 화면 언어 (없는 이전 상태 = ko)
+      ui_langs: [uiLang()],             // 이 세션에서 보인 화면 언어들 (시작·전환·이어서 하기)
       session_id: uuid(),
       is_test: URL_TEST || !CFG.ENDPOINT,
       evaluator: evaluator,
@@ -306,10 +348,10 @@
   }
   var draft = emptyDraft();
 
-  // 평가자 정보 → 저장용 객체 (직군·추가 항목은 config.EVALUATOR_ROLES 기준)
+  // 평가자 정보 → 저장용 객체 (직군·추가 항목은 config.EVALUATOR_ROLES 기준). 값은 항상 한국어 원문(canon) + code.
   function buildEvaluator() {
     var role = roleById(draft.role);
-    var fields = {}, codes = {}, parts = [role.label];
+    var fields = {}, codes = {}, parts = [canon(role.label)];
     var take = function (f, inDetail) {
       var raw = String(draft.fields[f.id] || '').trim(), v = raw;
       if (f.other && raw === f.other) v = '기타: ' + String(draft.other[f.id] || '').trim();
@@ -321,13 +363,27 @@
     role.fields.forEach(function (f) { take(f, true); });
     COMMON.forEach(function (f) { take(f, false); });
     return {
-      name: draft.name.trim(), role: role.id, role_label: role.label, fields: fields, codes: codes,
+      name: draft.name.trim(), role: role.id, role_label: canon(role.label), fields: fields, codes: codes,
       detail: parts.join(' · '),
       year: fields.year || ''   // 이전 버전 시트의 ResidentYear 컬럼 호환
     };
   }
+  // 평가자 요약 줄 (화면용 HTML): 저장된 detail(한국어 원문)을 화면 언어로 다시 만든다. 직접 입력한 글자는 data-ugc 로 표시
+  function evaluatorLineHTML(ev) {
+    var role = roleById(ev && ev.role);
+    if (!role) return '<span data-ugc>' + esc((ev && ev.detail) || '') + '</span>';
+    var parts = [esc(tr(role, 'label'))];
+    role.fields.forEach(function (f) {
+      var v = (ev.fields || {})[f.id];
+      if (!v) return;
+      if (f.other && String(v).indexOf('기타: ') === 0) parts.push(esc(t('ca.field.otherValue', { v: '\u0000' })).split('\u0000').join('<span data-ugc>' + esc(String(v).slice(4)) + '</span>'));
+      else if (f.type === 'text') parts.push('<span data-ugc>' + esc(v) + '</span>');
+      else parts.push(esc(valueLabel(f, v)));
+    });
+    return parts.join(' · ');
+  }
   function hiddenCommon(f) { return !!(f.firstSessionOnly && draft.linked && draft.fields[f.id]); }
-  function fieldName(f) { return f.short || f.label; }
+  function fieldName(f) { return tr(f, 'short') || tr(f, 'label'); }
   // 목적격 조사: 마지막 한글(끝의 괄호 설명 제외)에 받침이 있으면 '을', 없으면 '를'
   function withObj(word) {
     var w = String(word || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
@@ -337,20 +393,21 @@
   }
   // 시작 전 확인: 빠진 항목을 이름으로 알려 주고(msg), 그 항목으로 이동할 수 있게 선택자(sel)를 돌려준다
   function draftProblem() {
-    if (!draft.name.trim()) return { msg: '성명을 입력해 주세요.', sel: '#evName' };
+    if (!draft.name.trim()) return { msg: t('ca.err.name'), sel: '#evName' };
     var role = roleById(draft.role);
-    if (!role) return { msg: '직군(인턴·레지던트·전문의)을 선택해 주세요.', sel: '#roleSeg' };
+    if (!role) return { msg: t('ca.err.role'), sel: '#roleSeg' };
     var all = role.fields.concat(COMMON);
     for (var i = 0; i < all.length; i++) {
       var f = all[i], v = String(draft.fields[f.id] || '').trim();
       var sel = f.type === 'select' ? '#fld_ev_' + f.id : '[data-field="' + f.id + '"]';
-      // 짧은 이름(short)이 없는 긴 질문은 이름 대신 강조 표시된 문항을 가리킨다
-      var named = f.short || f.label.length <= 24;
-      if (f.required && !v) return { msg: named ? withObj(fieldName(f)) + (f.type === 'text' ? ' 입력해 주세요.' : ' 선택해 주세요.') : '표시된 문항에 답해 주세요.', sel: sel };
-      if (f.other && v === f.other && !String(draft.other[f.id] || '').trim()) return { msg: withObj(fieldName(f)) + ' 직접 입력해 주세요.', sel: '[data-other="' + f.id + '"]' };
+      // 짧은 이름(short)이 없는 긴 질문은 이름 대신 강조 표시된 문항을 가리킨다 (판단은 한국어 원문 기준)
+      var named = f.short || canon(f.label).length <= 24;
+      var nm = { obj: withObj(fieldName(f)), name: fieldName(f) };
+      if (f.required && !v) return { msg: named ? t(f.type === 'text' ? 'ca.err.fieldText' : 'ca.err.fieldSelect', nm) : t('ca.err.marked'), sel: sel };
+      if (f.other && v === f.other && !String(draft.other[f.id] || '').trim()) return { msg: t('ca.err.fieldOther', nm), sel: '[data-other="' + f.id + '"]' };
     }
-    if (!typeById(draft.type)) return { msg: '평가 유형(Type)을 선택해 주세요.', sel: '#typeSeg' };
-    if (!draft.consent) return { msg: '안내 사항 확인에 체크해 주세요.', sel: '#evConsent' };
+    if (!typeById(draft.type)) return { msg: t('ca.err.type'), sel: '#typeSeg' };
+    if (!draft.consent) return { msg: t('ca.err.consent'), sel: '#evConsent' };
     return null;
   }
   // 빠진 항목으로 화면을 옮기고 잠깐 강조한 뒤 그 항목에 초점
@@ -365,14 +422,20 @@
     try { target.focus({ preventScroll: true }); } catch (_) {}
   }
 
-  var S = load();
-  if (S) lastRev = S.rev || 0;
+  var S = null;   // 저장된 진행 상태는 부팅(boot) 때 불러온다 (세트 보관본을 먼저 불러와야 할 수 있음)
 
   function curCase() { return S && S.cases[S.caseIdx]; }
   function curStep() { return STEPS[S.stepIdx]; }
   function stepMetrics(c, step) {
     if (!c.metrics.steps[step]) c.metrics.steps[step] = emptyStepMetrics();
     return c.metrics.steps[step];
+  }
+  // 화면 언어 기록: obj.ui_langs 에 지금 언어를 (처음 보일 때만) 더한다 — 케이스·세션이 어느 언어로 보였는지 (분석용)
+  function noteLang(obj) {
+    if (!obj) return;
+    var l = uiLang();
+    if (!obj.ui_langs) obj.ui_langs = [];
+    if (obj.ui_langs.indexOf(l) < 0) obj.ui_langs.push(l);
   }
   function currentBucket() {
     if (!S) return draft.introBucket;
@@ -466,8 +529,8 @@
     }).then(function (res) { return res.text(); })
       .then(function (txt) {
         var j;
-        try { j = JSON.parse(txt); } catch (_) { throw new Error('서버 응답 형식 오류'); }
-        if (!j || !j.ok) throw new Error((j && j.error) || '서버 오류');
+        try { j = JSON.parse(txt); } catch (_) { throw new Error(t('ca.net.badResponse')); }
+        if (!j || !j.ok) throw new Error((j && j.error) || t('ca.net.serverError'));
         return j;
       })
       .finally(function () { clearTimeout(timer); });
@@ -484,7 +547,9 @@
       instrument_version: CFG.INSTRUMENT_VERSION || '', wave: (S.entry || ENTRY).wave,
       evaluator_id: S.evaluator_id, device_id: S.device_id || DEVICE_ID, visit_id: S.visit_id || VISIT_ID,
       session_ordinal: S.session_ordinal || 1, entry: S.entry || ENTRY, consent: S.consent || {},
-      incentive: CFG.INCENTIVE || ''
+      incentive: CFG.INCENTIVE || '',
+      ui_lang: uiLang(),                 // 이 응답을 보낼 때의 화면 언어 (값은 언어와 관계없이 한국어 원문 + code)
+      set_id: S.set_id || 'v1'           // 세션의 케이스 세트 (set_id 가 없는 이전 상태 = v1)
     };
   }
 
@@ -521,7 +586,8 @@
     viewSent = true;
     beacon({
       action: 'view', msg_id: uuid(), client_time: nowIso(), study_id: CFG.STUDY_ID, app_version: CFG.APP_VERSION,
-      is_test: URL_TEST, visit_id: VISIT_ID, device_id: DEVICE_ID, entry: ENTRY, form_factor: deviceInfo().form_factor
+      is_test: URL_TEST, visit_id: VISIT_ID, device_id: DEVICE_ID, entry: ENTRY, form_factor: deviceInfo().form_factor,
+      ui_lang: uiLang(), set_id: (DATA && DATA.set_id) || 'v1'
     });
   }
 
@@ -574,7 +640,7 @@
     var cb = combo ? out.combinations[combo - 1] : null;
     var phaseChars = function (k) {
       if (!cb) return 0;
-      var n = PHASES[k].items.reduce(function (a, it) { return a + textLen(cb.answers[it[0]]); }, 0);
+      var n = PHASES[k].items.reduce(function (a, q) { return a + textLen(cb.answers[q]); }, 0);
       return n + textLen(drugLine(cb)) + (k === 'p2' ? textLen(cb.prescription) : 0);
     };
     return {
@@ -604,6 +670,10 @@
         dwell_ms: (cm.combo_dwell_ms || [0, 0, 0]).map(function (x) { return Math.round(x); })
       },
       rx_details_opens: cm.rx_details_opens || 0,
+      // 이 케이스 화면이 보인 언어들(단계 진입·언어 전환 때 기록) — 2개면 언어를 바꿔 가며 평가한 케이스.
+      // 단계별 평가 시점의 언어는 metrics.steps[step].ui_lang (마지막으로 점수·조합을 고른 때) / .ui_langs
+      ui_langs: (cm.ui_langs || []).slice(),
+      ui_lang_mixed: (cm.ui_langs || []).length > 1,
       interruptions: sumSteps(c, 'interruptions'),
       started_at: c.started_at, completed_at: c.completed_at,
       metrics: {
@@ -628,7 +698,11 @@
       final_ms: Math.round(S.metrics.final.active_ms + S.metrics.final.idle_ms),
       resumes: m.resumes,
       cases_completed: S.cases.filter(function (c) { return c.completed_at; }).length,
-      interruptions: m.interruptions || 0, send_failures: m.send_failures || 0
+      interruptions: m.interruptions || 0, send_failures: m.send_failures || 0,
+      // 화면 언어 이력: 시작 언어(이전 버전 세션 = null → ko), 언어 전환 횟수, 이 세션에서 보인 언어들
+      ui_lang_start: S.ui_lang_start || null,
+      ui_lang_switches: S.ui_lang_switches || 0,
+      ui_langs: (S.ui_langs || [S.ui_lang_start || 'ko']).slice()
     };
   }
 
@@ -661,6 +735,7 @@
     var m = stepMetrics(c, curStep());
     m.visits += 1;
     if (!m.first_enter) m.first_enter = nowIso();
+    noteLang(c.metrics);
     T.lastInteract = performance.now();
     save();
     render();
@@ -752,7 +827,7 @@
     tick();
     if (S.screen === 'case') {
       if (!stepComplete()) {
-        toast(curStep() === 'combo' ? '선호하는 조합을 선택해 주세요.' : curStep() === 'comment' ? '보조 문항에 모두 답해 주세요.' : '1–5점 중 하나를 선택해 주세요.');
+        toast(t(curStep() === 'combo' ? 'ca.err.combo' : curStep() === 'comment' ? 'ca.err.caseItems' : 'ca.err.rating'));
         return;
       }
       if (S.stepIdx < STEPS.length - 1) {
@@ -771,7 +846,7 @@
         S.caseIdx += 1; S.stepIdx = 0;
         enqueue(p);
         enterStep();
-        toast('케이스 ' + S.caseIdx + ' 평가가 저장되었습니다.');
+        toast(t('ca.toast.caseSaved', { n: S.caseIdx }));
       } else {
         S.screen = 'final';
         markFurthest(nCases(), 'final');
@@ -782,7 +857,7 @@
       return;
     }
     if (S.screen === 'final') {
-      if (!itemsComplete(END_ITEMS, S.end_items || {})) { toast('보조 문항에 답해 주세요.'); return; }
+      if (!itemsComplete(END_ITEMS, S.end_items || {})) { toast(t('ca.err.endItems')); return; }
       S.finished_at = nowIso();
       S.screen = 'done';
       var fp = basePayload('finish');
@@ -813,6 +888,7 @@
     if (m.ttfr_ms == null) { recordScroll(); m.ttfr_ms = Math.round(m.active_ms + m.idle_ms) - (m.ttfr_base || 0); m.scroll_at_fr = m.scroll_max; }
     else m.changes += 1;
     m.history.push([v, Math.round(m.active_ms + m.idle_ms)]);
+    m.ui_lang = uiLang(); noteLang(m);
     c.ratings[key] = v;
     save();
     var hadFocus = elDock.contains(document.activeElement);
@@ -877,7 +953,7 @@
     if (c.combo === n) return;
     var rated = ['p2', 'p3', 'p4', 'p5'].filter(function (k) { return c.ratings[k] != null; });
     if (c.combo != null && rated.length) {
-      if (!window.confirm('선호 조합을 바꾸면 이미 입력한 Phase 2–5 점수(' + rated.length + '개)가 초기화됩니다. 바꾸시겠습니까?')) return;
+      if (!window.confirm(t('ca.confirm.comboReset', { n: rated.length }))) return;
       rated.forEach(function (k) {
         c.ratings[k] = null;
         // 새 조합 기준으로 첫 응답 시간·변경 횟수를 다시 센다 (이전 값은 *_prev 로 보존)
@@ -894,6 +970,7 @@
     if (m.ttfr_ms == null) { recordScroll(); m.ttfr_ms = Math.round(m.active_ms + m.idle_ms); m.scroll_at_fr = m.scroll_max; }
     else m.changes += 1;
     m.history.push([n, Math.round(m.active_ms + m.idle_ms)]);
+    m.ui_lang = uiLang(); noteLang(m);
     c.combo = n;
     save();
     // update cards + dock in place (keep scroll position)
@@ -915,9 +992,7 @@
     if (!S || S.screen !== 'case' || staleTab) return;
     tick();
     var c = curCase();
-    var out = DATA.outputs[c.key];
-    elDrawerBody.innerHTML = patientHTML(DATA.patients[out.patient], true);
-    $('drawerTitle').textContent = '환자 정보 · ' + out.patient;
+    fillDrawer();
     lastFocus = document.activeElement;
     elDrawer.hidden = false; elBackdrop.hidden = false;
     document.body.style.overflow = 'hidden';
@@ -927,6 +1002,12 @@
     save();
     elDrawerBody.scrollTop = 0;
     $('drawerClose').focus();
+  }
+  function fillDrawer() {
+    var out = DATA.outputs[curCase().key];
+    elDrawerBody.innerHTML = srcNoteHTML() + patientHTML(DATA.patients[out.patient], true);
+    $('drawerTitle').textContent = t('ca.drawer.titleId', { id: out.patient });
+    $('drawerClose').setAttribute('aria-label', t('ca.close'));
   }
   function closeDrawer() {
     if (elDrawer.hidden) return;
@@ -951,8 +1032,8 @@
       return;
     }
     if (staleTab || !elDrawer.hidden || !S || S.screen !== 'case') return;
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    var tg = e.target;
+    if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.isContentEditable)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     var st = curStep();
     var n = Number(e.key);
@@ -968,56 +1049,73 @@
     return m ? { num: m[1].replace(/\s+/g, ''), unit: m[2] } : { num: String(v), unit: null };
   }
 
+  // 환자 기록: 항목 이름은 화면 언어, 값(케이스 내용)은 원문 그대로 lang="ko" 로 표시
+  function ko(html) { return '<span lang="ko">' + html + '</span>'; }
+  // 인구통계(예: '61세 남성 (아시아인)'): 영어 화면이면 정형화된 앞부분(나이·성별·흔한 인종 표기)만 번역하고
+  // 나머지는 원문(lang="ko")으로 둔다. noParen: 괄호 부분(인종)을 뺀 짧은 형태.
+  var ETH_KEYS = { '아시아인': 'asian', '백인': 'white', '흑인': 'black' };
+  function demoHTML(s, noParen) {
+    s = String(s == null ? '' : s);
+    if (noParen) s = s.replace(/\s*\(.*\)$/, '');
+    if (uiLang() !== 'en') return '<span lang="ko">' + esc(s) + '</span>';
+    var m = s.match(/^(\d+)세\s*(남성|여성)/);
+    if (!m) return '<span lang="ko">' + esc(s) + '</span>';
+    var out = esc(t('ca.pt.demoAgeSex', { age: m[1], sex: t(m[2] === '남성' ? 'ca.pt.sex.m' : 'ca.pt.sex.f') }));
+    var rest = s.slice(m[0].length).trim(), e = rest.match(/^\((아시아인|백인|흑인)\)$/);
+    if (e) out += ' (' + esc(t('ca.pt.eth.' + ETH_KEYS[e[1]])) + ')';
+    else if (rest) out += ' <span lang="ko">' + esc(rest) + '</span>';
+    return out;
+  }
+  function liKo(arr) { return (arr || []).map(function (s) { return '<li lang="ko">' + esc(s) + '</li>'; }).join(''); }
   function patientHTML(p, compact) {
     var h = [];
-    var sym = (p.symptoms || []).map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('');
     h.push(
       '<section class="card">' +
         '<div class="pt-head"><span class="pt-id">' + esc(p.id) + '</span>' +
-        '<span class="pt-demo">' + esc(p.demographics) + '</span>' +
-        '<span class="pill">' + esc(p.visit_type) + '</span></div>' +
-        '<p class="small muted" style="margin-top:4px">합성(가상) 환자 자료이며 실제 환자 정보가 아닙니다.</p>' +
+        '<span class="pt-demo">' + demoHTML(p.demographics) + '</span>' +
+        '<span class="pill" lang="ko">' + esc(p.visit_type) + '</span></div>' +
+        '<p class="small muted" style="margin-top:4px">' + esc(t('ca.pt.synthetic')) + '</p>' +
         '<dl class="kv" style="margin-top:12px">' +
-          '<dt>내원 이유</dt><dd>' + esc(p.visit_reason) + '</dd>' +
-          '<dt>진단 경위</dt><dd>' + esc(p.diagnosis_history) + '</dd>' +
-          '<dt>현재 증상</dt><dd><ul class="clean">' + sym + '</ul></dd>' +
+          '<dt>' + esc(t('ca.pt.visitReason')) + '</dt><dd lang="ko">' + esc(p.visit_reason) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.dxHistory')) + '</dt><dd lang="ko">' + esc(p.diagnosis_history) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.symptoms')) + '</dt><dd><ul class="clean">' + liKo(p.symptoms) + '</ul></dd>' +
         '</dl>' +
       '</section>'
     );
 
-    var hl = function (t) { return /\((No)\)|:\s*Normal|Category:\s*Normal/i.test(t) ? '' : ' hl'; };
+    var hl = function (x) { return /\((No)\)|:\s*Normal|Category:\s*Normal/i.test(x) ? '' : ' hl'; };
     var tags = function (arr, highlight) {
-      return '<div class="tags">' + arr.map(function (t) {
-        return '<span class="tag' + (highlight ? hl(t) : '') + '">' + esc(t) + '</span>';
+      return '<div class="tags">' + arr.map(function (x) {
+        return '<span class="tag' + (highlight ? hl(x) : '') + '" lang="ko">' + esc(x) + '</span>';
       }).join('') + '</div>';
     };
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">병력</h3>' +
+        '<h3 class="section-title">' + esc(t('ca.pt.history')) + '</h3>' +
         '<dl class="kv">' +
-          '<dt>기타 질환</dt><dd>' + tags(p.history.other_conditions, true) + '</dd>' +
-          '<dt>당뇨 관련<br>동반질환</dt><dd>' + tags(p.history.dm_comorbidities, true) + '</dd>' +
-          '<dt>가족력</dt><dd>' + esc(p.history.family) + '</dd>' +
-          '<dt>사회력</dt><dd><ul class="clean">' + p.history.social.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul></dd>' +
+          '<dt>' + esc(t('ca.pt.otherConditions')) + '</dt><dd>' + tags(p.history.other_conditions, true) + '</dd>' +
+          '<dt>' + t('ca.pt.dmComorbHtml') + '</dt><dd>' + tags(p.history.dm_comorbidities, true) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.family')) + '</dt><dd lang="ko">' + esc(p.history.family) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.social')) + '</dt><dd><ul class="clean">' + liKo(p.history.social) + '</ul></dd>' +
         '</dl>' +
       '</section>'
     );
 
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">현재 복용약</h3>' +
-        '<ul class="clean">' + p.medications.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' +
-        '<h3 class="section-title" style="margin-top:14px">신체검사 (현재)</h3>' + tags(p.exam, false) +
+        '<h3 class="section-title">' + esc(t('ca.pt.meds')) + '</h3>' +
+        '<ul class="clean">' + liKo(p.medications) + '</ul>' +
+        '<h3 class="section-title" style="margin-top:14px">' + esc(t('ca.pt.exam')) + '</h3>' + tags(p.exam, false) +
       '</section>'
     );
 
-    var th = function (lg, sm) { return '<span class="lg">' + lg + '</span><span class="sm">' + sm + '</span>'; };
-    var head = '<tr><th class="name">항목</th><th>' + th('-12개월', '-12m') + '</th><th>' + th('-9개월', '-9m') + '</th><th>' +
-      th('-6개월', '-6m') + '</th><th>' + th('-3개월', '-3m') + '</th><th class="now">현재</th></tr>';
+    var th = function (k) { return '<span class="lg">' + esc(t('ca.pt.m' + k)) + '</span><span class="sm">-' + k + 'm</span>'; };
+    var head = '<tr><th class="name">' + esc(t('ca.pt.labItem')) + '</th><th>' + th(12) + '</th><th>' + th(9) + '</th><th>' +
+      th(6) + '</th><th>' + th(3) + '</th><th class="now">' + esc(t('ca.pt.now')) + '</th></tr>';
     var rows = [], lastGroup = null;
     p.labs.forEach(function (lab) {
       if (lab.group !== lastGroup) {
-        rows.push('<tr class="grp"><td colspan="6">' + esc(lab.group) + '</td></tr>');
+        rows.push('<tr class="grp"><td colspan="6" lang="ko">' + esc(lab.group) + '</td></tr>');
         lastGroup = lab.group;
       }
       var parts = lab.values.map(splitUnit);
@@ -1025,44 +1123,48 @@
       var same = units.every(function (u) { return u === units[0]; }) && units[0] != null;
       var cells = parts.map(function (x, i) {
         var val = same ? x.num : lab.values[i];
-        return '<td' + (i === parts.length - 1 ? ' class="now"' : '') + '>' + esc(val) + '</td>';
+        return '<td' + (i === parts.length - 1 ? ' class="now"' : '') + ' lang="ko">' + esc(val) + '</td>';
       }).join('');
-      rows.push('<tr><td class="name">' + esc(lab.name) + (same && units[0] ? '<small>' + esc(units[0]) + '</small>' : '') + '</td>' + cells + '</tr>');
+      rows.push('<tr><td class="name" lang="ko">' + esc(lab.name) + (same && units[0] ? '<small>' + esc(units[0]) + '</small>' : '') + '</td>' + cells + '</tr>');
     });
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">검사 수치 (12개월 추이)</h3>' +
+        '<h3 class="section-title">' + esc(t('ca.pt.labs')) + '</h3>' +
         '<div class="lab-wrap"><table class="lab-table"><thead>' + head + '</thead><tbody>' + rows.join('') + '</tbody></table></div>' +
-        '<p class="lab-caption">3개월 간격 측정 · 주황색 배경의 <b>현재</b> 열이 이번 방문 값입니다.</p>' +
-        '<h3 class="section-title" style="margin-top:14px">추가 검사</h3>' +
-        '<ul class="clean">' + p.extra_tests.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+        '<p class="lab-caption">' + t('ca.pt.labCaptionHtml') + '</p>' +
+        '<h3 class="section-title" style="margin-top:14px">' + esc(t('ca.pt.extraTests')) + '</h3>' +
+        '<ul class="clean">' + liKo(p.extra_tests) + '</ul>' +
       '</section>'
     );
 
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">개별 치료 결정 요소</h3>' +
-        '<p class="small" style="font-weight:700;color:var(--navy)">현재까지의 치료 순응도</p>' +
-        '<ul class="clean" style="margin-top:4px">' + p.adherence.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
-        '<p class="small" style="font-weight:700;color:var(--navy);margin-top:12px">경제적 여건</p>' +
-        '<p style="margin-top:4px">' + esc(p.economics) + '</p>' +
+        '<h3 class="section-title">' + esc(t('ca.pt.factors')) + '</h3>' +
+        '<p class="small" style="font-weight:700;color:var(--navy)">' + esc(t('ca.pt.adherence')) + '</p>' +
+        '<ul class="clean" style="margin-top:4px">' + liKo(p.adherence) + '</ul>' +
+        '<p class="small" style="font-weight:700;color:var(--navy);margin-top:12px">' + esc(t('ca.pt.economics')) + '</p>' +
+        '<p style="margin-top:4px" lang="ko">' + esc(p.economics) + '</p>' +
       '</section>'
     );
     return h.join('');
   }
 
   var DECISION_CLASS = { '신규': 'new', '유지': 'keep', '중단': 'stop', '감량': 'reduce' };
+  // 처방 결정(신규·유지·중단·감량)과 급여 여부는 정해진 값 → 화면 언어로. 그 밖의 값은 원문 그대로
+  function decisionHTML(d) { var c = DECISION_CLASS[d]; return c ? esc(t('ca.rx.decision.' + c)) : ko(esc(d)); }
+  function coverageHTML(r) { return r === '급여' ? esc(t('ca.rx.cov')) : r === '비급여' ? esc(t('ca.rx.nocov')) : ko(esc(r)); }
   function rxHTML(rx) {
     var cls = DECISION_CLASS[rx.decision] || 'keep';
     var cov = rx.reimbursement === '급여' ? 'cov' : 'nocov';
     return '<div class="rx' + (cls === 'stop' ? ' stopped' : '') + '">' +
-      '<div class="rx-top"><span class="badge ' + cls + '">' + esc(rx.decision) + '</span>' +
-      '<span class="rx-drug">' + esc(rx.drug) + '</span><span class="rx-class">' + esc(rx.class) + '</span></div>' +
-      '<div class="rx-dose">' + esc(rx.dose) + ' · ' + esc(rx.frequency) + '</div>' +
+      '<div class="rx-top"><span class="badge ' + cls + '">' + decisionHTML(rx.decision) + '</span>' +
+      '<span class="rx-drug" lang="ko">' + esc(rx.drug) + '</span><span class="rx-class" lang="ko">' + esc(rx.class) + '</span></div>' +
+      '<div class="rx-dose" lang="ko">' + esc(rx.dose) + ' · ' + esc(rx.frequency) + '</div>' +
       '<dl class="rx-meta">' +
-        '<dt>용량 조절</dt><dd>' + esc(rx.titration || '—') + '</dd>' +
-        '<dt>급여·비용</dt><dd><span class="badge ' + cov + '">' + esc(rx.reimbursement) + '</span> 월 ' + fmtCost(rx.monthly_cost_krw) + '</dd>' +
-        (rx.alternatives ? '<dt>대체 약제</dt><dd>' + esc(rx.alternatives) + '</dd>' : '') +
+        '<dt>' + esc(t('ca.rx.titration')) + '</dt><dd lang="ko">' + esc(rx.titration || '—') + '</dd>' +
+        '<dt>' + esc(t('ca.rx.coverage')) + '</dt><dd><span class="badge ' + cov + '">' + coverageHTML(rx.reimbursement) + '</span> ' +
+          t('ca.rx.perMonthHtml', { cost: fmtCost(rx.monthly_cost_krw) }) + '</dd>' +
+        (rx.alternatives ? '<dt>' + esc(t('ca.rx.alternatives')) + '</dt><dd lang="ko">' + esc(rx.alternatives) + '</dd>' : '') +
       '</dl></div>';
   }
   function rxListHTML(list) { return '<div class="rx-list">' + list.map(rxHTML).join('') + '</div>'; }
@@ -1071,45 +1173,47 @@
   function drugChipsHTML(cb) {
     return '<div class="cc-drugs">' + cb.prescription.map(function (rx) {
       var cls = DECISION_CLASS[rx.decision] || 'keep';
-      return '<span class="drug ' + cls + '"><b>' + esc(rx.drug) + '</b><em>' + esc(rx.decision) + '</em></span>';
+      return '<span class="drug ' + cls + '"><b lang="ko">' + esc(rx.drug) + '</b><em>' + decisionHTML(rx.decision) + '</em></span>';
     }).join('') + '</div>';
   }
   function drugLine(cb) {
     return cb.prescription.filter(function (rx) { return rx.decision !== '중단'; }).map(function (rx) { return rx.drug; }).join(' + ');
   }
-  var POINTS = [['2.1', '효과', 'eff'], ['2.2', '안전성', 'safe'], ['2.3', '실행 가능성', 'feas']];
+  function comboNo(n) { return t('ca.combo.no', { n: n }); }
+  var POINTS = [['2.1', 'ca.combo.eff', 'eff'], ['2.2', 'ca.combo.safe', 'safe'], ['2.3', 'ca.combo.feas', 'feas']];
   function comboCardHTML(cb, n, c) {
     var on = c.combo === n;
     var tab = (on || (c.combo == null && n === 1)) ? 0 : -1;
     return '<article class="combo-card" role="radio" tabindex="' + tab + '" data-combo="' + n + '" aria-checked="' + on + '" aria-labelledby="cbno' + n + '">' +
-      '<header class="cc-head"><span class="cc-no" id="cbno' + n + '">조합 ' + n + '</span><span class="radio-dot" aria-hidden="true"></span></header>' +
+      '<header class="cc-head"><span class="cc-no" id="cbno' + n + '">' + esc(comboNo(n)) + '</span><span class="radio-dot" aria-hidden="true"></span></header>' +
       drugChipsHTML(cb) +
       '<ul class="cc-points">' + POINTS.map(function (pt) {
-        return '<li class="pt ' + pt[2] + '"><span class="pt-label">' + pt[1] + '</span><span class="pt-text">' + esc(cb.answers[pt[0]]) + '</span></li>';
+        return '<li class="pt ' + pt[2] + '"><span class="pt-label">' + esc(t(pt[1])) + '</span><span class="pt-text" lang="ko">' + esc(cb.answers[pt[0]]) + '</span></li>';
       }).join('') + '</ul>' +
-      '<details class="cc-rx"><summary>처방 상세 (용량·급여·월 비용)</summary>' + rxListHTML(cb.prescription) + '</details>' +
-      '<div class="cc-cta">' + (on ? '<span class="cc-sel">선택한 조합</span>' : '') + '이 조합으로 평가하기 <span aria-hidden="true">→</span></div>' +
+      '<details class="cc-rx"><summary>' + esc(t('ca.combo.rxDetails')) + '</summary>' + rxListHTML(cb.prescription) + '</details>' +
+      '<div class="cc-cta">' + (on ? '<span class="cc-sel">' + esc(t('ca.combo.selected')) + '</span>' : '') + esc(t('ca.combo.cta')) + ' <span aria-hidden="true">→</span></div>' +
       '</article>';
   }
   function selectedBannerHTML(cb, n, expanded) {
     return '<div class="selected-banner" id="selBanner">' +
-      '<div class="sb-top"><span class="sb-label">선택한 조합</span><span class="cc-no">조합 ' + n + '</span></div>' +
+      '<div class="sb-top"><span class="sb-label">' + esc(t('ca.combo.selected')) + '</span><span class="cc-no">' + esc(comboNo(n)) + '</span></div>' +
       drugChipsHTML(cb) +
       (expanded ? '<div class="sb-rx">' + rxListHTML(cb.prescription) + '</div>'
-        : '<details><summary>처방 상세 보기</summary>' + rxListHTML(cb.prescription) + '</details>') +
+        : '<details><summary>' + esc(t('ca.combo.rxShow')) + '</summary>' + rxListHTML(cb.prescription) + '</details>') +
       '</div>';
   }
 
   function itemHTML(no, title, bodyHTML) {
     return '<article class="item"><div class="item-head"><span class="item-no">' + esc(no) + '</span>' +
-      '<span class="item-title">' + esc(title) + '</span></div><div class="item-body">' + bodyHTML + '</div></article>';
+      '<span class="item-title">' + esc(title) + '</span></div><div class="item-body" lang="ko">' + bodyHTML + '</div></article>';
   }
 
   function caseHeadHTML(title, sub) {
     var c = curCase(), out = DATA.outputs[c.key], p = DATA.patients[out.patient];
     return '<div class="case-head">' +
-      '<span class="pill navy">케이스 ' + (S.caseIdx + 1) + ' / ' + nCases() + '</span>' +
-      '<span class="pill">환자 ' + esc(out.patient) + ' · ' + esc(p.demographics.replace(/\s*\(.*\)$/, '')) + '</span>' +
+      '<span class="pill navy">' + esc(t('ca.case.ofN', { n: S.caseIdx + 1, total: nCases() })) + '</span>' +
+      // 한 덩어리(span)로 감싸 pill(inline-flex) 안에서 글자 사이 간격이 생기지 않게
+      '<span class="pill"><span>' + esc(t('ca.case.patient', { id: out.patient })) + ' · ' + demoHTML(p.demographics, true) + '</span></span>' +
       '</div>' +
       '<h1 style="font-size:21px;color:var(--navy);margin-top:10px">' + esc(title) + '</h1>' +
       (sub ? '<p class="lead" style="margin-top:4px">' + sub + '</p>' : '');
@@ -1117,8 +1221,9 @@
 
   function phaseHeadHTML(key) {
     var ph = PHASES[key];
-    return '<div class="phase-head"><span class="ph-num">' + esc(ph.num) + '</span><h2>' + esc(ph.title) + '</h2>' +
-      '<span class="ph-en">' + esc(ph.en) + '</span></div>';
+    // 한국어 화면: 한국어 제목 + 영어 부제 / 영어 화면: 영어 제목만
+    return '<div class="phase-head"><span class="ph-num">' + esc(ph.num) + '</span><h2>' + esc(phTitle(key)) + '</h2>' +
+      (uiLang() === 'ko' ? '<span class="ph-en" lang="en">' + esc(t('ca.instrument.' + key + '.sub')) + '</span>' : '') + '</div>';
   }
 
   function seenBefore() {
@@ -1140,37 +1245,38 @@
     }).join('');
   }
   // 공통 문항 렌더러: choice(버튼·세로 목록) / select / multi(복수 선택) / text
+  // 버튼·목록의 값(data-value, option value)은 항상 한국어 원문(저장 값), 보이는 글자만 화면 언어
   function fieldHTML(f, cur, otherVal, prefix) {
     var id = esc((prefix || '') + f.id);
-    var lab = '<span class="label" id="lbl_' + id + '">' + esc(f.label) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
+    var lab = '<span class="label" id="lbl_' + id + '">' + esc(tr(f, 'label')) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
+    var otherInput = function () {
+      return f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="' + esc(t('ca.field.otherPh')) + '" value="' + esc(otherVal || '') + '">' : '';
+    };
     if (f.type === 'choice') {
-      var opts = f.options.map(function (o) { return { value: o, label: o }; });
-      if (f.other) opts.push({ value: f.other, label: f.other });
+      var opts = f.options.map(function (o, i) { return { value: o, label: optLabel(f, i) }; });
+      if (f.other) opts.push({ value: f.other, label: tr(f, 'other') });
       var list = f.layout === 'list';
       return '<div class="field">' + lab + '<div class="seg' + (list ? ' list' : '') + '" role="radiogroup" aria-labelledby="lbl_' + id + '" data-field="' + esc(f.id) + '"' +
         (list ? '' : ' style="grid-template-columns:repeat(' + opts.length + ',1fr)"') + '>' +
-        segHTML('data-value', opts, cur) + '</div>' +
-        (f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="직접 입력" value="' + esc(otherVal || '') + '">' : '') +
-        '</div>';
+        segHTML('data-value', opts, cur) + '</div>' + otherInput() + '</div>';
     }
     if (f.type === 'multi') {
       var sel = String(cur || '').split(';').filter(Boolean);
       return '<div class="field">' + lab + '<div class="chips" data-multi="' + esc(f.id) + '">' +
-        f.options.map(function (o) {
-          return '<button type="button" class="chip" data-value="' + esc(o[0]) + '" aria-pressed="' + (sel.indexOf(o[0]) >= 0) + '">' + esc(o[1]) + '</button>';
+        f.options.map(function (o, i) {
+          return '<button type="button" class="chip" data-value="' + esc(o[0]) + '" aria-pressed="' + (sel.indexOf(o[0]) >= 0) + '">' + esc(optLabel(f, i)) + '</button>';
         }).join('') + '</div></div>';
     }
     if (f.type === 'select') {
-      var o2 = '<option value="">' + esc(f.placeholder || '선택하세요') + '</option>' +
+      var opt = function (v, label) { return '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(label) + '</option>'; };
+      var o2 = '<option value="">' + esc(tr(f, 'placeholder') || t('ca.field.selectPh')) + '</option>' +
         (f.groups || [{ label: '', options: f.options || [] }]).map(function (g) {
-          var o = g.options.map(function (x) { return '<option' + (cur === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
-          return g.label ? '<optgroup label="' + esc(g.label) + '">' + o + '</optgroup>' : o;
+          var o = g.options.map(function (x, i) { return opt(x, optLabel(g, i)); }).join('');
+          return g.label ? '<optgroup label="' + esc(tr(g, 'label')) + '">' + o + '</optgroup>' : o;
         }).join('') +
-        (f.other ? '<option' + (cur === f.other ? ' selected' : '') + '>' + esc(f.other) + '</option>' : '');
+        (f.other ? opt(f.other, tr(f, 'other')) : '');
       return '<div class="field">' + lab.replace('<span class="label"', '<label class="label" for="fld_' + id + '"').replace(/<\/span>$/, '</label>') +
-        '<select class="input" id="fld_' + id + '" data-field="' + esc(f.id) + '">' + o2 + '</select>' +
-        (f.other && cur === f.other ? '<input class="input" type="text" maxlength="60" data-other="' + esc(f.id) + '" placeholder="직접 입력" value="' + esc(otherVal || '') + '">' : '') +
-        '</div>';
+        '<select class="input" id="fld_' + id + '" data-field="' + esc(f.id) + '">' + o2 + '</select>' + otherInput() + '</div>';
     }
     return '<div class="field">' + lab + '<input class="input" type="text" maxlength="60" data-field="' + esc(f.id) + '" value="' + esc(cur || '') + '"></div>';
   }
@@ -1181,7 +1287,7 @@
   }
   function commonFieldsHTML() {
     return COMMON.map(function (f) {
-      if (hiddenCommon(f)) return '<p class="small muted">' + esc(fieldName(f)) + ': <b>' + esc(draft.fields[f.id]) + '</b> — 첫 평가 때 응답을 그대로 사용합니다.</p>';
+      if (hiddenCommon(f)) return '<p class="small muted">' + t('ca.intro.reusedHtml', { name: esc(fieldName(f)), value: esc(valueLabel(f, draft.fields[f.id])) }) + '</p>';
       return fieldHTML(f, draft.fields[f.id] || '', draft.other[f.id], 'ev_');
     }).join('');
   }
@@ -1189,11 +1295,20 @@
     var role = roleById(draft.role);
     return (role ? role.fields : []).concat(COMMON).filter(function (f) { return f.id === id; })[0] || null;
   }
+  // 한 Type 의 케이스 수·환자 수 (안내 문구용; 세트마다 다를 수 있음)
+  function typeShape() {
+    var seq = (TYPES[0] && TYPES[0].sequences[0]) || [];
+    var pts = {};
+    seq.forEach(function (k) { var o = DATA.outputs[k]; if (o) pts[o.patient] = 1; });
+    return { n: seq.length || 2, p: Object.keys(pts).length || 2 };
+  }
 
   function renderIntro() {
-    var legend = SCALE.map(function (s) { return '<div><b>' + s.v + '</b>' + esc(s.label) + '</div>'; }).join('');
-    var roles = segHTML('data-role', ROLES.map(function (r) { return { value: r.id, label: r.label }; }), draft.role);
-    var types = segHTML('data-type', TYPES.map(function (t) { return { value: t.id, label: t.label }; }), draft.type);
+    var legend = SCALE.map(function (s) { return '<div><b>' + s.v + '</b>' + esc(scaleLabel(s.v)) + '</div>'; }).join('');
+    var roles = segHTML('data-role', ROLES.map(function (r) { return { value: r.id, label: tr(r, 'label') }; }), draft.role);
+    var types = segHTML('data-type', TYPES.map(function (ty) { return { value: ty.id, label: pick(ty.label) }; }), draft.type);
+    var shape = typeShape(), mins = resolveMinutes();
+    var tv = { n: shape.n, p: shape.p, lo: mins[0], hi: mins[1], clo: Math.round(mins[0] / shape.n), chi: Math.round(mins[1] / shape.n) };
     // 이어서 평가: 이전 세션에 없던 필수 항목(예: v3.3 에서 시작한 평가자의 AI 사용 빈도)은 무엇인지 알려 준다
     var linkedRole = roleById(draft.role);
     var linkedMissing = !draft.linked ? [] : (linkedRole ? linkedRole.fields : []).concat(COMMON).filter(function (f) {
@@ -1203,57 +1318,50 @@
       // 이어서 평가(draft.linked)는 이 화면을 떠나면 연결이 끊기므로 링크를 보이지 않는다
       (draft.linked ? '' : siteLinksHTML()) +
       '<section class="card hero">' +
-        '<span class="eyebrow">AI 기반 T2D 임상 의사결정 지원 시스템</span>' +
-        '<h1>임상 수용성 평가</h1>' +
-        '<p class="sub">Physician Clinical Acceptability Assessment</p>' +
-        '<p class="desc">AI 임상 의사결정 지원 시스템(CDSS)이 생성한 제2형 당뇨병 외래 진료 권고안을 읽고, ' +
-        '각 단계의 답변이 실제 임상 결정에 유의미한 참고가 되는지 평가해 주십시오.</p>' +
+        '<span class="eyebrow">' + esc(t('ca.intro.eyebrow')) + '</span>' +
+        '<h1>' + esc(t('ca.intro.title')) + '</h1>' +
+        '<p class="sub">' + esc(t('ca.intro.sub')) + '</p>' +
+        '<p class="desc">' + esc(t('ca.intro.desc')) + '</p>' +
       '</section>' +
 
       '<section class="card">' +
-        '<h2 class="section-title">평가 방법</h2>' +
-        '<p>선택한 평가 유형(Type)에 따라 가상 환자 2명에 대한 AI 답변 <b>2건</b>을 차례로 평가합니다. 답변을 만든 AI 시스템의 이름은 공개하지 않으며, 제시 순서는 평가자마다 다릅니다.</p>' +
+        '<h2 class="section-title">' + esc(t('ca.intro.howTitle')) + '</h2>' +
+        '<p>' + t('ca.intro.howHtml', tv) + '</p>' +
         '<ol class="flow" style="margin-top:12px">' +
-          '<li><span><b>환자 정보 확인</b> — 병력, 복용약, 12개월 검사 추이를 먼저 읽습니다.</span></li>' +
-          '<li><span><b>Phase 1 평가</b> — 환자 분류 및 의뢰 권고를 읽고 1–5점으로 평가합니다.</span></li>' +
-          '<li><span><b>선호 조합 선택</b> — AI가 제시한 약물 조합 3개 중 이 환자에게 가장 선호하는 조합 1개를 고릅니다.</span></li>' +
-          '<li><span><b>Phase 2–5 평가</b> — 선택한 조합에 대한 약물 조합 요약, 약물 선택 고려사항, 추적관찰, 환자 교육을 각각 1–5점으로 평가합니다.</span></li>' +
-          '<li><span><b>의견 (선택)</b> — 해당 AI 답변에 대한 의견을 자유롭게 남깁니다.</span></li>' +
+          [1, 2, 3, 4, 5].map(function (i) { return '<li><span>' + t('ca.intro.flow' + i + 'Html') + '</span></li>'; }).join('') +
         '</ol>' +
         '<ul class="clean small muted" style="margin-top:14px">' +
-          '<li>예상 소요 시간: ' + esc(CFG.ESTIMATED_MINUTES) + ' (케이스당 약 10–15분)</li>' +
-          '<li>평가 중에는 화면 위쪽 <b>[환자 정보]</b> 버튼으로 환자 기록을 언제든 다시 볼 수 있습니다.</li>' +
-          '<li>창을 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.</li>' +
+          '<li>' + esc(t('ca.intro.time', tv)) + '</li>' +
+          '<li>' + t('ca.intro.patientBtnHtml') + '</li>' +
+          '<li>' + esc(t('ca.intro.resume')) + '</li>' +
         '</ul>' +
       '</section>' +
 
       '<section class="card">' +
-        '<h2 class="section-title">평가 척도</h2>' +
-        '<p>각 Phase마다 다음 형식의 문장에 얼마나 동의하는지 선택합니다.</p>' +
-        '<p class="notice" style="margin-top:10px">“AI가 제공한 <b>[해당 Phase 내용]</b>은 <b>[해당 임상 결정]</b>에 유의미한 참고가 된다.”</p>' +
+        '<h2 class="section-title">' + esc(t('ca.intro.scaleTitle')) + '</h2>' +
+        '<p>' + esc(t('ca.intro.scaleLead')) + '</p>' +
+        '<p class="notice" style="margin-top:10px">' + t('ca.instrument.templateHtml') + '</p>' +
         '<div class="scale-legend">' + legend + '</div>' +
       '</section>' +
 
       '<section class="card" id="evaluatorCard">' +
-        '<h2 class="section-title">평가자 정보</h2>' +
-        (draft.linked ? '<p class="notice info" style="margin-bottom:14px">이전 평가에 이어 <b>' + esc((typeById(draft.type) || {}).label || '') + '</b>를 평가합니다. ' +
-          (linkedMissing.length ? '아래 <b>' + esc(linkedMissing.join(', ')) + '</b> 문항에 답한 뒤 시작해 주세요.' : '아래 정보를 확인하고 시작해 주세요.') + '</p>' : '') +
-        '<div class="field"><label for="evName">성명<span class="req">*</span></label>' +
-          '<input class="input" id="evName" type="text" autocomplete="name" maxlength="40" placeholder="예: 홍길동" value="' + esc(draft.name) + '"></div>' +
-        '<div class="field"><span class="label" id="roleLabel">직군<span class="req">*</span></span>' +
+        '<h2 class="section-title">' + esc(t('ca.intro.evalTitle')) + '</h2>' +
+        (draft.linked ? '<p class="notice info" style="margin-bottom:14px">' + t('ca.intro.linkedHtml', { type: esc(typeLabel(draft.type)) }) + ' ' +
+          (linkedMissing.length ? t('ca.intro.linkedMissingHtml', { names: esc(linkedMissing.join(', ')) }) : esc(t('ca.intro.linkedCheck'))) + '</p>' : '') +
+        '<div class="field"><label for="evName">' + esc(t('ca.intro.name')) + '<span class="req">*</span></label>' +
+          '<input class="input" id="evName" type="text" autocomplete="name" maxlength="40" placeholder="' + esc(t('ca.intro.namePh')) + '" value="' + esc(draft.name) + '"></div>' +
+        '<div class="field"><span class="label" id="roleLabel">' + esc(t('ca.intro.role')) + '<span class="req">*</span></span>' +
           '<div class="seg" role="radiogroup" aria-labelledby="roleLabel" id="roleSeg" style="grid-template-columns:repeat(' + ROLES.length + ',1fr)">' + roles + '</div></div>' +
         '<div id="roleFields">' + roleFieldsHTML() + '</div>' +
         (COMMON.length ? '<div id="commonFields">' + commonFieldsHTML() + '</div>' : '') +
-        '<div class="field"><span class="label" id="typeLabel">평가 유형<span class="req">*</span></span>' +
-          '<p class="small muted" style="margin:0">둘 중 하나를 골라 주세요. 각 Type은 서로 다른 AI 답변 2건(약 20–30분)이며, 끝난 뒤 다른 Type도 이어서 평가할 수 있습니다.</p>' +
+        '<div class="field"><span class="label" id="typeLabel">' + esc(t('ca.intro.type')) + '<span class="req">*</span></span>' +
+          '<p class="small muted" style="margin:0">' + esc(t(TYPES.length === 2 ? 'ca.intro.typeChoose2' : 'ca.intro.typeChooseN')) + ' ' + esc(t('ca.intro.typeHelp', tv)) + '</p>' +
           '<div class="seg" role="radiogroup" aria-labelledby="typeLabel" id="typeSeg" style="grid-template-columns:repeat(' + TYPES.length + ',1fr)">' + types + '</div></div>' +
         '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
-          '<span>본 평가의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 직군·연차/경력, AI 사용 빈도, 평가 점수와 의견, ' +
-          '응답 과정 정보(단계별 소요 시간, 접속 경로, 기기 종류). 분석과 발표에는 성명 대신 가명 코드를 사용합니다.' +
-          (CFG.IRB_NO ? ' (IRB 승인번호: ' + esc(CFG.IRB_NO) + ')' : '') + '</span></label></div>' +
-        '<button type="button" class="btn btn-accent btn-block" id="startBtn" style="margin-top:18px">' + (starting ? '평가 준비 중…' : '평가 시작') + '</button>' +
+          '<span>' + esc(t('ca.consent.text')) +
+          (CFG.IRB_NO ? esc(t('ca.consent.irb', { no: CFG.IRB_NO })) : '') + '</span></label></div>' +
+        '<button type="button" class="btn btn-accent btn-block" id="startBtn" style="margin-top:18px">' + esc(t(starting ? 'ca.intro.starting' : 'ca.intro.start')) + '</button>' +
       '</section>';
-
     var card = $('evaluatorCard');
     var pickSeg = function (b) {
       var seg = b.parentNode;
@@ -1298,22 +1406,22 @@
       pickSeg(nb); nb.focus();
     });
     card.addEventListener('change', function (e) {
-      var t = e.target;
-      if (t.tagName === 'SELECT' && t.hasAttribute('data-field')) {
-        var id = t.getAttribute('data-field');
-        draft.fields[id] = t.value;
+      var tg = e.target;
+      if (tg.tagName === 'SELECT' && tg.hasAttribute('data-field')) {
+        var id = tg.getAttribute('data-field');
+        draft.fields[id] = tg.value;
         var f = findEvalField(id) || {};
         var hasOther = !!card.querySelector('[data-other="' + id + '"]');
-        if (f.other && (t.value === f.other) !== hasOther) {
+        if (f.other && (tg.value === f.other) !== hasOther) {
           $('roleFields').innerHTML = roleFieldsHTML();
           var oi = card.querySelector('[data-other="' + id + '"]'); if (oi) oi.focus();
         }
       }
     });
     card.addEventListener('input', function (e) {
-      var t = e.target;
-      if (t.hasAttribute('data-other')) draft.other[t.getAttribute('data-other')] = t.value;
-      else if (t.tagName === 'INPUT' && t.type === 'text' && t.hasAttribute('data-field')) draft.fields[t.getAttribute('data-field')] = t.value;
+      var tg = e.target;
+      if (tg.hasAttribute('data-other')) draft.other[tg.getAttribute('data-other')] = tg.value;
+      else if (tg.tagName === 'INPUT' && tg.type === 'text' && tg.hasAttribute('data-field')) draft.fields[tg.getAttribute('data-field')] = tg.value;
     });
     $('evName').addEventListener('input', function (e) { draft.name = e.target.value; });
     $('evConsent').addEventListener('change', function (e) {
@@ -1325,7 +1433,7 @@
   }
 
   function renderStarting() {
-    elMain.innerHTML = '<section class="card"><p class="status-line pending"><span class="dot"></span>평가를 준비하고 있습니다…</p></section>';
+    elMain.innerHTML = '<section class="card"><p class="status-line pending"><span class="dot"></span>' + esc(t('ca.starting')) + '</p></section>';
     elDock.innerHTML = '';
   }
 
@@ -1335,56 +1443,57 @@
     var html = '';
     if (st === 'vignette') {
       var seen = seenBefore();
-      html += caseHeadHTML('환자 정보', '먼저 환자 기록을 충분히 읽어 주세요. 다음 화면부터 AI 답변이 제시됩니다.');
+      html += caseHeadHTML(t('ca.vig.title'), esc(t('ca.vig.sub'))) + srcNoteHTML();
       if (seen) {
-        html += '<p class="notice info same-patient">이 환자는 <b>케이스 ' + seen + '</b>에서 이미 확인하셨습니다. 이번에는 <b>다른 AI 답변</b>을 평가합니다. 필요한 부분만 다시 훑어보셔도 됩니다.</p>';
+        html += '<p class="notice info same-patient">' + t('ca.vig.seenHtml', { n: seen }) + '</p>';
       } else if ((S.prev_patients || []).indexOf(out.patient) >= 0) {
-        html += '<p class="notice info same-patient">이 환자는 <b>이전 Type 평가</b>에서 이미 확인하셨습니다. 이번에는 <b>다른 AI 답변</b>을 평가합니다.</p>';
+        html += '<p class="notice info same-patient">' + t('ca.vig.seenPrevHtml') + '</p>';
       }
       html += patientHTML(p, false);
     } else if (st === 'p1') {
       var ph1 = out.phase_1;
-      html += caseHeadHTML('AI 답변 평가');
+      html += caseHeadHTML(t('ca.ans.title')) + srcNoteHTML();
       html += phaseHeadHTML('p1');
       html += '<div class="items">' +
-        itemHTML('1.1', '의뢰 판단', '<span class="callout">' + esc(ph1['1.1'].referral) + '</span><p>' + esc(ph1['1.1'].answer) + '</p>') +
-        itemHTML('1.2', '환자 평가', '<p>' + esc(ph1['1.2']) + '</p>') +
+        itemHTML('1.1', qLabel('1.1'), '<span class="callout">' + esc(ph1['1.1'].referral) + '</span><p>' + esc(ph1['1.1'].answer) + '</p>') +
+        itemHTML('1.2', qLabel('1.2'), '<p>' + esc(ph1['1.2']) + '</p>') +
       '</div>';
     } else if (st === 'combo') {
-      html += caseHeadHTML('선호 조합 선택', 'AI가 이 환자에게 제시한 후보 약물 조합 3개입니다. 효과·안전성·실행 가능성을 비교해 <b>가장 선호하는 조합의 박스</b>를 눌러 주세요. 선택한 조합으로 Phase 2–5를 평가합니다.');
-      html += '<div class="combo-toolbar desk-only"><button type="button" class="btn btn-ghost" data-act="back">← 이전</button>' +
-        '<span class="muted small">박스를 누르면 바로 Phase 2로 넘어갑니다</span>' +
-        (c.combo ? '<button type="button" class="btn btn-primary" data-act="next">조합 ' + c.combo + '으로 계속 →</button>' : '<span></span>') + '</div>';
-      html += '<div class="combo-grid three" role="radiogroup" aria-label="후보 약물 조합" id="comboGroup">' +
+      var nC = out.combinations.length;
+      html += caseHeadHTML(t('ca.combo.title'), t('ca.combo.subHtml', { n: nC })) + srcNoteHTML();
+      html += '<div class="combo-toolbar desk-only"><button type="button" class="btn btn-ghost" data-act="back">' + esc(t('ca.combo.back')) + '</button>' +
+        '<span class="muted small">' + esc(t('ca.combo.tapHint')) + '</span>' +
+        (c.combo ? '<button type="button" class="btn btn-primary" data-act="next">' + esc(t('ca.combo.continue', { n: c.combo })) + '</button>' : '<span></span>') + '</div>';
+      html += '<div class="combo-grid three" role="radiogroup" aria-label="' + esc(t('ca.combo.groupAria')) + '" id="comboGroup">' +
         out.combinations.map(function (cb, i) { return comboCardHTML(cb, i + 1, c); }).join('') + '</div>';
     } else if (PHASES[st]) {
       var cb = out.combinations[c.combo - 1];
       var a = cb.answers;
-      html += caseHeadHTML('AI 답변 평가');
+      html += caseHeadHTML(t('ca.ans.title')) + srcNoteHTML();
       var enter = arrivingFromCombo && st === 'p2';
       html += selectedBannerHTML(cb, c.combo, st === 'p2');
       html += phaseHeadHTML(st).replace('class="phase-head"', 'class="phase-head' + (enter ? ' enter' : '') + '"');
-      html += '<div class="items' + (enter ? ' enter' : '') + '">' + PHASES[st].items.map(function (it) {
-        var v = a[it[0]];
+      html += '<div class="items' + (enter ? ' enter' : '') + '">' + PHASES[st].items.map(function (q) {
+        var v = a[q];
         var body;
         if (v && typeof v === 'object') {
-          body = (v.next_visit ? '<span class="callout"><small>다음 방문</small>' + esc(v.next_visit) + '</span>' : '') +
+          body = (v.next_visit ? '<span class="callout"><small>' + esc(t('ca.ans.nextVisit')) + '</small>' + esc(v.next_visit) + '</span>' : '') +
             '<p>' + esc(v.answer || '') + '</p>';
         } else {
           body = '<p>' + esc(v) + '</p>';
         }
-        return itemHTML(it[0], it[1], body);
+        return itemHTML(q, qLabel(q), body);
       }).join('') + '</div>';
     } else if (st === 'comment') {
-      html += caseHeadHTML('케이스 마무리', '보조 문항에 답하고, 필요하면 의견을 남겨 주세요.');
-      html += '<section class="card"><h3 class="section-title">이번 케이스 평가 요약</h3>' + caseRecapHTML(c) +
-        '<p class="small muted" style="margin-top:8px">점수를 고치려면 아래 [이전] 버튼으로 해당 단계로 돌아가세요.</p></section>';
+      html += caseHeadHTML(t('ca.wrap.title'), esc(t('ca.wrap.sub'))) + srcNoteHTML();
+      html += '<section class="card"><h3 class="section-title">' + esc(t('ca.wrap.recap')) + '</h3>' + caseRecapHTML(c) +
+        '<p class="small muted" style="margin-top:8px">' + esc(t('ca.wrap.fix')) + '</p></section>';
       if (CASE_ITEMS.length) {
-        html += '<section class="card sub-items"><span class="sub-tag">보조 문항</span>' +
-          '<p class="small muted" style="margin:6px 0 4px">위 임상 수용성 평가(Phase 1–5)와 별개로, 이 케이스의 AI 답변 전체에 대해 답해 주세요.</p>' +
+        html += '<section class="card sub-items"><span class="sub-tag">' + esc(t('ca.subItems')) + '</span>' +
+          '<p class="small muted" style="margin:6px 0 4px">' + esc(t('ca.wrap.subLead')) + '</p>' +
           '<div id="caseItems">' + itemsHTML(CASE_ITEMS, c.items || {}, 'ci_') + '</div></section>';
       }
-      html += '<section class="card"><div class="field"><label for="caseComment">자유 의견 (선택)</label>' +
+      html += '<section class="card"><div class="field"><label for="caseComment">' + esc(t('ca.wrap.comment')) + '</label>' +
         '<textarea class="input" id="caseComment" maxlength="3000" placeholder="' + esc(commentPlaceholder(c)) + '">' + esc(c.comment) + '</textarea>' +
         '<div class="char-count" id="ccCount">' + c.comment.length + ' / 3000</div></div></section>';
     }
@@ -1418,7 +1527,11 @@
     if (st === 'combo') startComboObs(c);
     if (PHASES[st] && st !== 'p2') {
       var det = elMain.querySelector('#selBanner details');
-      if (det) det.addEventListener('toggle', function () { if (det.open) { c.metrics.rx_details_opens = (c.metrics.rx_details_opens || 0) + 1; saveSoon(); } });
+      // (언어를 바꿔 다시 그릴 때 펼침 상태를 되살리는 것은 세지 않음: __restored)
+      if (det) det.addEventListener('toggle', function () {
+        if (det.__restored) { det.__restored = false; return; }
+        if (det.open) { c.metrics.rx_details_opens = (c.metrics.rx_details_opens || 0) + 1; saveSoon(); }
+      });
     }
     if (st === 'comment' && $('caseItems')) {
       bindItems($('caseItems'), CASE_ITEMS, function () { return curCase().items || (curCase().items = {}); }, 'ci_', function (f) {
@@ -1477,8 +1590,7 @@
   }
   function commentPlaceholder(c) {
     var h = (c.items || {}).harm;
-    return (h && Number(h.code) >= 2) ? '위해 가능성이 있다고 판단한 내용을 간단히 적어 주세요 (선택).'
-      : '강점, 우려되는 점, 실제 진료에 그대로 쓰기 어려운 부분 등을 자유롭게 적어 주세요.';
+    return t((h && Number(h.code) >= 2) ? 'ca.wrap.phHarm' : 'ca.wrap.ph');
   }
 
   // 후보 조합 카드 노출(화면에 절반 이상 보였는지)과 머문 시간
@@ -1522,11 +1634,11 @@
     var row = function (k, label, val) { return '<dt>' + label + '</dt><dd>' + val + '</dd>'; };
     var score = function (k) {
       var v = c.ratings[k];
-      return v == null ? '<span class="muted">미입력</span>' : '<b>' + v + '점</b> <span class="muted small">' + esc(SCALE[v - 1].label) + '</span>';
+      return v == null ? '<span class="muted">' + esc(t('ca.recap.none')) + '</span>' : '<b>' + esc(t('ca.recap.points', { v: v })) + '</b> <span class="muted small">' + esc(scaleLabel(v)) + '</span>';
     };
     return '<dl class="kv">' +
       row('p1', 'Phase 1', score('p1')) +
-      row('combo', '선호 조합', c.combo ? '<b>조합 ' + c.combo + '</b> <span class="muted small">' + esc(drugLine(out.combinations[c.combo - 1])) + '</span>' : '<span class="muted">미선택</span>') +
+      row('combo', esc(t('ca.recap.combo')), c.combo ? '<b>' + esc(comboNo(c.combo)) + '</b> <span class="muted small" lang="ko">' + esc(drugLine(out.combinations[c.combo - 1])) + '</span>' : '<span class="muted">' + esc(t('ca.recap.noCombo')) + '</span>') +
       row('p2', 'Phase 2', score('p2')) +
       row('p3', 'Phase 3', score('p3')) +
       row('p4', 'Phase 4', score('p4')) +
@@ -1537,42 +1649,42 @@
   function renderDock() {
     if (!S || S.screen !== 'case') { elDock.innerHTML = ''; return; }
     var c = curCase(), st = curStep();
-    var back = S.stepIdx > 0 ? '<button type="button" class="btn btn-ghost" data-act="back">이전</button>' : '';
+    var back = S.stepIdx > 0 ? '<button type="button" class="btn btn-ghost" data-act="back">' + esc(t('ca.dock.back')) + '</button>' : '';
     var nav = function (label, enabled, accent) {
       return '<div class="dock-nav' + (back ? '' : ' single') + '">' + back +
         '<button type="button" class="btn ' + (accent ? 'btn-accent' : 'btn-primary') + '" data-act="next"' +
-        (enabled ? '' : ' aria-disabled="true"') + '>' + label + '</button></div>';
+        (enabled ? '' : ' aria-disabled="true"') + '>' + esc(label) + '</button></div>';
     };
     var html = '<div class="dock-inner">';
     if (st === 'vignette') {
-      html += '<div class="dock-kicker"><span>환자 정보 확인</span></div>' +
-        '<p class="dock-msg">환자 기록을 확인한 뒤 AI 답변 평가를 시작하세요.</p>' +
-        nav('AI 답변 보기 →', true);
+      html += '<div class="dock-kicker"><span>' + esc(t('ca.dock.vigKicker')) + '</span></div>' +
+        '<p class="dock-msg">' + esc(t('ca.dock.vigMsg')) + '</p>' +
+        nav(t('ca.dock.vigNext'), true);
     } else if (PHASES[st]) {
       var ph = PHASES[st], val = c.ratings[st];
-      html += '<div class="dock-kicker"><span>' + esc(ph.num) + ' · 임상 수용성</span><span class="req-hint">' + (val == null ? '점수를 선택하세요' : '') + '</span></div>' +
-        '<p class="dock-statement" id="stmt">' + esc(ph.statement) + '</p>' +
+      html += '<div class="dock-kicker"><span>' + esc(t('ca.dock.phaseKicker', { num: ph.num })) + '</span><span class="req-hint">' + (val == null ? esc(t('ca.dock.chooseScore')) : '') + '</span></div>' +
+        '<p class="dock-statement" id="stmt">' + esc(phStatement(st)) + '</p>' +
         '<div class="likert" role="radiogroup" aria-labelledby="stmt">' +
           SCALE.map(function (s) {
             var tab = (val === s.v || (val == null && s.v === 1)) ? 0 : -1;
-            return '<button type="button" role="radio" tabindex="' + tab + '" data-rate="' + s.v + '" aria-checked="' + (val === s.v) + '" aria-label="' + s.v + '점 ' + esc(s.label) + '">' +
-              s.v + '<small>' + esc(s.label) + '</small></button>';
+            return '<button type="button" role="radio" tabindex="' + tab + '" data-rate="' + s.v + '" aria-checked="' + (val === s.v) + '" aria-label="' + esc(t('ca.dock.rateAria', { v: s.v, label: scaleLabel(s.v) })) + '">' +
+              s.v + '<small>' + esc(scaleLabel(s.v)) + '</small></button>';
           }).join('') +
         '</div>' +
-        '<div class="likert-anchors"><span>1 전혀 그렇지 않다</span>' +
-          (val != null ? '<span class="sel">' + val + ' · ' + esc(SCALE[val - 1].label) + '</span>' : '') +
-          '<span>매우 그렇다 5</span></div>' +
-        nav(st === 'p5' ? '다음: 의견 →' : '다음 →', val != null);
+        '<div class="likert-anchors"><span>1 ' + esc(scaleLabel(1)) + '</span>' +
+          (val != null ? '<span class="sel">' + val + ' · ' + esc(scaleLabel(val)) + '</span>' : '') +
+          '<span>' + esc(scaleLabel(5)) + ' 5</span></div>' +
+        nav(t(st === 'p5' ? 'ca.dock.nextComment' : 'ca.dock.next'), val != null);
     } else if (st === 'combo') {
-      html += '<div class="dock-kicker"><span>선호 조합 선택</span><span class="req-hint">' + (c.combo == null ? '박스를 눌러 선택' : '') + '</span></div>' +
-        '<p class="dock-msg">가장 선호하는 조합의 박스를 누르면 바로 Phase 2 평가로 넘어갑니다.</p>' +
-        nav(c.combo ? '조합 ' + c.combo + '으로 계속 →' : '조합을 선택하세요', c.combo != null);
+      html += '<div class="dock-kicker"><span>' + esc(t('ca.combo.title')) + '</span><span class="req-hint">' + (c.combo == null ? esc(t('ca.dock.comboHint')) : '') + '</span></div>' +
+        '<p class="dock-msg">' + esc(t('ca.dock.comboMsg')) + '</p>' +
+        nav(c.combo ? t('ca.combo.continue', { n: c.combo }) : t('ca.dock.comboChoose'), c.combo != null);
     } else if (st === 'comment') {
       var last = S.caseIdx === nCases() - 1;
       var okItems = itemsComplete(CASE_ITEMS, c.items || {});
-      html += '<div class="dock-kicker"><span>케이스 ' + (S.caseIdx + 1) + ' 마무리</span><span class="req-hint">' + (okItems ? '' : '보조 문항에 답해 주세요') + '</span></div>' +
-        '<p class="dock-msg">' + (last ? '마지막 케이스입니다. 다음 화면에서 전체 의견을 남기고 제출합니다.' : '다음 케이스로 넘어가면 이 케이스의 응답이 저장됩니다.') + '</p>' +
-        nav(last ? '케이스 평가 완료 →' : '저장하고 다음 케이스 →', okItems, true);
+      html += '<div class="dock-kicker"><span>' + esc(t('ca.dock.wrapKicker', { n: S.caseIdx + 1 })) + '</span><span class="req-hint">' + (okItems ? '' : esc(t('ca.dock.wrapHint'))) + '</span></div>' +
+        '<p class="dock-msg">' + esc(t(last ? 'ca.dock.wrapLastMsg' : 'ca.dock.wrapMsg')) + '</p>' +
+        nav(t(last ? 'ca.dock.wrapLastNext' : 'ca.dock.wrapNext'), okItems, true);
     }
     html += '</div>';
     elDock.innerHTML = html;
@@ -1609,21 +1721,21 @@
   function renderFinal() {
     var rows = S.cases.map(function (c, i) {
       var out = DATA.outputs[c.key];
-      return '<section class="card tight"><div class="case-head"><span class="pill navy">케이스 ' + (i + 1) + '</span>' +
-        '<span class="pill">환자 ' + esc(out.patient) + '</span></div><div style="margin-top:8px">' + caseRecapHTML(c) + '</div></section>';
+      return '<section class="card tight"><div class="case-head"><span class="pill navy">' + esc(t('ca.case.n', { n: i + 1 })) + '</span>' +
+        '<span class="pill">' + esc(t('ca.case.patient', { id: out.patient })) + '</span></div><div style="margin-top:8px">' + caseRecapHTML(c) + '</div></section>';
     }).join('');
     elMain.innerHTML =
-      '<section class="card"><span class="eyebrow">마지막 단계</span>' +
-        '<h1 style="font-size:22px;color:var(--navy);margin-top:6px">케이스 평가를 모두 마쳤습니다</h1>' +
-        '<p class="lead" style="margin-top:6px">AI CDSS 답변 전반에 대한 의견을 남기신 뒤 <b>평가 제출</b>을 눌러 주세요.</p></section>' +
-      (END_ITEMS.length ? '<section class="card sub-items"><span class="sub-tag">보조 문항</span><div id="endItems" style="margin-top:6px">' +
+      '<section class="card"><span class="eyebrow">' + esc(t('ca.final.eyebrow')) + '</span>' +
+        '<h1 style="font-size:22px;color:var(--navy);margin-top:6px">' + esc(t('ca.final.title')) + '</h1>' +
+        '<p class="lead" style="margin-top:6px">' + t('ca.final.leadHtml') + '</p></section>' +
+      (END_ITEMS.length ? '<section class="card sub-items"><span class="sub-tag">' + esc(t('ca.subItems')) + '</span><div id="endItems" style="margin-top:6px">' +
         itemsHTML(END_ITEMS, S.end_items || {}, 'ei_') + '</div></section>' : '') +
-      '<section class="card"><div class="field"><label for="overallComment">AI 답변 전반에 대한 의견 (선택)</label>' +
-        '<p class="small muted">이러한 AI 답변을 실제 진료에서 어떻게 받아들이실지, 신뢰하거나 망설여지는 부분, 개선이 필요한 점 등을 자유롭게 적어 주세요.</p>' +
+      '<section class="card"><div class="field"><label for="overallComment">' + esc(t('ca.final.comment')) + '</label>' +
+        '<p class="small muted">' + esc(t('ca.final.commentHelp')) + '</p>' +
         '<textarea class="input" id="overallComment" maxlength="5000">' + esc(S.overall_comment) + '</textarea>' +
         '<div class="char-count" id="ocCount">' + S.overall_comment.length + ' / 5000</div></div>' +
-        '<button type="button" class="btn btn-accent btn-block" id="submitBtn" style="margin-top:14px">평가 제출</button></section>' +
-      '<h2 class="section-title" style="margin-top:22px">제출 전 응답 요약</h2>' + rows;
+        '<button type="button" class="btn btn-accent btn-block" id="submitBtn" style="margin-top:14px">' + esc(t('ca.final.submit')) + '</button></section>' +
+      '<h2 class="section-title" style="margin-top:22px">' + esc(t('ca.final.recap')) + '</h2>' + srcNoteHTML() + rows;
     elDock.innerHTML = '';
     $('overallComment').addEventListener('input', function (e) {
       S.overall_comment = e.target.value;
@@ -1641,6 +1753,7 @@
       sequence_index: S.seq_index, seq_source: S.seq_source, order: S.order,
       session: sessionSummary(), overall_comment: S.overall_comment, end_items: S.end_items || {}, device: S.device,
       evaluator_id: S.evaluator_id, entry: S.entry, consent: S.consent, session_ordinal: S.session_ordinal,
+      ui_lang: uiLang(), set_id: S.set_id || 'v1',
       cases: S.cases.map(function (_, i) { return buildCaseRecord(i); })
     };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1655,48 +1768,52 @@
     var sum = sessionSummary();
     var status;
     if (!CFG.ENDPOINT) {
-      status = '<p class="status-line pending"><span class="dot"></span>테스트 모드: 서버 주소(ENDPOINT)가 설정되지 않아 응답이 전송되지 않았습니다.</p>' +
-        '<p class="small muted" style="margin-top:6px">아래 버튼으로 응답 파일(JSON)을 내려받을 수 있습니다.</p>';
+      status = '<p class="status-line pending"><span class="dot"></span>' + esc(t('ca.done.testMode')) + '</p>' +
+        '<p class="small muted" style="margin-top:6px">' + esc(t('ca.done.testModeDl')) + '</p>';
     } else if (!S.outbox.length && S.net.status !== 'sending') {
-      status = '<p class="status-line ok"><span class="dot"></span>응답이 안전하게 저장되었습니다.</p>';
+      status = '<p class="status-line ok"><span class="dot"></span>' + esc(t('ca.done.ok')) + '</p>';
     } else if (S.net.status === 'fail' || !flushing) {
-      status = '<p class="status-line fail"><span class="dot"></span>전송하지 못한 응답이 있습니다 (' + S.outbox.length + '건).</p>' +
-        '<p class="small muted" style="margin-top:6px">네트워크 연결을 확인한 뒤 [다시 전송]을 눌러 주세요. 응답은 이 기기에 보관되어 있습니다.' +
+      status = '<p class="status-line fail"><span class="dot"></span>' + esc(t('ca.done.fail', { n: S.outbox.length })) + '</p>' +
+        '<p class="small muted" style="margin-top:6px">' + esc(t('ca.done.failHelp')) +
         (S.net.last_error ? ' (' + esc(S.net.last_error) + ')' : '') + '</p>';
     } else {
-      status = '<p class="status-line pending"><span class="dot"></span>응답을 전송하고 있습니다…</p>';
+      status = '<p class="status-line pending"><span class="dot"></span>' + esc(t('ca.done.sending')) + '</p>';
     }
     var showRetry = CFG.ENDPOINT && S.outbox.length && (S.net.status === 'fail' || !flushing);
     var doneTypes = (S.done_types || []).concat([S.study_type]);
-    var otherTypes = TYPES.filter(function (t) { return doneTypes.indexOf(t.id) < 0; });
+    var otherTypes = TYPES.filter(function (ty) { return doneTypes.indexOf(ty.id) < 0; });
     elMain.innerHTML =
-      '<section class="card hero"><span class="eyebrow">완료</span><h1>평가해 주셔서 감사합니다</h1>' +
-        '<p class="desc">' + esc(S.evaluator.name) + ' 선생님 (' + esc(S.evaluator.detail || '') + ') · ' + esc((typeById(S.study_type) || {}).label || '') + ' 응답이 기록되었습니다.</p></section>' +
+      '<section class="card hero"><span class="eyebrow">' + esc(t('ca.done.eyebrow')) + '</span><h1>' + esc(t('ca.done.title')) + '</h1>' +
+        '<p class="desc">' + t('ca.done.descHtml', {
+          name: '<span data-ugc>' + esc(S.evaluator.name) + '</span>', detail: evaluatorLineHTML(S.evaluator), type: esc(typeLabel(S.study_type))
+        }) + '</p></section>' +
       '<section class="card">' + status +
         '<div class="stat-row" style="margin-top:14px">' +
-          '<div class="stat"><b>' + sum.cases_completed + ' / ' + nCases() + '</b><span>평가한 AI 답변</span></div>' +
-          '<div class="stat"><b>' + fmtMin(sum.total_active_ms + sum.total_idle_ms) + '</b><span>총 평가 시간</span></div>' +
+          '<div class="stat"><b>' + sum.cases_completed + ' / ' + nCases() + '</b><span>' + esc(t('ca.done.statCases')) + '</span></div>' +
+          '<div class="stat"><b>' + esc(fmtMin(sum.total_active_ms + sum.total_idle_ms)) + '</b><span>' + esc(t('ca.done.statTime')) + '</span></div>' +
         '</div>' +
         '<div class="btn-row" style="margin-top:16px">' +
-          (showRetry ? '<button type="button" class="btn btn-primary" id="retryBtn">다시 전송</button>' : '') +
-          ((!CFG.ENDPOINT || showRetry) ? '<button type="button" class="btn btn-ghost" id="dlBtn">응답 파일 내려받기</button>' : '') +
+          (showRetry ? '<button type="button" class="btn btn-primary" id="retryBtn">' + esc(t('ca.done.retry')) + '</button>' : '') +
+          ((!CFG.ENDPOINT || showRetry) ? '<button type="button" class="btn btn-ghost" id="dlBtn">' + esc(t('ca.done.download')) + '</button>' : '') +
         '</div>' +
       '</section>' +
-      (otherTypes.length ? '<section class="card"><h2 class="section-title">다른 유형도 평가하기</h2>' +
-        '<p class="small muted">같은 평가자 정보로 다른 Type의 AI 답변 2건을 이어서 평가할 수 있습니다.</p><div class="btn-row" style="margin-top:10px">' +
-        otherTypes.map(function (t) { return '<button type="button" class="btn btn-primary" data-next-type="' + esc(t.id) + '">' + esc(t.label) + ' 평가하기</button>'; }).join('') +
+      (otherTypes.length ? '<section class="card"><h2 class="section-title">' + esc(t('ca.done.otherTitle')) + '</h2>' +
+        '<p class="small muted">' + esc(t('ca.done.otherHelp', { n: typeShape().n })) + '</p><div class="btn-row" style="margin-top:10px">' +
+        otherTypes.map(function (ty) { return '<button type="button" class="btn btn-primary" data-next-type="' + esc(ty.id) + '">' + esc(t('ca.done.otherBtn', { type: pick(ty.label) })) + '</button>'; }).join('') +
         '</div></section>' : '') +
-      '<section class="card"><p class="small muted">이 기기에서 다른 평가자가 이어서 평가하려면 아래 버튼을 눌러 새로 시작하세요.</p>' +
-        '<button type="button" class="btn btn-ghost" id="newBtn" style="margin-top:10px">새 평가 시작</button></section>';
+      '<section class="card"><p class="small muted">' + esc(t('ca.done.newHelp')) + '</p>' +
+        '<button type="button" class="btn btn-ghost" id="newBtn" style="margin-top:10px">' + esc(t('ca.done.newBtn')) + '</button></section>';
     elDock.innerHTML = '';
     if ($('retryBtn')) $('retryBtn').addEventListener('click', function () { flush(); });
     if ($('dlBtn')) $('dlBtn').addEventListener('click', downloadJSON);
     var restart = function (prefill) {
       if (S.outbox.length && CFG.ENDPOINT) {
-        if (!window.confirm('아직 전송되지 않은 응답이 있습니다. 새로 시작하면 이 기기에 보관된 응답이 삭제됩니다. 계속하시겠습니까?')) return;
-      } else if (!prefill && !window.confirm('새 평가를 시작하시겠습니까?')) return;
+        if (!window.confirm(t('ca.confirm.unsent'))) return;
+      } else if (!prefill && !window.confirm(t('ca.confirm.new'))) return;
       var prev = S;
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
+      // 보관된(이전) 세트로 진행하던 세션이 끝난 뒤 새 평가자는 활성 세트로: 새로 불러온다
+      if (!prefill && (DATA.set_id || 'v1') !== ACTIVE_SET) { S = null; location.reload(); return; }
       S = null;
       flushing = false;
       lastRev = 0;
@@ -1731,11 +1848,11 @@
     var label = '', pct = 0, showPatient = false;
     if (staleTab) { label = ''; }
     else if (S && S.screen === 'case') {
-      label = '케이스 ' + (S.caseIdx + 1) + '/' + nCases() + ' · ' + STEP_LABEL[curStep()];
+      label = t('ca.top.case', { n: S.caseIdx + 1, total: nCases(), step: stepLabel(curStep()) });
       pct = (S.caseIdx * STEPS.length + S.stepIdx) / totalSteps() * 100;
       showPatient = S.stepIdx > 0;
-    } else if (S && S.screen === 'final') { label = '제출 전'; pct = 100; }
-    else if (S && S.screen === 'done') { label = '완료'; pct = 100; }
+    } else if (S && S.screen === 'final') { label = t('ca.top.final'); pct = 100; }
+    else if (S && S.screen === 'done') { label = t('ca.top.done'); pct = 100; }
     $('topbar').classList.toggle('in-case', !!(S && S.screen === 'case'));
     elTopProg.textContent = label;
     elFill.style.width = pct + '%';
@@ -1752,11 +1869,10 @@
 
   function renderStale() {
     elMain.innerHTML =
-      '<section class="card"><span class="eyebrow">다른 탭에서 진행 중</span>' +
-        '<h1 style="font-size:20px;color:var(--navy);margin-top:6px">이 평가는 다른 탭(창)에서 이어서 진행되고 있습니다</h1>' +
-        '<p class="lead" style="margin-top:8px">응답이 섞이지 않도록 이 탭은 멈췄습니다. 이 탭을 닫거나, 이 탭에서 계속하려면 아래 버튼을 눌러 주세요. ' +
-        '(다른 탭은 자동으로 멈춥니다.)</p>' +
-        '<button type="button" class="btn btn-primary" id="takeOverBtn" style="margin-top:14px">이 탭에서 이어서 하기</button></section>';
+      '<section class="card"><span class="eyebrow">' + esc(t('ca.stale.eyebrow')) + '</span>' +
+        '<h1 style="font-size:20px;color:var(--navy);margin-top:6px">' + esc(t('ca.stale.title')) + '</h1>' +
+        '<p class="lead" style="margin-top:8px">' + esc(t('ca.stale.lead')) + '</p>' +
+        '<button type="button" class="btn btn-primary" id="takeOverBtn" style="margin-top:14px">' + esc(t('ca.stale.btn')) + '</button></section>';
     elDock.innerHTML = '';
     $('takeOverBtn').addEventListener('click', function () { location.reload(); });
   }
@@ -1764,9 +1880,7 @@
   function render() {
     var testMode = (S ? S.is_test : (URL_TEST || !CFG.ENDPOINT));
     elTestBanner.hidden = !testMode;
-    elTestBanner.textContent = !CFG.ENDPOINT
-      ? '테스트 모드 — 서버 주소가 설정되지 않아 응답이 서버로 전송되지 않습니다.'
-      : '테스트 응답 — 이 응답은 분석에서 제외되도록 표시됩니다.';
+    elTestBanner.textContent = t(!CFG.ENDPOINT ? 'ca.banner.noEndpoint' : 'ca.banner.test');
 
     if (staleTab) renderStale();
     else if (!S) renderIntro();
@@ -1781,23 +1895,158 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Boot
+  // Header: language / theme controls (assets/i18n.js) and the static page text
   // ---------------------------------------------------------------------------
-  if (S && S.screen === 'intro') {
-    // 순서 배정 도중 창이 닫힌 경우: 처음부터
-    try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-    S = null;
+  function mountPrefs() {
+    if (!I18N.controlsHTML || document.querySelector('#topbar .prefs')) return;
+    var slot = $('prefsSlot');
+    if (!slot) {   // 이전 HTML(캐시)에는 자리가 없음
+      slot = document.createElement('div'); slot.id = 'prefsSlot'; slot.className = 'prefs-slot';
+      document.querySelector('#topbar .topbar-right').appendChild(slot);
+    }
+    slot.innerHTML = I18N.controlsHTML();
+    I18N.bindControls(slot);
   }
-  if (S && (S.screen === 'case' || S.screen === 'final')) {
-    S.metrics.resumes += 1;
-    S.device.last_resume = deviceInfo();
+  // HTML 의 고정 문구 (data-i18n 이 없는 이전 HTML 에서도 맞게)
+  function paintChrome() {
+    document.title = t('ca.meta.title');
+    var bs = document.querySelector('#topbar .brand-text strong'), bm = document.querySelector('#topbar .brand-text small');
+    if (bs) bs.textContent = t('ca.brand.title');
+    if (bm) bm.textContent = t('ca.brand.sub');
+    var last = elPatientBtn.lastChild;   // 아이콘(svg) 다음의 글자
+    if (last && last.nodeType === 3) last.nodeValue = ' ' + t('ca.patientBtn');
+    else if (last && last.nodeType === 1 && last.tagName.toLowerCase() !== 'svg') last.textContent = t('ca.patientBtn');
+    elDock.setAttribute('aria-label', t('ca.dock.aria'));
+    $('drawerClose').setAttribute('aria-label', t('ca.close'));
+    if (elDrawer.hidden) $('drawerTitle').textContent = t('ca.drawer.title');
+  }
+  // 언어를 바꾸면 지금 화면을 그 언어로 다시 그린다 (응답·시간 측정·스크롤·펼침 상태는 그대로)
+  var booted = false, shownLang = null;
+  function onLang() {
+    if (!booted) return;
+    if (flying) { setTimeout(onLang, 700); return; }
+    if (uiLang() === shownLang) return;   // 이미 보이는 언어를 다시 누른 경우: 아무것도 바뀌지 않음
+    shownLang = uiLang();
+    tick();
+    elToast.hidden = true;   // 이전 언어로 뜬 안내는 닫는다
+    var y = window.scrollY;
+    var open = [];
+    Array.prototype.forEach.call(elMain.querySelectorAll('details'), function (d, i) { if (d.open) open.push(i); });
+    render();
+    var ds = elMain.querySelectorAll('details');
+    open.forEach(function (i) { var d = ds[i]; if (d && !d.open) { d.__restored = true; d.open = true; } });
+    if (!elDrawer.hidden && S && S.screen === 'case') fillDrawer();
+    paintChrome();
+    window.scrollTo(0, y);
+    if (S) {
+      S.ui_lang_switches = (S.ui_lang_switches || 0) + 1;
+      noteLang(S);
+      if (S.screen === 'case' && curCase()) noteLang(curCase().metrics);
+    }
     save();
-    setTimeout(function () { toast('이전에 진행하던 평가를 불러왔습니다.', 3200); }, 300);
   }
-  render();
-  if (S && S.screen === 'case') { var m = stepMetrics(curCase(), curStep()); m.visits += 1; save(); }
-  if (S) flush();
+  window.addEventListener('t2d:lang', onLang);
 
   // expose minimal hooks for QA (no PII)
-  window.__T2D_APP__ = { version: CFG.APP_VERSION, state: function () { return S; } };
+  window.__T2D_APP__ = { version: CFG.APP_VERSION, state: function () { return S; }, lang: uiLang };
+
+  // ---------------------------------------------------------------------------
+  // Boot
+  //  1) 언어 런타임·사전이 없으면(이전 HTML 이 캐시된 경우 등) 먼저 불러온다.
+  //  2) 저장된 진행 상태의 케이스 세트(set_id, 없으면 v1)가 활성 세트와 다르면 data/sets/<id>/cases.js·design.js 를
+  //     불러와 그 세트로 이어서 진행한다(보관본이 없으면 활성 세트 그대로). 보통은 둘 다 필요 없어 바로(동기) 시작한다.
+  // ---------------------------------------------------------------------------
+  function loadScript(src, cb) {
+    var el = document.createElement('script');
+    el.src = src; el.async = false;
+    el.onload = function () { cb(true); };
+    el.onerror = function () { if (el.parentNode) el.parentNode.removeChild(el); cb(false); };
+    (document.head || document.documentElement).appendChild(el);
+  }
+  function loadSeq(list, cb) {
+    var i = 0;
+    (function next() { if (i >= list.length) { cb(); return; } loadScript(list[i++], next); })();
+  }
+  function ensureI18n(cb) {
+    var T2 = window.T2D, need = [];
+    if (!T2 || !T2.t) need.push('../assets/i18n.js');
+    if (!T2 || !T2.i18n || !T2.i18n.dict || !T2.i18n.dict.ko['ca.intro.title']) need.push('../i18n/ca.js');
+    if (!need.length) { cb(); return; }
+    loadSeq(need.map(function (u) { return u + '?v=' + encodeURIComponent(CFG.APP_VERSION); }), cb);
+  }
+  function savedSetId() {
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      return (s && s.v === 1) ? String(s.set_id || 'v1') : null;
+    } catch (_) { return null; }
+  }
+  function ensureSet(cb) {
+    var want = savedSetId();
+    if (!want || want === ((DATA && DATA.set_id) || 'v1') || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(want)) { cb(); return; }
+    var active = { data: window.T2D_DATA, design: window.T2D_DESIGN };
+    var base = '../data/sets/' + want + '/';
+    loadScript(base + 'cases.js', function (ok) {
+      var d = window.T2D_DATA;
+      if (!ok || !d || d === active.data || (d.set_id && d.set_id !== want)) {
+        window.T2D_DATA = active.data; window.T2D_DESIGN = active.design;   // 보관본 없음 → 활성 세트 그대로
+        cb(); return;
+      }
+      if (!d.set_id) d.set_id = want;
+      window.T2D_DESIGN = undefined;
+      loadScript(base + 'design.js', function (ok2) {
+        var g = window.T2D_DESIGN;
+        if (!ok2 || !g || (g.set_id && g.set_id !== want)) window.T2D_DESIGN = null;   // → config.js 기본 Type (세트 v1)
+        cb();
+      });
+    });
+  }
+  // 이어서 하는 세션: 방문자가 언어를 직접 고른 적이 없으면(?lang= 없음, 't2d:lang' 없음) 세션을 시작한 언어로 보여 준다.
+  // ui_lang_start 가 없는 이전 버전 세션은 한국어로 시작한 것이다. 직접 고른 것이 아니므로 't2d:lang' 에 저장하지 않는다.
+  function explicitLang() {
+    try { var q = new URLSearchParams(location.search).get('lang'); if (q === 'ko' || q === 'en') return true; } catch (_) {}
+    try { var s = localStorage.getItem('t2d:lang'); return s === 'ko' || s === 'en'; } catch (_) { return false; }
+  }
+  function pinSessionLang(st) {
+    if (!st || st.screen === 'intro' || !I18N.i18n || explicitLang()) return;
+    var want = st.ui_lang_start === 'en' ? 'en' : 'ko';
+    if (I18N.lang === want) return;
+    I18N.lang = want;
+    document.documentElement.setAttribute('lang', want);
+    I18N.i18n.apply(document);
+  }
+  function boot() {
+    I18N = window.T2D || {};
+    DATA = window.T2D_DATA;
+    TYPES = resolveTypes();
+    URL_TYPE = urlType();
+    draft = emptyDraft();
+    S = load();
+    if (S) lastRev = S.rev || 0;
+    if (S && !S.ui_langs) {
+      // v3.6 이전 세션(언어 기록 없음)은 한국어로 진행된 것: 이미 시작한 케이스와 세션의 언어 기록을 'ko' 로 채운다
+      S.ui_langs = [S.ui_lang_start || 'ko'];
+      if (!S.ui_lang_start) (S.cases || []).forEach(function (c) { if (c.started_at && c.metrics && !c.metrics.ui_langs) c.metrics.ui_langs = ['ko']; });
+    }
+    pinSessionLang(S);
+    shownLang = uiLang();
+    mountPrefs();
+    paintChrome();
+    if (S && S.screen === 'intro') {
+      // 순서 배정 도중 창이 닫힌 경우: 처음부터
+      try { localStorage.removeItem(STORE_KEY); } catch (_) {}
+      S = null;
+    }
+    if (S && (S.screen === 'case' || S.screen === 'final')) {
+      S.metrics.resumes += 1;
+      S.device.last_resume = deviceInfo();
+      save();
+      setTimeout(function () { toast(t('ca.toast.resumed'), 3200); }, 300);
+    }
+    render();
+    if (S && S.screen === 'case') { var m = stepMetrics(curCase(), curStep()); m.visits += 1; noteLang(curCase().metrics); save(); }
+    if (S && S.screen !== 'done') { noteLang(S); save(); }
+    if (S) flush();
+    booted = true;
+  }
+  ensureI18n(function () { ensureSet(boot); });
 })();

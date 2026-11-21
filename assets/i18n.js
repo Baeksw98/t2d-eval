@@ -26,7 +26,9 @@
  *   T2D.controlsHTML()            HTML for the header controls (language switch + theme button), class "prefs"
  *   T2D.bindControls(root?)       wires every .prefs inside root (idempotent); call after inserting controlsHTML()
  *
- * Language choice order: ?lang=ko|en  →  localStorage 't2d:lang'  →  navigator.language (ko* → ko, else en).
+ * Language choice order: ?lang=ko|en  →  localStorage 't2d:lang' (set only by an explicit choice)  →  'ko'.
+ * Korean is ALWAYS the default (PI decision): the device/browser language is never used, so a Korean physician whose phone
+ * is set to English still gets the Korean instrument; English appears only when the visitor presses EN or opens ?lang=en.
  * ?lang= is also saved, so a shared English link stays English.
  * Theme: localStorage 't2d:theme' (default 'system'); <html data-theme> is ALWAYS set to the resolved value, so CSS can use
  *   :root[data-theme="dark"] { …dark tokens… }  plus  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { … } }
@@ -50,10 +52,7 @@
     if (q === 'ko' || q === 'en') { lang = q; set(LANG_KEY, q); }
   } catch (_) {}
   if (!lang) { var s = get(LANG_KEY); if (s === 'ko' || s === 'en') lang = s; }
-  if (!lang) {
-    var nav = String((navigator.languages && navigator.languages[0]) || navigator.language || 'ko').toLowerCase();
-    lang = nav.indexOf('ko') === 0 ? 'ko' : 'en';
-  }
+  if (!lang) lang = 'ko';   // default is always Korean — never navigator.language
   T2D.lang = lang;
   H.setAttribute('lang', lang);
 

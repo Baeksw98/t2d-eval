@@ -5,38 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#14304a">
-  <title>벤치마크 소개 · 제2형 당뇨병 AI 벤치마크</title>
-  <meta name="description" content="제2형 당뇨병 약물치료에서 의료 AI 답변의 가이드라인 부합도와 임상 수용성을 함께 재는 하이브리드 의사–AI 벤치마크의 목적과 구성을 소개합니다.">
+  <script src="../assets/i18n.js?v=2026-11-21.l1"></script>
+  <script src="../i18n/site.js?v=2026-11-21.l1"></script>
+  <title data-i18n="about.meta.title">벤치마크 소개 · 제2형 당뇨병 AI 벤치마크</title>
+  <meta name="description" data-i18n-attr="content:about.meta.desc" content="제2형 당뇨병 약물치료에서 의료 AI 답변의 가이드라인 부합도와 임상 수용성을 함께 재는 하이브리드 의사–AI 벤치마크의 목적과 구성을 소개합니다.">
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="Hybrid Physician–AI Benchmark">
-  <meta property="og:locale" content="ko_KR">
+  <meta property="og:locale" data-i18n-attr="content:site.og.locale" content="ko_KR">
   <meta property="og:url" content="https://eval.asclep.org/about/">
-  <meta property="og:title" content="벤치마크 소개 · 제2형 당뇨병 AI 벤치마크 (Hybrid Physician–AI Benchmark)">
-  <meta property="og:description" content="진료지침에서 한 번 고정한 채점 기준, 모든 판정을 다시 보는 AI 감사, 부합도 채점에서 꼭 필요한 두 지점의 전문의 참여와 의사의 임상 수용성 평가. 제2형 당뇨병 약물치료 AI 벤치마크를 소개합니다.">
+  <meta property="og:title" data-i18n-attr="content:about.og.title" content="벤치마크 소개 · 제2형 당뇨병 AI 벤치마크 (Hybrid Physician–AI Benchmark)">
+  <meta property="og:description" data-i18n-attr="content:about.og.desc" content="진료지침에서 한 번 고정한 채점 기준, 모든 판정을 다시 보는 AI 감사, 부합도 채점에서 꼭 필요한 두 지점의 전문의 참여와 의사의 임상 수용성 평가. 제2형 당뇨병 약물치료 AI 벤치마크를 소개합니다.">
   <meta property="og:image" content="https://eval.asclep.org/assets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Hybrid Physician–AI Benchmark — 임상 수용성 평가와 가이드라인 부합도 검증">
+  <meta property="og:image:alt" data-i18n-attr="content:site.og.imgalt" content="Hybrid Physician–AI Benchmark — 임상 수용성 평가와 가이드라인 부합도 검증">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314304a'/%3E%3Cpath d='M18 34l9 9 19-21' stroke='%23f08a3c' stroke-width='7' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="../site.css?v=2026-11-20.site-v3">
+  <link rel="stylesheet" href="../site.css?v=2026-11-21.l1">
 </head>
 <body class="about">
-  <a class="skip" href="#main">본문으로 바로 가기</a>
+  <a class="skip" href="#main" data-i18n="site.skip.main">본문으로 바로 가기</a>
 
   <header class="site-header">
     <div class="wrap">
-      <a class="brand" href="../" data-carry aria-label="홈 — T2D 벤치마크">
+      <a class="brand" href="../" data-carry data-i18n-attr="aria-label:site.brand.home" aria-label="홈 — T2D 벤치마크">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-text"><strong>T2D 벤치마크</strong><small>Hybrid Physician–AI Benchmark</small></span>
+        <span class="brand-text"><strong data-i18n="site.brand.name">T2D 벤치마크</strong><small>Hybrid Physician–AI Benchmark</small></span>
       </a>
-      <nav class="site-nav" aria-label="사이트">
-        <a class="nav-home" href="../" data-carry>홈</a>
-        <a href="./" data-carry aria-current="page"><span class="nav-long">벤치마크&nbsp;</span>소개</a>
-        <a class="nav-cta" href="../#tracks" data-carry>평가 참여</a>
-      </nav>
+      <div class="header-end">
+        <nav class="site-nav" data-i18n-attr="aria-label:site.nav.label" aria-label="사이트">
+          <a href="./" data-carry aria-current="page" data-i18n-html="site.nav.about"><span class="nav-long">벤치마크&nbsp;</span>소개</a>
+        </nav>
+        <script>window.T2D && T2D.controlsHTML && document.currentScript.insertAdjacentHTML('beforebegin', T2D.controlsHTML());</script>
+      </div>
     </div>
   </header>
 
@@ -44,27 +47,27 @@
     <!-- Hero -->
     <section class="hero about-hero" aria-labelledby="aboutTitle">
       <div class="wrap">
-        <p class="eyebrow">벤치마크 소개 · 제2형 당뇨병 AI 벤치마크</p>
+        <p class="eyebrow" data-i18n="about.hero.eyebrow">벤치마크 소개 · 제2형 당뇨병 AI 벤치마크</p>
         <h1 id="aboutTitle">Hybrid Physician–AI Benchmark</h1>
-        <p class="subtitle"><span class="paper-label">논문 제목</span> <span lang="en">A hybrid AI rater–physician benchmark for medical AI in type 2 diabetes pharmacotherapy</span></p>
-        <p class="purpose">AI 답변이 <span class="q gc">진료지침을 따르는지</span>와 <span class="q ca">의사가 쓸 만한지</span>를 함께 잽니다.</p>
-        <ul class="keynums" aria-label="벤치마크 구성 요약">
-          <li><b>480<small>명</small></b><span>합성 환자</span></li>
-          <li><b>5<small>단계</small></b><span>구조화 답변</span></li>
-          <li><b>167<small>개</small></b><span>채점 항목 · 사전 고정</span></li>
-          <li><b>2<small>가지 평가</small></b><span>가이드라인 부합도 · 임상 수용성</span></li>
+        <p class="purpose" data-i18n-html="about.hero.purpose">AI 답변이 <span class="q gc">진료지침을 따르는지</span>와 <span class="q ca">의사가 쓸 만한지</span>를 함께 잽니다.</p>
+        <ul class="keynums" data-i18n-attr="aria-label:about.hero.keys" aria-label="벤치마크 구성 요약">
+          <li data-i18n-html="about.hero.k1"><b>480<small>명</small></b><span>합성 환자</span></li>
+          <li data-i18n-html="about.hero.k2"><b>5<small>단계</small></b><span>구조화 답변</span></li>
+          <li data-i18n-html="about.hero.k3"><b>167<small>개</small></b><span>채점 항목 · 사전 고정</span></li>
+          <li data-i18n-html="about.hero.k4"><b>2<small>가지 평가</small></b><span>가이드라인 부합도 · 임상 수용성</span></li>
         </ul>
       </div>
     </section>
 
     <div class="wrap">
-      <nav class="toc-mobile" aria-label="이 페이지 목차">
-        <h2>이 페이지</h2>
+      <nav class="toc-mobile" data-i18n-attr="aria-label:about.toc.label" aria-label="이 페이지 목차">
+        <h2 data-i18n="about.toc.h">이 페이지</h2>
         <ol>
-          <li><a href="#overview">한눈에 보기</a></li>
-          <li><a href="#tracks">두 평가</a></li>
-          <li><a href="#more">더 알아보기</a></li>
-          <li><a href="#faq">자주 묻는 질문</a></li>
+          <li><a href="#overview" data-i18n="about.toc.overview">한눈에 보기</a></li>
+          <li><a href="#measures" data-i18n="about.toc.measures">두 가지 평가</a></li>
+          <li><a href="#living" data-i18n="about.toc.living">살아 있는 벤치마크</a></li>
+          <li><a href="#more" data-i18n="about.toc.more">더 알아보기</a></li>
+          <li><a href="#faq" data-i18n="about.toc.faq">자주 묻는 질문</a></li>
         </ol>
       </nav>
     </div>
@@ -73,307 +76,295 @@
     <section class="section" id="overview" aria-labelledby="ovTitle">
       <div class="wrap">
         <div class="section-head">
-          <p class="eyebrow">한눈에 보기</p>
-          <h2 id="ovTitle">누가, 언제, 무엇을 하나요</h2>
-          <p>채점은 AI(파랑)가, 판단이 필요한 곳은 의사(주황)가 맡습니다.</p>
+          <p class="eyebrow" data-i18n="about.ov.eyebrow">한눈에 보기</p>
+          <h2 id="ovTitle" data-i18n="about.ov.h">누가, 언제, 무엇을 하나요</h2>
+          <p data-i18n="about.ov.lead">채점은 AI(파랑)가, 판단이 필요한 곳은 의사(주황)가 맡습니다.</p>
         </div>
         <figure class="figure ov-card">
           <div class="ov-svg">
-            <svg viewBox="0 0 1120 452" role="img" aria-labelledby="ovSvgT ovSvgD">
-              <title id="ovSvgT">벤치마크 전체 흐름</title>
-              <desc id="ovSvgD">1단계, 시스템 실행 전 한 번: AI가 진료지침과 급여 기준에서 채점 항목을 추출하고 AI 감사가 검토한 뒤 시니어 당뇨병 전문의 3인이 채점 기준을 확정합니다(의사 참여 지점 1). 채점 기준은 20문항 167항목으로 고정됩니다. 2단계: 평가 대상 시스템이 합성 환자 기록과 질문을 받아 5단계 구조화 답변을 만듭니다. 3단계: AI Rater가 모든 답변을 항목별로 충족 또는 감점으로 판정하고, AI 감사가 모든 판정을 검토해 ✓ 문제 없음, △ 근거 보완, ✗ 판정 보정으로 표시하며, 시니어 전문의 3인이 모든 감점과 감사가 표시한 판정을 검증합니다(의사 참여 지점 2). 이와 별도로 의사 평가자가 단계별 5점 척도와 자유 의견으로 임상 수용성을 평가합니다.</desc>
+            <!-- Box sizes fit both the Korean and the English labels (i18n/site.js about.sv.*); check both at ≥ 1100px. -->
+            <svg viewBox="0 0 1190 452" role="img" aria-labelledby="ovSvgT ovSvgD">
+              <title id="ovSvgT" data-i18n="about.sv.title">벤치마크 전체 흐름</title>
+              <desc id="ovSvgD" data-i18n="about.sv.desc">1단계, 시스템 실행 전 한 번: AI가 진료지침과 급여 기준에서 채점 항목을 추출하고 AI 감사가 검토한 뒤 시니어 당뇨병 전문의 3인이 채점 기준을 확정합니다(의사 참여 지점 1). 채점 기준은 20문항 167항목으로 고정됩니다. 2단계: 평가 대상 시스템이 합성 환자 기록과 질문을 받아 5단계 구조화 답변을 만듭니다. 3단계: AI Rater가 모든 답변을 항목별로 충족 또는 감점으로 판정하고, AI 감사가 모든 판정을 검토해 ✓ 문제 없음, △ 근거 보완, ✗ 판정 보정으로 표시하며, 시니어 전문의 3인이 모든 감점과 감사가 표시한 판정을 검증합니다(의사 참여 지점 2). 이와 별도로 의사 평가자가 단계별 5점 척도와 자유 의견으로 임상 수용성을 평가합니다.</desc>
               <defs>
                 <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="sv-head"/></marker>
                 <marker id="ahp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="sv-head fixed"/></marker>
               </defs>
               <!-- lanes -->
-              <rect class="sv-lane md" x="0" y="40" width="1120" height="100" rx="12"/>
-              <rect class="sv-lane ai" x="0" y="148" width="1120" height="100" rx="12"/>
-              <rect class="sv-lane sys" x="0" y="256" width="1120" height="90" rx="12"/>
-              <rect class="sv-lane md" x="0" y="354" width="1120" height="90" rx="12"/>
-              <text class="sv-lane-label" x="18" y="86">전문의</text><text class="sv-lane-sub" x="18" y="106">확정 · 검증</text>
-              <text class="sv-lane-label" x="18" y="194">AI</text><text class="sv-lane-sub" x="18" y="214">채점 · 감사</text>
-              <text class="sv-lane-label" x="18" y="297">시스템</text><text class="sv-lane-sub" x="18" y="317">평가 대상 AI</text>
-              <text class="sv-lane-label" x="18" y="395">의사 평가자</text><text class="sv-lane-sub" x="18" y="415">임상 수용성</text>
+              <rect class="sv-lane md" x="0" y="40" width="1190" height="100" rx="12"/>
+              <rect class="sv-lane ai" x="0" y="148" width="1190" height="100" rx="12"/>
+              <rect class="sv-lane sys" x="0" y="256" width="1190" height="90" rx="12"/>
+              <rect class="sv-lane md" x="0" y="354" width="1190" height="90" rx="12"/>
+              <text class="sv-lane-label" x="18" y="86" data-i18n="about.sv.lane.md">전문의</text><text class="sv-lane-sub" x="18" y="106" data-i18n="about.sv.lane.md.s">확정 · 검증</text>
+              <text class="sv-lane-label" x="18" y="194" data-i18n="about.sv.lane.ai">AI</text><text class="sv-lane-sub" x="18" y="214" data-i18n="about.sv.lane.ai.s">채점 · 감사</text>
+              <text class="sv-lane-label" x="18" y="297" data-i18n="about.sv.lane.sys">시스템</text><text class="sv-lane-sub" x="18" y="317" data-i18n="about.sv.lane.sys.s">평가 대상 AI</text>
+              <text class="sv-lane-label" x="18" y="395" data-i18n="about.sv.lane.rater">의사 평가자</text><text class="sv-lane-sub" x="18" y="415" data-i18n="about.sv.lane.rater.s">임상 수용성</text>
               <!-- columns -->
-              <text class="sv-col" x="134" y="24">1  채점 기준 만들기 · 시스템 실행 전 한 번</text>
-              <text class="sv-col" x="494" y="24">2  답변 생성</text>
-              <text class="sv-col" x="794" y="24">3  채점과 평가</text>
-              <line class="sv-divider" x1="476" y1="36" x2="476" y2="448"/>
-              <line class="sv-divider" x1="776" y1="36" x2="776" y2="448"/>
+              <text class="sv-col" x="134" y="24" data-i18n="about.sv.col1">1  채점 기준 만들기 · 시스템 실행 전 한 번</text>
+              <text class="sv-col" x="532" y="24" data-i18n="about.sv.col2">2  답변 생성</text>
+              <text class="sv-col" x="796" y="24" data-i18n="about.sv.col3">3  채점과 평가</text>
+              <line class="sv-divider" x1="520" y1="36" x2="520" y2="448"/>
+              <line class="sv-divider" x1="784" y1="36" x2="784" y2="448"/>
 
               <!-- arrows (under nodes) -->
-              <path class="sv-arrow fixed" d="M464 90 H850 V160" marker-end="url(#ahp)"/>
-              <path class="sv-arrow" d="M284 198 H306" marker-end="url(#ah)"/>
-              <path class="sv-arrow" d="M386 162 V130" marker-end="url(#ah)"/>
-              <path class="sv-arrow" d="M758 290 H812 V236" marker-end="url(#ah)"/>
-              <path class="sv-arrow" d="M940 198 H960" marker-end="url(#ah)"/>
-              <path class="sv-arrow" d="M1036 162 V130" marker-end="url(#ah)"/>
-              <path class="sv-arrow" d="M626 334 V399 H792" marker-end="url(#ah)"/>
+              <path class="sv-arrow fixed" d="M508 90 H886 V160" marker-end="url(#ahp)"/>
+              <path class="sv-arrow" d="M310 198 H330" marker-end="url(#ah)"/>
+              <path class="sv-arrow" d="M420 162 V130" marker-end="url(#ah)"/>
+              <path class="sv-arrow" d="M772 290 H830 V236" marker-end="url(#ah)"/>
+              <path class="sv-arrow" d="M976 198 H998" marker-end="url(#ah)"/>
+              <path class="sv-arrow" d="M1090 162 V130" marker-end="url(#ah)"/>
+              <path class="sv-arrow" d="M652 334 V399 H794" marker-end="url(#ah)"/>
 
               <!-- fixed criteria tag -->
-              <rect class="sv-tag-bg" x="512" y="76" width="216" height="28" rx="14"/>
-              <rect class="sv-tag" x="512" y="76" width="216" height="28" rx="14"/>
-              <text class="sv-tag-t" x="620" y="95" text-anchor="middle">채점 기준 고정 · 20문항 167항목</text>
+              <rect class="sv-tag-bg" x="534" y="76" width="236" height="28" rx="14"/>
+              <rect class="sv-tag" x="534" y="76" width="236" height="28" rx="14"/>
+              <text class="sv-tag-t" x="652" y="95" text-anchor="middle" data-i18n="about.sv.tag">채점 기준 고정 · 20문항 167항목</text>
 
               <!-- stage 1 -->
-              <rect class="sv-node ai" x="134" y="162" width="150" height="72" rx="10"/>
-              <text class="sv-k ai" x="146" y="183">AI</text><text class="sv-t" x="146" y="205">채점 항목 추출</text><text class="sv-s" x="146" y="224">진료지침 · 급여 기준</text>
-              <rect class="sv-node ai" x="308" y="162" width="156" height="72" rx="10"/>
-              <text class="sv-k ai" x="320" y="183">AI 감사</text><text class="sv-t" x="320" y="205">항목 검토 · 수정</text><text class="sv-s" x="320" y="224">출처와 대조</text>
-              <rect class="sv-node md" x="308" y="50" width="156" height="78" rx="10"/>
-              <circle class="sv-badge md" cx="329" cy="70" r="10"/><text class="sv-badge-t" x="329" y="75" text-anchor="middle">1</text>
-              <text class="sv-k md" x="345" y="75">전문의</text><text class="sv-t" x="320" y="99">채점 기준 확정</text><text class="sv-s" x="320" y="118">시니어 전문의 3인</text>
+              <rect class="sv-node ai" x="134" y="162" width="176" height="72" rx="10"/>
+              <text class="sv-k ai" x="146" y="183" data-i18n="about.sv.n1.k">AI</text><text class="sv-t" x="146" y="205" data-i18n="about.sv.n1.t">채점 항목 추출</text><text class="sv-s" x="146" y="224" data-i18n="about.sv.n1.s">진료지침 · 급여 기준</text>
+              <rect class="sv-node ai" x="332" y="162" width="176" height="72" rx="10"/>
+              <text class="sv-k ai" x="344" y="183" data-i18n="about.sv.n2.k">AI 감사</text><text class="sv-t" x="344" y="205" data-i18n="about.sv.n2.t">항목 검토 · 수정</text><text class="sv-s" x="344" y="224" data-i18n="about.sv.n2.s">출처와 대조</text>
+              <rect class="sv-node md" x="332" y="50" width="176" height="78" rx="10"/>
+              <circle class="sv-badge md" cx="353" cy="70" r="10"/><text class="sv-badge-t" x="353" y="75" text-anchor="middle">1</text>
+              <text class="sv-k md" x="369" y="75" data-i18n="about.sv.md.k">전문의</text><text class="sv-t" x="344" y="99" data-i18n="about.sv.n3.t">채점 기준 확정</text><text class="sv-s" x="344" y="118" data-i18n="about.sv.md.s">시니어 전문의 3인</text>
 
               <!-- stage 2 -->
-              <rect class="sv-node sys" x="494" y="268" width="264" height="66" rx="10"/>
-              <text class="sv-k sys" x="506" y="287">평가 대상 시스템</text><text class="sv-t" x="506" y="308">5단계 구조화 답변</text><text class="sv-s" x="506" y="326">입력: 합성 환자 기록 + 질문</text>
+              <rect class="sv-node sys" x="532" y="268" width="240" height="66" rx="10"/>
+              <text class="sv-k sys" x="544" y="287" data-i18n="about.sv.n4.k">평가 대상 시스템</text><text class="sv-t" x="544" y="308" data-i18n="about.sv.n4.t">5단계 구조화 답변</text><text class="sv-s" x="544" y="326" data-i18n="about.sv.n4.s">입력: 합성 환자 기록 + 질문</text>
 
               <!-- stage 3 -->
-              <rect class="sv-node ai" x="794" y="162" width="146" height="72" rx="10"/>
-              <text class="sv-k ai" x="806" y="183">AI Rater · 모든 답변</text><text class="sv-t" x="806" y="205">항목별 채점</text><text class="sv-s" x="806" y="224">충족 · 감점 + 사유</text>
-              <rect class="sv-node ai" x="962" y="162" width="148" height="72" rx="10"/>
-              <text class="sv-k ai" x="974" y="183">AI 감사</text><text class="sv-t" x="974" y="205">모든 판정 검토</text><text class="sv-s" x="974" y="224">✓ · △ · ✗ 표시</text>
-              <rect class="sv-node md" x="962" y="50" width="148" height="78" rx="10"/>
-              <circle class="sv-badge md" cx="983" cy="70" r="10"/><text class="sv-badge-t" x="983" y="75" text-anchor="middle">2</text>
-              <text class="sv-k md" x="999" y="75">전문의</text><text class="sv-t" x="974" y="99">감점 검증</text><text class="sv-s" x="974" y="118">시니어 전문의 3인</text>
-              <rect class="sv-node md" x="794" y="366" width="316" height="66" rx="10"/>
-              <text class="sv-k md" x="806" y="385">의사 평가자 · 별도 진행</text><text class="sv-t" x="806" y="406">임상 수용성 평가</text><text class="sv-s" x="806" y="424">단계별 5점 척도 + 자유 의견</text>
+              <rect class="sv-node ai" x="796" y="162" width="180" height="72" rx="10"/>
+              <text class="sv-k ai" x="808" y="183" data-i18n="about.sv.n5.k">AI Rater · 모든 답변</text><text class="sv-t" x="808" y="205" data-i18n="about.sv.n5.t">항목별 채점</text><text class="sv-s" x="808" y="224" data-i18n="about.sv.n5.s">충족 · 감점 + 사유</text>
+              <rect class="sv-node ai" x="1000" y="162" width="180" height="72" rx="10"/>
+              <text class="sv-k ai" x="1012" y="183" data-i18n="about.sv.n2.k">AI 감사</text><text class="sv-t" x="1012" y="205" data-i18n="about.sv.n6.t">모든 판정 검토</text><text class="sv-s" x="1012" y="224" data-i18n="about.sv.n6.s">✓ · △ · ✗ 표시</text>
+              <rect class="sv-node md" x="1000" y="50" width="180" height="78" rx="10"/>
+              <circle class="sv-badge md" cx="1021" cy="70" r="10"/><text class="sv-badge-t" x="1021" y="75" text-anchor="middle">2</text>
+              <text class="sv-k md" x="1037" y="75" data-i18n="about.sv.md.k">전문의</text><text class="sv-t" x="1012" y="99" data-i18n="about.sv.n7.t">감점 검증</text><text class="sv-s" x="1012" y="118" data-i18n="about.sv.md.s">시니어 전문의 3인</text>
+              <rect class="sv-node md" x="796" y="366" width="384" height="66" rx="10"/>
+              <text class="sv-k md" x="808" y="385" data-i18n="about.sv.n8.k">의사 평가자 · 별도 진행</text><text class="sv-t" x="808" y="406" data-i18n="about.sv.n8.t">임상 수용성 평가</text><text class="sv-s" x="808" y="424" data-i18n="about.sv.n8.s">단계별 5점 척도 + 자유 의견</text>
             </svg>
           </div>
 
           <ol class="ov-list">
             <li class="ov-stage">
-              <h3><span class="k" aria-hidden="true">1</span>채점 기준 만들기 · 시스템 실행 전 한 번</h3>
+              <h3><span class="k" aria-hidden="true">1</span><span data-i18n="about.ov.s1">채점 기준 만들기 · 시스템 실행 전 한 번</span></h3>
               <ol class="ov-steps">
-                <li class="ov-step ai"><span class="who">AI</span><b>채점 항목 추출</b><p>진료지침·급여 기준을 문항마다 읽고 항목을 씁니다.</p></li>
-                <li class="ov-step ai"><span class="who">AI 감사</span><b>항목 검토 · 수정</b><p>출처와 대조해 고칩니다.</p></li>
-                <li class="ov-step md"><span class="who">전문의 · 참여 지점 1</span><b>채점 기준 확정</b><p>시니어 당뇨병 전문의 3인</p></li>
+                <li class="ov-step ai"><span class="who" data-i18n="about.ov.s1a.who">AI</span><b data-i18n="about.ov.s1a.t">채점 항목 추출</b><p data-i18n="about.ov.s1a.p">진료지침·급여 기준을 문항마다 읽고 항목을 씁니다.</p></li>
+                <li class="ov-step ai"><span class="who" data-i18n="about.ov.s1b.who">AI 감사</span><b data-i18n="about.ov.s1b.t">항목 검토 · 수정</b><p data-i18n="about.ov.s1b.p">출처와 대조해 고칩니다.</p></li>
+                <li class="ov-step md"><span class="who" data-i18n="about.ov.s1c.who">전문의 · 참여 지점 1</span><b data-i18n="about.ov.s1c.t">채점 기준 확정</b><p data-i18n="about.ov.s1c.p">시니어 당뇨병 전문의 3인</p></li>
               </ol>
-              <span class="ov-fixed"><svg class="ic" aria-hidden="true" style="width:15px;height:15px"><use href="../assets/icons.svg#i-pin"/></svg>채점 기준 고정 · 20문항 167항목</span>
+              <span class="ov-fixed"><svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-pin"/></svg><span data-i18n="about.sv.tag">채점 기준 고정 · 20문항 167항목</span></span>
             </li>
             <li class="ov-stage">
-              <h3><span class="k" aria-hidden="true">2</span>답변 생성</h3>
+              <h3><span class="k" aria-hidden="true">2</span><span data-i18n="about.ov.s2">답변 생성</span></h3>
               <ol class="ov-steps">
-                <li class="ov-step sys"><span class="who">평가 대상 시스템</span><b>5단계 구조화 답변</b><p>입력은 합성 환자 기록과 질문뿐입니다. 가이드라인은 주지 않습니다.</p></li>
+                <li class="ov-step sys"><span class="who" data-i18n="about.sv.n4.k">평가 대상 시스템</span><b data-i18n="about.sv.n4.t">5단계 구조화 답변</b><p data-i18n="about.ov.s2a.p">입력은 합성 환자 기록과 질문뿐입니다. 가이드라인은 주지 않습니다.</p></li>
               </ol>
             </li>
             <li class="ov-stage">
-              <h3><span class="k" aria-hidden="true">3</span>채점과 평가</h3>
+              <h3><span class="k" aria-hidden="true">3</span><span data-i18n="about.ov.s3">채점과 평가</span></h3>
               <ol class="ov-steps">
-                <li class="ov-step ai"><span class="who">AI Rater · 모든 답변</span><b>항목별 채점</b><p>적용되는 항목마다 충족 또는 감점, 감점에는 사유를 남깁니다.</p></li>
-                <li class="ov-step ai"><span class="who">AI 감사</span><b>모든 판정 검토</b><p><span class="nowrap">✓ 문제 없음</span> · <span class="nowrap">△ 근거 보완</span>(판정은 유지, 경미) · <span class="nowrap">✗ 판정 보정</span>(판정을 바로잡음, 중대)으로 표시합니다.</p></li>
-                <li class="ov-step md"><span class="who">전문의 · 참여 지점 2</span><b>감점 검증 → 가이드라인 부합도</b><p>시니어 당뇨병 전문의 3인이 모든 감점과 AI 감사가 표시한 판정을 확인합니다.</p></li>
-                <li class="ov-step md"><span class="who">의사 평가자 · 별도 진행</span><b>임상 수용성 평가</b><p>AI 채점과 별도로, 단계마다 5점 척도와 답변 전체에 자유 의견.</p></li>
+                <li class="ov-step ai"><span class="who" data-i18n="about.sv.n5.k">AI Rater · 모든 답변</span><b data-i18n="about.sv.n5.t">항목별 채점</b><p data-i18n="about.ov.s3a.p">적용되는 항목마다 충족 또는 감점, 감점에는 사유를 남깁니다.</p></li>
+                <li class="ov-step ai"><span class="who" data-i18n="about.sv.n2.k">AI 감사</span><b data-i18n="about.sv.n6.t">모든 판정 검토</b><p data-i18n-html="about.ov.s3b.p"><span class="nowrap">✓ 문제 없음</span> · <span class="nowrap">△ 근거 보완</span>(판정은 유지, 경미) · <span class="nowrap">✗ 판정 보정</span>(판정을 바로잡음, 중대)으로 표시합니다.</p></li>
+                <li class="ov-step md"><span class="who" data-i18n="about.ov.s3c.who">전문의 · 참여 지점 2</span><b data-i18n="about.ov.s3c.t">감점 검증 → 가이드라인 부합도</b><p data-i18n="about.ov.s3c.p">시니어 당뇨병 전문의 3인이 모든 감점과 AI 감사가 표시한 판정을 확인합니다.</p></li>
+                <li class="ov-step md"><span class="who" data-i18n="about.sv.n8.k">의사 평가자 · 별도 진행</span><b data-i18n="about.sv.n8.t">임상 수용성 평가</b><p data-i18n="about.ov.s3d.p">AI 채점과 별도로, 단계마다 5점 척도와 답변 전체에 자유 의견.</p></li>
               </ol>
             </li>
           </ol>
 
-          <ul class="legend" aria-label="범례">
-            <li><i class="lg-ai"></i>AI (채점 · 감사)</li>
-            <li><i class="lg-md"></i>의사</li>
-            <li><i class="lg-sys"></i>평가 대상 시스템</li>
-            <li><i class="lg-q"></i>고정된 채점 기준</li>
+          <ul class="legend" data-i18n-attr="aria-label:about.legend.label" aria-label="범례">
+            <li><i class="lg-ai"></i><span data-i18n="about.legend.ai">AI (채점 · 감사)</span></li>
+            <li><i class="lg-md"></i><span data-i18n="about.legend.md">의사</span></li>
+            <li><i class="lg-sys"></i><span data-i18n="about.legend.sys">평가 대상 시스템</span></li>
+            <li><i class="lg-q"></i><span data-i18n="about.legend.q">고정된 채점 기준</span></li>
           </ul>
-          <figcaption><b>그림 1.</b> 채점 기준은 어떤 시스템도 돌리기 전에 한 번 만들어 고정하고, 모든 답변은 같은 기준·같은 절차로 채점합니다. 그래서 점수의 차이를 시스템의 차이로 읽을 수 있습니다.</figcaption>
+          <figcaption data-i18n-html="about.ov.caption"><b>그림 1.</b> 채점 기준은 어떤 시스템도 돌리기 전에 한 번 만들어 고정하고, 모든 답변은 같은 기준·같은 절차로 채점합니다. 그래서 점수의 차이를 시스템의 차이로 읽을 수 있습니다.</figcaption>
         </figure>
       </div>
     </section>
 
     <div class="wrap doc">
-      <nav class="toc" aria-label="이 페이지 목차">
-        <h2>이 페이지</h2>
+      <nav class="toc" data-i18n-attr="aria-label:about.toc.label" aria-label="이 페이지 목차">
+        <h2 data-i18n="about.toc.h">이 페이지</h2>
         <ol>
-          <li><a href="#tracks">두 평가</a></li>
-          <li><a href="#more">더 알아보기</a></li>
-          <li class="sub"><a href="#why">왜 필요한가</a></li>
-          <li class="sub"><a href="#design">벤치마크 구성</a></li>
-          <li class="sub"><a href="#ethics">데이터와 윤리</a></li>
-          <li><a href="#faq">자주 묻는 질문</a></li>
+          <li><a href="#measures" data-i18n="about.toc.measures">두 가지 평가</a></li>
+          <li><a href="#living" data-i18n="about.toc.living">살아 있는 벤치마크</a></li>
+          <li><a href="#more" data-i18n="about.toc.more">더 알아보기</a></li>
+          <li class="sub"><a href="#why" data-i18n="about.why.t">왜 필요한가</a></li>
+          <li class="sub"><a href="#design" data-i18n="about.design.t">벤치마크 구성 자세히</a></li>
+          <li class="sub"><a href="#ethics" data-i18n="about.ethics.t">데이터와 윤리</a></li>
+          <li><a href="#faq" data-i18n="about.toc.faq">자주 묻는 질문</a></li>
         </ol>
-        <div class="toc-cta">
-          <a class="btn btn-ca" href="../ca/" data-carry>임상 수용성 평가</a>
-          <a class="btn btn-gc" href="../gc/" data-carry>가이드라인 부합도 검증</a>
-        </div>
       </nav>
 
       <div class="doc-main">
-        <!-- Tracks -->
-        <section class="doc-sec" id="tracks" aria-labelledby="tracksH">
+        <!-- What the benchmark measures (neutral: no calls to action — participation lives on the landing page /) -->
+        <section class="doc-sec" id="measures" aria-labelledby="measuresH">
           <div class="sec-head">
-            <p class="sec-n">참여하기</p>
-            <h2 id="tracksH">두 평가</h2>
-            <p>이 사이트에서 참여하실 수 있는 두 평가입니다.</p>
+            <p class="sec-n" data-i18n="about.measures.eyebrow">벤치마크 구성</p>
+            <h2 id="measuresH" data-i18n="about.measures.h">하나의 답변, 두 가지 평가</h2>
+            <p data-i18n="about.measures.lead">같은 5단계 답변을 두 관점에서 따로 잽니다.</p>
           </div>
-
-          <div class="tracks" style="margin-top:22px">
-            <article class="track ca" aria-labelledby="atCa">
-              <div class="track-body">
-                <div class="track-top">
-                  <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span>
-                  <div><h3 id="atCa">임상 수용성 평가</h3><p class="track-en">Physician Clinical Acceptability Assessment</p></div>
-                </div>
-                <p class="track-q">AI 답변을 단계별로 읽고 <b>진료에 쓸 만한지</b> 평가합니다.</p>
-                <p class="mini-label">진행 순서</p>
-                <ol class="mini-flow">
-                  <li><span class="step">환자 정보</span></li>
-                  <li><span class="step">Phase 1</span></li>
-                  <li><span class="step">선호 조합 선택</span></li>
-                  <li><span class="step">Phase 2–5</span></li>
-                  <li><span class="step you nowrap">단계별 1–5점 · 의견</span></li>
-                </ol>
-                <dl class="facts">
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 20–30분</dd></div>
-                </dl>
-                <a class="btn btn-ca btn-block" href="../ca/" data-carry>임상 수용성 평가 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
+          <div class="measures">
+            <article class="measure gc" aria-labelledby="mGc">
+              <div class="m-top">
+                <span class="m-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-gc"/></svg></span>
+                <div><h3 id="mGc" data-i18n="about.m.gc.t">가이드라인 부합도</h3><p class="m-q" data-i18n="about.m.gc.q">답변이 진료지침을 따르는가</p></div>
               </div>
+              <dl class="m-facts">
+                <div><dt data-i18n="about.m.who">누가</dt><dd data-i18n="about.m.gc.who">AI Rater가 채점하고, AI 감사가 모든 판정을 다시 보며, 전문의가 감점을 검증합니다</dd></div>
+                <div><dt data-i18n="about.m.how">기준</dt><dd data-i18n="about.m.gc.how">사전에 고정한 20문항 167항목</dd></div>
+                <div><dt data-i18n="about.m.out">결과</dt><dd data-i18n="about.m.gc.out">점수 = 충족 / (충족 + 감점)</dd></div>
+              </dl>
             </article>
-
-            <article class="track gc" aria-labelledby="atGc">
-              <div class="track-body">
-                <div class="track-top">
-                  <span class="track-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-gc"/></svg></span>
-                  <div><h3 id="atGc">가이드라인 부합도 검증</h3><p class="track-en">Guideline Concordance · Physician Validation</p></div>
-                </div>
-                <p class="track-q">AI 감사가 표시한 판정(△·✗)이 맞는지 <b>직접 확인</b>합니다.</p>
-                <p class="mini-label">판정마다 읽는 순서</p>
-                <ol class="mini-flow">
-                  <li><span class="step"><span class="nb" aria-hidden="true">1</span>CDSS 답변</span></li>
-                  <li><span class="step"><span class="nb" aria-hidden="true">2</span>AI 채점 사유</span></li>
-                  <li><span class="step"><span class="nb" aria-hidden="true">3</span>AI 감사 의견</span></li>
-                  <li><span class="step"><span class="nb" aria-hidden="true">4</span>최종 판정</span></li>
-                  <li><span class="step you">동의 / 비동의</span></li>
-                </ol>
-                                <dl class="facts">
-                  <div><svg class="ic fi" aria-hidden="true"><use href="../assets/icons.svg#i-clock"/></svg><dt>시간</dt><dd>약 10–25분</dd></div>
-                </dl>
-                <a class="btn btn-gc btn-block" href="../gc/" data-carry>가이드라인 부합도 검증 시작<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-arrow"/></svg></a>
+            <article class="measure ca" aria-labelledby="mCa">
+              <div class="m-top">
+                <span class="m-icon" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span>
+                <div><h3 id="mCa" data-i18n="about.m.ca.t">임상 수용성</h3><p class="m-q" data-i18n="about.m.ca.q">의사가 실제 진료에 쓸 만한가</p></div>
               </div>
+              <dl class="m-facts">
+                <div><dt data-i18n="about.m.who">누가</dt><dd data-i18n="about.m.ca.who">의사 평가자(인턴·레지던트·전문의)가 AI 채점과 별도로 평가합니다</dd></div>
+                <div><dt data-i18n="about.m.how2">방법</dt><dd data-i18n="about.m.ca.how">단계마다 1문장에 5점 동의 척도 + 답변 전체에 자유 의견</dd></div>
+                <div><dt data-i18n="about.m.out">결과</dt><dd data-i18n="about.m.ca.out">단계별 동의 정도와 의견</dd></div>
+              </dl>
             </article>
           </div>
+        </section>
+
+        <!-- Living benchmark -->
+        <section class="doc-sec" id="living" aria-labelledby="livingH">
+          <div class="sec-head">
+            <p class="sec-n" data-i18n="about.living.eyebrow">살아 있는 벤치마크</p>
+            <h2 id="livingH" data-i18n="about.living.h">기준은 고정하고, 케이스와 모델은 계속 더합니다</h2>
+            <p data-i18n="about.living.lead">한 번의 연구로 끝나지 않고 계속 쓰이도록 만들었습니다.</p>
+          </div>
+          <ul class="living">
+            <li><span class="lv-i fix" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-pin"/></svg></span><div><h3 data-i18n="about.living.1.t">고정된 채점 기준</h3><p data-i18n="about.living.1.p">채점 기준(20문항 167항목)과 질문지는 어떤 시스템에도 똑같이 씁니다.</p></div></li>
+            <li><span class="lv-i ai" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-plug"/></svg></span><div><h3 data-i18n="about.living.2.t">케이스·모델 추가</h3><p data-i18n="about.living.2.p">같은 형식의 새 케이스나 새 모델의 답변을 넣으면 평가 문항이 자동으로 만들어집니다.</p></div></li>
+            <li><span class="lv-i sys" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-layers"/></svg></span><div><h3 data-i18n="about.living.3.t">버전이 붙은 케이스 세트</h3><p data-i18n="about.living.3.p">케이스는 세트(v1, v2…)로 묶습니다. 세트가 바뀌어도 이전 결과는 그대로 남아 비교할 수 있습니다.</p></div></li>
+            <li><span class="lv-i md" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-md"/></svg></span><div><h3 data-i18n="about.living.4.t">사람은 필요한 곳에만</h3><p data-i18n="about.living.4.p">채점과 감사는 AI가 맡고, 의사는 판단이 필요한 지점에만 참여합니다.</p></div></li>
+          </ul>
+          <p class="set-now" id="setNow" hidden></p>
         </section>
 
         <!-- More (collapsed: for readers who want the details) -->
         <section class="doc-sec" id="more" aria-labelledby="moreH">
           <div class="sec-head">
-            <p class="sec-n">더 알아보기</p>
-            <h2 id="moreH">관심 있는 항목을 펼쳐 보세요</h2>
+            <p class="sec-n" data-i18n="about.toc.more">더 알아보기</p>
+            <h2 id="moreH" data-i18n="about.more.h">관심 있는 항목을 펼쳐 보세요</h2>
           </div>
           <div class="more-list">
           <details class="more-item" id="why">
-            <summary><span class="mi-text"><span class="mi-k">비교</span><span class="mi-t">왜 필요한가</span><span class="mi-d">기존 벤치마크와 기준을 얻는 방식 비교</span></span></summary>
+            <summary><span class="mi-text"><span class="mi-k" data-i18n="about.why.k">비교</span><span class="mi-t" data-i18n="about.why.t">왜 필요한가</span><span class="mi-d" data-i18n="about.why.d">기존 벤치마크와 기준을 얻는 방식 비교</span></span></summary>
             <div class="more-body">
-
-          <div class="compare" role="table" aria-label="기존 방식과 이 벤치마크 비교">
-            <div class="cmp-head" role="row">
-              <div role="columnheader">비교</div>
-              <div role="columnheader">과제·증례별 기준 방식</div>
-              <div role="columnheader">이 벤치마크</div>
+              <div class="compare" role="table" data-i18n-attr="aria-label:about.cmp.label" aria-label="기존 방식과 이 벤치마크 비교">
+                <div class="cmp-head" role="row">
+                  <div role="columnheader" data-i18n="about.why.k">비교</div>
+                  <div role="columnheader" data-i18n="about.cmp.a">과제·증례별 기준 방식</div>
+                  <div role="columnheader" data-i18n="about.cmp.b">이 벤치마크</div>
+                </div>
+                <div class="cmp-row" role="row">
+                  <div class="cmp-q" role="rowheader" data-i18n="about.cmp.r1.q">기준은 누가, 언제</div>
+                  <div class="cmp-a" role="cell" data-i18n-html="about.cmp.r1.a"><span class="cmp-lab">과제·증례별 기준 방식</span>과제·증례마다 의사가 기준을 씁니다.</div>
+                  <div class="cmp-b" role="cell" data-i18n-html="about.cmp.r1.b"><span class="cmp-lab">이 벤치마크</span><b>진료지침에서 한 번</b> 추출하고, 시니어 당뇨병 전문의 3인이 확정합니다.</div>
+                </div>
+                <div class="cmp-row" role="row">
+                  <div class="cmp-q" role="rowheader" data-i18n="about.cmp.r2.q">어떻게 판정</div>
+                  <div class="cmp-a" role="cell" data-i18n-html="about.cmp.r2.a"><span class="cmp-lab">과제·증례별 기준 방식</span>AI 채점기(model-based grader)가 의사가 쓴 기준으로 채점합니다.</div>
+                  <div class="cmp-b" role="cell" data-i18n-html="about.cmp.r2.b"><span class="cmp-lab">이 벤치마크</span>AI Rater가 항목마다 채점하고, <b>AI 감사가 모든 판정</b>을 다시 보며, 전문의가 감점을 검증합니다.</div>
+                </div>
+                <div class="cmp-row" role="row">
+                  <div class="cmp-q" role="rowheader" data-i18n="about.cmp.r3.q">무엇을 재나</div>
+                  <div class="cmp-a" role="cell" data-i18n-html="about.cmp.r3.a"><span class="cmp-lab">과제·증례별 기준 방식</span>기준 충족 점수, 위해 가능성 등</div>
+                  <div class="cmp-b" role="cell" data-i18n-html="about.cmp.r3.b"><span class="cmp-lab">이 벤치마크</span><b>가이드라인 부합도</b>와 <b>임상 수용성</b>을 나란히</div>
+                </div>
+              </div>
+              <p class="cmp-note" data-i18n="about.cmp.note">HealthBench Professional (arXiv 2604.27470), NOHARM (arXiv 2512.01241). 우열의 비교가 아니라, 기준을 얻는 방식과 재는 대상이 다르다는 뜻입니다.</p>
             </div>
-            <div class="cmp-row" role="row">
-              <div class="cmp-q" role="rowheader">기준은 누가, 언제</div>
-              <div class="cmp-a" role="cell"><span class="cmp-lab">과제·증례별 기준 방식</span>과제·증례마다 의사가 기준을 씁니다.</div>
-              <div class="cmp-b" role="cell"><span class="cmp-lab">이 벤치마크</span><b>진료지침에서 한 번</b> 추출하고, 시니어 당뇨병 전문의 3인이 확정합니다.</div>
-            </div>
-            <div class="cmp-row" role="row">
-              <div class="cmp-q" role="rowheader">어떻게 판정</div>
-              <div class="cmp-a" role="cell"><span class="cmp-lab">과제·증례별 기준 방식</span>AI 채점기(model-based grader)가 의사가 쓴 기준으로 채점합니다.</div>
-              <div class="cmp-b" role="cell"><span class="cmp-lab">이 벤치마크</span>AI Rater가 항목마다 채점하고, <b>AI 감사가 모든 판정</b>을 다시 보며, 전문의가 감점을 검증합니다.</div>
-            </div>
-            <div class="cmp-row" role="row">
-              <div class="cmp-q" role="rowheader">무엇을 재나</div>
-              <div class="cmp-a" role="cell"><span class="cmp-lab">과제·증례별 기준 방식</span>기준 충족 점수, 위해 가능성 등</div>
-              <div class="cmp-b" role="cell"><span class="cmp-lab">이 벤치마크</span><b>가이드라인 부합도</b>와 <b>임상 수용성</b>을 나란히</div>
-            </div>
-          </div>
-          <p class="cmp-note">HealthBench Professional (arXiv 2604.27470), NOHARM (arXiv 2512.01241). 우열의 비교가 아니라, 기준을 얻는 방식과 재는 대상이 다르다는 뜻입니다.</p>
-
-        </div>
           </details>
           <details class="more-item" id="design">
-            <summary><span class="mi-text"><span class="mi-k">그림 A · B · C</span><span class="mi-t">벤치마크 구성</span><span class="mi-d">질문지 · 시험 자료 · 채점 흐름, 5단계 × 두 평가</span></span></summary>
+            <summary><span class="mi-text"><span class="mi-k" data-i18n="about.design.k">그림 A · B · C</span><span class="mi-t" data-i18n="about.design.t">벤치마크 구성 자세히</span><span class="mi-d" data-i18n="about.design.d">질문지 · 시험 자료 · 채점 흐름, 5단계 × 두 평가</span></span></summary>
             <div class="more-body">
 
           <!-- A -->
           <figure class="panel a figure" id="design-a" aria-labelledby="paH">
-            <div class="panel-head"><span class="pl" aria-hidden="true">A</span><h3 id="paH">질문지 <span class="en">Questionnaire · 무엇을 묻는가</span></h3></div>
-            <p class="panel-lead">처방 결정의 인지 절차에서 문항을 만들고, 당뇨병 전문의 패널의 Delphi 합의로 다듬었습니다.</p>
-            <details class="panel-more" open><summary><span>그림 A 자세히 보기 · 문항을 만든 과정</span></summary>
+            <div class="panel-head"><span class="pl" aria-hidden="true">A</span><h3 id="paH" data-i18n-html="about.a.h">질문지 <span class="en">Questionnaire · 무엇을 묻는가</span></h3></div>
+            <p class="panel-lead" data-i18n="about.a.lead">처방 결정의 인지 절차에서 문항을 만들고, 당뇨병 전문의 패널의 Delphi 합의로 다듬었습니다.</p>
+            <details class="panel-more" open><summary><span data-i18n="about.a.more">그림 A 자세히 보기 · 문항을 만든 과정</span></summary>
             <ol class="flow cols-4">
               <li><div class="node q">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-steps"/></svg></span><h4>처방 결정의 인지 절차 <span class="en">Cognitive procedure</span></h4></div>
-                <p class="big">7<small>단계</small></p>
-                <ul class="chips" aria-label="7단계">
-                  <li>분류<i>Triage</i></li><li>조치<i>Action</i></li><li>약물 요법<i>Regimens</i></li><li>환자 상태<i>Patient status</i></li><li>전략<i>Strategy</i></li><li>추적·교육<i>Follow-up · education</i></li><li>판단<i>Judgment</i></li>
-                </ul>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-steps"/></svg></span><h4 data-i18n-html="about.a.n1.h">처방 결정의 인지 절차 <span class="en">Cognitive procedure</span></h4></div>
+                <p class="big" data-i18n-html="about.a.n1.big">7<small>단계</small></p>
+                <ul class="chips" data-i18n-attr="aria-label:about.a.n1.label" aria-label="7단계" data-i18n-html="about.a.n1.chips"><li>분류<i>Triage</i></li><li>조치<i>Action</i></li><li>약물 요법<i>Regimens</i></li><li>환자 상태<i>Patient status</i></li><li>전략<i>Strategy</i></li><li>추적·교육<i>Follow-up · education</i></li><li>판단<i>Judgment</i></li></ul>
               </div></li>
               <li><div class="node q">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-q"/></svg></span><h4>후보 문항 <span class="en">Candidate questions</span></h4></div>
-                <p class="big">28<small>개</small></p>
-                <ul><li>7단계에서 초안 작성</li></ul>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-q"/></svg></span><h4 data-i18n-html="about.a.n2.h">후보 문항 <span class="en">Candidate questions</span></h4></div>
+                <p class="big" data-i18n-html="about.a.n2.big">28<small>개</small></p>
+                <ul><li data-i18n="about.a.n2.li">7단계에서 초안 작성</li></ul>
               </div></li>
               <li><div class="node md">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-users"/></svg></span><h4>Delphi 합의 <span class="en">Delphi consensus</span></h4></div>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-users"/></svg></span><h4 data-i18n-html="about.a.n3.h">Delphi 합의 <span class="en">Delphi consensus</span></h4></div>
                 <ul>
-                  <li>3개 기관 당뇨병 전문의 12인 패널</li>
-                  <li>3라운드: 관련성 → 명확성 → 필요성·순서</li>
-                  <li>이후 시니어 전문의 3인이 최종 확정</li>
+                  <li data-i18n="about.a.n3.li1">3개 기관 당뇨병 전문의 12인 패널</li>
+                  <li data-i18n="about.a.n3.li2">3라운드: 관련성 → 명확성 → 필요성·순서</li>
+                  <li data-i18n="about.a.n3.li3">이후 시니어 전문의 3인이 최종 확정</li>
                 </ul>
               </div></li>
               <li><div class="node q">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-clip"/></svg></span><h4>질문지 2종 <span class="en">시스템 평가 전에 고정</span></h4></div>
-                <div class="subcard gc"><b>가이드라인 부합도 <span class="pill blue">AI Rater</span></b><span>5단계 20문항 — 답변이 진료지침을 따르는가</span></div>
-                <div class="subcard ca"><b>임상 수용성 <span class="pill orange">의사</span></b><span>단계마다 1문장 · 5점 척도 + 자유 의견 — 의사가 쓸 만한가</span></div>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-clip"/></svg></span><h4 data-i18n-html="about.a.n4.h">질문지 2종 <span class="en">시스템 평가 전에 고정</span></h4></div>
+                <div class="subcard gc"><b data-i18n-html="about.a.n4.gc.b">가이드라인 부합도 <span class="pill blue">AI Rater</span></b><span data-i18n="about.a.n4.gc.s">5단계 20문항 — 답변이 진료지침을 따르는가</span></div>
+                <div class="subcard ca"><b data-i18n-html="about.a.n4.ca.b">임상 수용성 <span class="pill orange">의사</span></b><span data-i18n="about.a.n4.ca.s">단계마다 1문장 · 5점 척도 + 자유 의견 — 의사가 쓸 만한가</span></div>
               </div></li>
             </ol>
             </details>
-            <p class="panel-take">무엇을 물을지 먼저 정하고, <b>그다음에</b> 시스템을 평가합니다.</p>
+            <p class="panel-take" data-i18n-html="about.a.take">무엇을 물을지 먼저 정하고, <b>그다음에</b> 시스템을 평가합니다.</p>
           </figure>
 
           <!-- B -->
           <figure class="panel b figure" id="design-b" aria-labelledby="pbH">
-            <div class="panel-head"><span class="pl" aria-hidden="true">B</span><h3 id="pbH">시험 자료 <span class="en">Test material · 시스템이 받는 것과 내는 것</span></h3></div>
-            <p class="panel-lead">처방을 바꾸는 6개 임상 차원을 모두 조합해 합성 환자를 만들고, 시스템이 같은 형식으로 답하게 했습니다.</p>
-            <details class="panel-more" open><summary><span>그림 B 자세히 보기 · 합성 환자와 5단계 답변</span></summary>
+            <div class="panel-head"><span class="pl" aria-hidden="true">B</span><h3 id="pbH" data-i18n-html="about.b.h">시험 자료 <span class="en">Test material · 시스템이 받는 것과 내는 것</span></h3></div>
+            <p class="panel-lead" data-i18n="about.b.lead">처방을 바꾸는 6개 임상 차원을 모두 조합해 합성 환자를 만들고, 시스템이 같은 형식으로 답하게 했습니다.</p>
+            <details class="panel-more" open><summary><span data-i18n="about.b.more">그림 B 자세히 보기 · 합성 환자와 5단계 답변</span></summary>
             <ol class="flow cols-3w">
               <li><div class="node t">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><h4>합성 환자 <span class="en">Synthetic vignettes</span></h4></div>
-                <p class="big">480<small>명 · 조합마다 1명</small></p>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><h4 data-i18n-html="about.b.n1.h">합성 환자 <span class="en">Synthetic vignettes</span></h4></div>
+                <p class="big" data-i18n-html="about.b.n1.big">480<small>명 · 조합마다 1명</small></p>
                 <table class="dims">
-                  <caption class="sr-only">6개 임상 차원과 수준</caption>
+                  <caption class="sr-only" data-i18n="about.b.dims.cap">6개 임상 차원과 수준</caption>
                   <tbody>
-                    <tr><th scope="row">CKD 단계</th><td><div class="lv"><span>1–2</span><span>3a</span><span>3b</span><span>4</span><span>5</span></div></td></tr>
-                    <tr><th scope="row">심부전</th><td><div class="lv"><span>있음</span><span>없음</span></div></td></tr>
-                    <tr><th scope="row">ASCVD</th><td><div class="lv"><span>있음</span><span>없음</span></div></td></tr>
-                    <tr><th scope="row">MASLD</th><td><div class="lv"><span>있음</span><span>없음</span></div></td></tr>
+                    <tr><th scope="row" data-i18n="about.b.dims.ckd">CKD 단계</th><td><div class="lv"><span>1–2</span><span>3a</span><span>3b</span><span>4</span><span>5</span></div></td></tr>
+                    <tr><th scope="row" data-i18n="about.b.dims.hf">심부전</th><td><div class="lv"><span data-i18n="about.b.yes">있음</span><span data-i18n="about.b.no">없음</span></div></td></tr>
+                    <tr><th scope="row">ASCVD</th><td><div class="lv"><span data-i18n="about.b.yes">있음</span><span data-i18n="about.b.no">없음</span></div></td></tr>
+                    <tr><th scope="row">MASLD</th><td><div class="lv"><span data-i18n="about.b.yes">있음</span><span data-i18n="about.b.no">없음</span></div></td></tr>
                     <tr><th scope="row">BMI</th><td><div class="lv"><span>18–&lt;23</span><span>23–&lt;27</span><span>27–35</span></div></td></tr>
                     <tr><th scope="row">HbA1c %</th><td><div class="lv"><span>5.5–&lt;6.5</span><span>6.5–&lt;7.5</span><span>7.5–&lt;9</span><span>9–11</span></div></td></tr>
                   </tbody>
                 </table>
-                <ul><li>환자마다 12개월 진료 기록</li></ul>
+                <ul><li data-i18n="about.b.n1.li">환자마다 12개월 진료 기록</li></ul>
               </div></li>
               <li><div class="node sys">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-cpu"/></svg></span><h4>평가 대상 시스템 <span class="en">System under evaluation</span></h4></div>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-cpu"/></svg></span><h4 data-i18n-html="about.b.n2.h">평가 대상 시스템 <span class="en">System under evaluation</span></h4></div>
                 <ul>
-                  <li>어떤 foundation model이든 같은 방식</li>
-                  <li>입력: 환자 기록 + 질문</li>
-                  <li><b>가이드라인 문서는 주지 않음</b></li>
+                  <li data-i18n="about.b.n2.li1">어떤 foundation model이든 같은 방식</li>
+                  <li data-i18n="about.b.n2.li2">입력: 환자 기록 + 질문</li>
+                  <li data-i18n-html="about.b.n2.li3"><b>가이드라인 문서는 주지 않음</b></li>
                 </ul>
               </div></li>
               <li><div class="node t">
-                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-doc"/></svg></span><h4>AI 답변 · 5단계 <span class="en">Structured response</span></h4></div>
-                <p class="phase-group">권고 · Recommendation</p>
+                <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-doc"/></svg></span><h4 data-i18n-html="about.b.n3.h">AI 답변 · 5단계 <span class="en">Structured response</span></h4></div>
+                <p class="phase-group" data-i18n="about.b.g1">권고 · Recommendation</p>
                 <ol class="phase-list">
-                  <li><span class="pn">1</span>환자 분류 및 의뢰</li>
-                  <li><span class="pn">2</span><span>약물 조합 요약 <small>· 후보 3개</small></span></li>
+                  <li><span class="pn">1</span><span data-i18n="about.ph.1">환자 분류 및 의뢰</span></li>
+                  <li><span class="pn">2</span><span data-i18n-html="about.b.p2">약물 조합 요약 <small>· 후보 3개</small></span></li>
                 </ol>
-                <p class="phase-group">조합별 근거 · Reasoning for each regimen</p>
+                <p class="phase-group" data-i18n="about.b.g2">조합별 근거 · Reasoning for each regimen</p>
                 <ol class="phase-list" start="3">
-                  <li><span class="pn">3</span>약물 선택 고려사항</li>
-                  <li><span class="pn">4</span>추적관찰</li>
-                  <li><span class="pn">5</span>환자 교육</li>
+                  <li><span class="pn">3</span><span data-i18n="about.ph.3">약물 선택 고려사항</span></li>
+                  <li><span class="pn">4</span><span data-i18n="about.ph.4">추적관찰</span></li>
+                  <li><span class="pn">5</span><span data-i18n="about.ph.5">환자 교육</span></li>
                 </ol>
-                <ul class="chips" aria-label="모든 단계가 받는 평가"><li>모든 단계 →</li><li style="color:var(--teal-ink)">가이드라인 부합도</li><li style="color:var(--orange-ink)">임상 수용성</li></ul>
+                <ul class="chips" data-i18n-attr="aria-label:about.b.chips.label" aria-label="모든 단계가 받는 평가"><li data-i18n="about.b.chips.all">모든 단계 →</li><li class="c-gc" data-i18n="about.gc">가이드라인 부합도</li><li class="c-ca" data-i18n="about.ca">임상 수용성</li></ul>
               </div></li>
             </ol>
             </details>
@@ -381,131 +372,130 @@
 
           <!-- C -->
           <figure class="panel c figure" id="design-c" aria-labelledby="pcH">
-            <div class="panel-head"><span class="pl" aria-hidden="true">C</span><h3 id="pcH">채점 <span class="en">Scoring · 답변을 어떻게 판정하나</span></h3></div>
-            <p class="panel-lead">하나의 답변을 두 갈래로 봅니다. 진료지침을 따르는가(가이드라인 부합도), 의사가 쓸 만한가(임상 수용성).</p>
-            <details class="panel-more" open><summary><span>그림 C 자세히 보기 · 채점 흐름</span></summary>
+            <div class="panel-head"><span class="pl" aria-hidden="true">C</span><h3 id="pcH" data-i18n-html="about.c.h">채점 <span class="en">Scoring · 답변을 어떻게 판정하나</span></h3></div>
+            <p class="panel-lead" data-i18n="about.c.lead">하나의 답변을 두 갈래로 봅니다. 진료지침을 따르는가(가이드라인 부합도), 의사가 쓸 만한가(임상 수용성).</p>
+            <details class="panel-more" open><summary><span data-i18n="about.c.more">그림 C 자세히 보기 · 채점 흐름</span></summary>
 
             <div class="lane">
-              <div class="lane-h"><h4>가이드라인 부합도</h4><span class="pill teal">Guideline concordance · 모든 단계</span></div>
-              <p class="lane-sub">채점 기준 · 항목은 시스템 실행 전에 고정</p>
+              <div class="lane-h"><h4 data-i18n="about.gc">가이드라인 부합도</h4><span class="pill teal" data-i18n="about.c.gc.pill">Guideline concordance · 모든 단계</span></div>
+              <p class="lane-sub" data-i18n="about.c.sub1">채점 기준 · 항목은 시스템 실행 전에 고정</p>
               <ol class="flow">
                 <li><div class="node sys">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-book"/></svg></span><h4>진료지침 · 급여 기준 <span class="en">Guideline sources</span></h4></div>
-                  <ul><li>진료지침 (clinical practice guideline)</li><li>국내 급여 기준</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-book"/></svg></span><h4 data-i18n-html="about.c.n1.h">진료지침 · 급여 기준 <span class="en">Guideline sources</span></h4></div>
+                  <ul><li data-i18n="about.c.n1.li1">진료지침 (clinical practice guideline)</li><li data-i18n="about.c.n1.li2">국내 급여 기준</li></ul>
                 </div></li>
                 <li><div class="node ai">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-list"/></svg></span><h4>채점 항목 <span class="en">Scoring elements</span></h4></div>
-                  <p class="big">167<small>개 · 20문항</small></p>
-                  <ul><li>가이드라인 이탈 1건 = 항목 1개</li><li>조건 · 출처 · 근거 수준</li></ul>
-                  <span class="who pill orange">시니어 전문의 3인 확정</span>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-list"/></svg></span><h4 data-i18n-html="about.c.n2.h">채점 항목 <span class="en">Scoring elements</span></h4></div>
+                  <p class="big" data-i18n-html="about.c.n2.big">167<small>개 · 20문항</small></p>
+                  <ul><li data-i18n="about.c.n2.li1">가이드라인 이탈 1건 = 항목 1개</li><li data-i18n="about.c.n2.li2">조건 · 출처 · 근거 수준</li></ul>
+                  <span class="who pill orange" data-i18n="about.c.n2.who">시니어 전문의 3인 확정</span>
                 </div></li>
                 <li><div class="node ai">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-clip"/></svg></span><h4>환자별 채점표 <span class="en">Patient-specific scoring sheet</span></h4></div>
-                  <ul><li>이 환자에게 해당하는 항목만</li><li>환자 부분은 실행 전에, 조합 부분은 답변이 나온 뒤 후보 조합 1·2·3마다</li><li>AI가 고르고 AI 감사가 확인</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-clip"/></svg></span><h4 data-i18n-html="about.c.n3.h">환자별 채점표 <span class="en">Patient-specific scoring sheet</span></h4></div>
+                  <ul><li data-i18n="about.c.n3.li1">이 환자에게 해당하는 항목만</li><li data-i18n="about.c.n3.li2">환자 부분은 실행 전에, 조합 부분은 답변이 나온 뒤 후보 조합 1·2·3마다</li><li data-i18n="about.c.n3.li3">AI가 고르고 AI 감사가 확인</li></ul>
                 </div></li>
               </ol>
-              <div class="subcard" style="margin-top:14px">
-                <b>채점 항목 예시 <span class="pill">Phase 5 · 환자 교육</span></b>
-                <span>고혈압이 있거나 항고혈압제를 복용하는 환자에게 <b>가정 혈압 측정 교육이 없으면 감점</b> — 근거: ADA Standards of Care 2026, 권고 10.2 (grade A)</span>
+              <div class="subcard ex">
+                <b data-i18n-html="about.c.ex.b">채점 항목 예시 <span class="pill">Phase 5 · 환자 교육</span></b>
+                <span data-i18n-html="about.c.ex.s">고혈압이 있거나 항고혈압제를 복용하는 환자에게 <b>가정 혈압 측정 교육이 없으면 감점</b> — 근거: ADA Standards of Care 2026, 권고 10.2 (grade A)</span>
               </div>
 
-              <p class="lane-sub">모든 답변</p>
+              <p class="lane-sub" data-i18n="about.c.sub2">모든 답변</p>
               <ol class="flow">
                 <li><div class="node sys">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-doc"/></svg></span><h4>시스템 답변 <span class="en">System output</span></h4></div>
-                  <ul><li>5단계 구조화 답변</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-doc"/></svg></span><h4 data-i18n-html="about.c.n4.h">시스템 답변 <span class="en">System output</span></h4></div>
+                  <ul><li data-i18n="about.sv.n4.t">5단계 구조화 답변</li></ul>
                 </div></li>
                 <li><div class="node ai">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-robot"/></svg></span><h4>AI Rater 채점 <span class="en">AI Rater scoring</span></h4></div>
-                  <ul><li>적용 항목마다 충족 또는 감점</li><li>감점마다 사유 기록</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-robot"/></svg></span><h4 data-i18n-html="about.c.n5.h">AI Rater 채점 <span class="en">AI Rater scoring</span></h4></div>
+                  <ul><li data-i18n="about.c.n5.li1">적용 항목마다 충족 또는 감점</li><li data-i18n="about.c.n5.li2">감점마다 사유 기록</li></ul>
                 </div></li>
                 <li><div class="node ai">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-audit"/></svg></span><h4>AI 감사 <span class="en">AI audit</span></h4></div>
-                  <ul><li>모든 판정을 다시 확인해 표시</li></ul>
-                  <ul class="marks" aria-label="감사 표시"><li class="ok">✓ 문제 없음</li><li class="minor">△ 근거 보완 <small>(경미)</small></li><li class="major">✗ 판정 보정 <small>(중대)</small></li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-audit"/></svg></span><h4 data-i18n-html="about.c.n6.h">AI 감사 <span class="en">AI audit</span></h4></div>
+                  <ul><li data-i18n="about.c.n6.li">모든 판정을 다시 확인해 표시</li></ul>
+                  <ul class="marks" data-i18n-attr="aria-label:about.c.marks.label" aria-label="감사 표시" data-i18n-html="about.c.marks"><li class="ok">✓ 문제 없음</li><li class="minor">△ 근거 보완 <small>(경미)</small></li><li class="major">✗ 판정 보정 <small>(중대)</small></li></ul>
                 </div></li>
                 <li><div class="node md">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-md"/></svg></span><h4>전문의 검증 <span class="en">Physician validation</span></h4></div>
-                  <ul><li>시니어 전문의 3인</li><li>모든 감점과 AI 감사가 표시한 판정을 확인</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-md"/></svg></span><h4 data-i18n-html="about.c.n7.h">전문의 검증 <span class="en">Physician validation</span></h4></div>
+                  <ul><li data-i18n="about.sv.md.s">시니어 전문의 3인</li><li data-i18n="about.c.n7.li2">모든 감점과 AI 감사가 표시한 판정을 확인</li></ul>
                 </div></li>
               </ol>
-              <p class="formula">점수 = <span class="frac" aria-label="충족 나누기 충족 더하기 감점"><span>충족</span><span>충족 + 감점</span></span></p>
+              <p class="formula" data-i18n-html="about.c.formula">점수 = <span class="frac" aria-label="충족 나누기 충족 더하기 감점"><span>충족</span><span>충족 + 감점</span></span></p>
             </div>
 
             <div class="lane">
-              <div class="lane-h"><h4>임상 수용성</h4><span class="pill orange">Clinical acceptability · 모든 단계</span></div>
+              <div class="lane-h"><h4 data-i18n="about.ca">임상 수용성</h4><span class="pill orange" data-i18n="about.c.ca.pill">Clinical acceptability · 모든 단계</span></div>
               <ol class="flow">
                 <li><div class="node md">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span><h4>의사 평가자 <span class="en">Physician raters</span></h4></div>
-                  <ul><li>답변 전체를 읽습니다</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-ca"/></svg></span><h4 data-i18n-html="about.c.n8.h">의사 평가자 <span class="en">Physician raters</span></h4></div>
+                  <ul><li data-i18n="about.c.n8.li">답변 전체를 읽습니다</li></ul>
                 </div></li>
                 <li><div class="node md">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-scale"/></svg></span><h4>단계마다 1문장 <span class="en">1 statement per phase</span></h4></div>
-                  <ul><li>“…은 [결정]에 유의미한 참고가 된다”</li><li>5점 동의 척도</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-scale"/></svg></span><h4 data-i18n-html="about.c.n9.h">단계마다 1문장 <span class="en">1 statement per phase</span></h4></div>
+                  <ul><li data-i18n="about.c.n9.li1">“…은 [결정]에 유의미한 참고가 된다”</li><li data-i18n="about.c.n9.li2">5점 동의 척도</li></ul>
                 </div></li>
                 <li><div class="node md">
-                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-chat"/></svg></span><h4>자유 의견 <span class="en">Free comment</span></h4></div>
-                  <ul><li>답변 전체에 대해</li></ul>
+                  <div class="node-h"><span class="node-i" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-chat"/></svg></span><h4 data-i18n-html="about.c.n10.h">자유 의견 <span class="en">Free comment</span></h4></div>
+                  <ul><li data-i18n="about.c.n10.li">답변 전체에 대해</li></ul>
                 </div></li>
               </ol>
             </div>
             </details>
-            <p class="panel-take">두 평가를 <b>나란히</b> 보고합니다 — 가이드라인을 따르는가, 그리고 의사가 쓸 만한가.</p>
+            <p class="panel-take" data-i18n-html="about.c.take">두 평가를 <b>나란히</b> 보고합니다 — 가이드라인을 따르는가, 그리고 의사가 쓸 만한가.</p>
           </figure>
 
           <!-- Phase table -->
           <details class="phases" id="phases" open>
-            <summary><h3>5단계 답변을 두 평가가 어떻게 보나</h3><span class="ph-more" aria-hidden="true">표 보기</span></summary>
-            <p class="prose" style="color:var(--muted);margin-top:6px">가이드라인 부합도는 단계별 문항(모두 20문항)으로, 임상 수용성은 단계마다 “AI가 제공한 [해당 내용]은 [해당 임상 결정]에 유의미한 참고가 된다”에 대한 동의 정도로 봅니다.</p>
-            <div class="ptable" role="table" aria-label="5단계 답변과 두 평가">
+            <summary><h3 data-i18n="about.pt.h">5단계 답변을 두 평가가 어떻게 보나</h3><span class="ph-more" aria-hidden="true" data-i18n="about.pt.more">표 보기</span></summary>
+            <p class="prose pt-lead" data-i18n="about.pt.lead">가이드라인 부합도는 단계별 문항(모두 20문항)으로, 임상 수용성은 단계마다 “AI가 제공한 [해당 내용]은 [해당 임상 결정]에 유의미한 참고가 된다”에 대한 동의 정도로 봅니다.</p>
+            <div class="ptable" role="table" data-i18n-attr="aria-label:about.pt.label" aria-label="5단계 답변과 두 평가">
               <div class="ptable-h" role="row">
-                <div role="columnheader">답변 단계</div>
-                <div class="h-gc" role="columnheader">가이드라인 부합도 문항</div>
-                <div class="h-ca" role="columnheader">임상 수용성 · 참고가 되는 결정</div>
+                <div role="columnheader" data-i18n="about.pt.c1">답변 단계</div>
+                <div class="h-gc" role="columnheader" data-i18n="about.pt.c2">가이드라인 부합도 문항</div>
+                <div class="h-ca" role="columnheader" data-i18n="about.pt.c3">임상 수용성 · 참고가 되는 결정</div>
               </div>
               <div class="prow" role="row">
-                <div class="p-phase" role="rowheader"><span class="pn">1</span><b>환자 분류 및 의뢰<small>Classification and referral</small></b></div>
-                <div class="p-gc" role="cell"><span class="p-lab">가이드라인 부합도 · 2문항</span><ul class="chips"><li><em>1.1</em>의뢰 판단</li><li><em>1.2</em>환자 평가</li></ul></div>
-                <div class="p-ca" role="cell"><span class="p-lab">임상 수용성</span>의뢰 여부 결정</div>
+                <div class="p-phase" role="rowheader"><span class="pn">1</span><b data-i18n-html="about.pt.p1">환자 분류 및 의뢰<small>Classification and referral</small></b></div>
+                <div class="p-gc" role="cell"><span class="p-lab" data-i18n="about.pt.n2">가이드라인 부합도 · 2문항</span><ul class="chips" data-i18n-html="about.pt.q1"><li><em>1.1</em>의뢰 판단</li><li><em>1.2</em>환자 평가</li></ul></div>
+                <div class="p-ca" role="cell"><span class="p-lab" data-i18n="about.ca">임상 수용성</span><span data-i18n="about.pt.d1">의뢰 여부 결정</span></div>
               </div>
               <div class="prow" role="row">
-                <div class="p-phase" role="rowheader"><span class="pn">2</span><b>약물 조합 요약<small>후보 조합 3개</small></b></div>
-                <div class="p-gc" role="cell"><span class="p-lab">가이드라인 부합도 · 3문항</span><ul class="chips"><li><em>2.1</em>효과</li><li><em>2.2</em>안전성</li><li><em>2.3</em>실행 가능성</li></ul></div>
-                <div class="p-ca" role="cell"><span class="p-lab">임상 수용성</span>환자와의 공유 의사결정</div>
+                <div class="p-phase" role="rowheader"><span class="pn">2</span><b data-i18n-html="about.pt.p2">약물 조합 요약<small>후보 조합 3개</small></b></div>
+                <div class="p-gc" role="cell"><span class="p-lab" data-i18n="about.pt.n3">가이드라인 부합도 · 3문항</span><ul class="chips" data-i18n-html="about.pt.q2"><li><em>2.1</em>효과</li><li><em>2.2</em>안전성</li><li><em>2.3</em>실행 가능성</li></ul></div>
+                <div class="p-ca" role="cell"><span class="p-lab" data-i18n="about.ca">임상 수용성</span><span data-i18n="about.pt.d2">환자와의 공유 의사결정</span></div>
               </div>
               <div class="prow" role="row">
-                <div class="p-phase" role="rowheader"><span class="pn">3</span><b>약물 선택 고려사항<small>조합마다</small></b></div>
-                <div class="p-gc" role="cell"><span class="p-lab">가이드라인 부합도 · 8문항</span><ul class="chips"><li><em>3.1</em>동반질환 기반 선택</li><li><em>3.2</em>체중·BMI</li><li><em>3.3</em>HbA1c 목표</li><li><em>3.4</em>용량</li><li><em>3.5</em>금기·주의사항</li><li><em>3.6</em>순응도</li><li><em>3.7</em>비용·급여</li><li><em>3.8</em>비당뇨 약물·상호작용</li></ul></div>
-                <div class="p-ca" role="cell"><span class="p-lab">임상 수용성</span>약물 처방 결정</div>
+                <div class="p-phase" role="rowheader"><span class="pn">3</span><b data-i18n-html="about.pt.p3">약물 선택 고려사항<small>조합마다</small></b></div>
+                <div class="p-gc" role="cell"><span class="p-lab" data-i18n="about.pt.n8">가이드라인 부합도 · 8문항</span><ul class="chips" data-i18n-html="about.pt.q3"><li><em>3.1</em>동반질환 기반 선택</li><li><em>3.2</em>체중·BMI</li><li><em>3.3</em>HbA1c 목표</li><li><em>3.4</em>용량</li><li><em>3.5</em>금기·주의사항</li><li><em>3.6</em>순응도</li><li><em>3.7</em>비용·급여</li><li><em>3.8</em>비당뇨 약물·상호작용</li></ul></div>
+                <div class="p-ca" role="cell"><span class="p-lab" data-i18n="about.ca">임상 수용성</span><span data-i18n="about.pt.d3">약물 처방 결정</span></div>
               </div>
               <div class="prow" role="row">
-                <div class="p-phase" role="rowheader"><span class="pn">4</span><b>추적관찰<small>조합마다</small></b></div>
-                <div class="p-gc" role="cell"><span class="p-lab">가이드라인 부합도 · 3문항</span><ul class="chips"><li><em>4.1</em>추적 시기</li><li><em>4.2</em>평가 항목</li><li><em>4.3</em>이상반응 모니터링</li></ul></div>
-                <div class="p-ca" role="cell"><span class="p-lab">임상 수용성</span>추적관찰 계획 수립</div>
+                <div class="p-phase" role="rowheader"><span class="pn">4</span><b data-i18n-html="about.pt.p4">추적관찰<small>조합마다</small></b></div>
+                <div class="p-gc" role="cell"><span class="p-lab" data-i18n="about.pt.n3">가이드라인 부합도 · 3문항</span><ul class="chips" data-i18n-html="about.pt.q4"><li><em>4.1</em>추적 시기</li><li><em>4.2</em>평가 항목</li><li><em>4.3</em>이상반응 모니터링</li></ul></div>
+                <div class="p-ca" role="cell"><span class="p-lab" data-i18n="about.ca">임상 수용성</span><span data-i18n="about.pt.d4">추적관찰 계획 수립</span></div>
               </div>
               <div class="prow" role="row">
-                <div class="p-phase" role="rowheader"><span class="pn">5</span><b>환자 교육<small>조합마다</small></b></div>
-                <div class="p-gc" role="cell"><span class="p-lab">가이드라인 부합도 · 4문항</span><ul class="chips"><li><em>5.1</em>자가 측정</li><li><em>5.2</em>합병증</li><li><em>5.3</em>약물·주사 사용</li><li><em>5.4</em>생활습관·응급 상황</li></ul></div>
-                <div class="p-ca" role="cell"><span class="p-lab">임상 수용성</span>실제 환자 교육</div>
+                <div class="p-phase" role="rowheader"><span class="pn">5</span><b data-i18n-html="about.pt.p5">환자 교육<small>조합마다</small></b></div>
+                <div class="p-gc" role="cell"><span class="p-lab" data-i18n="about.pt.n4">가이드라인 부합도 · 4문항</span><ul class="chips" data-i18n-html="about.pt.q5"><li><em>5.1</em>자가 측정</li><li><em>5.2</em>합병증</li><li><em>5.3</em>약물·주사 사용</li><li><em>5.4</em>생활습관·응급 상황</li></ul></div>
+                <div class="p-ca" role="cell"><span class="p-lab" data-i18n="about.ca">임상 수용성</span><span data-i18n="about.pt.d5">실제 환자 교육</span></div>
               </div>
               <div class="ptable-foot" role="row">
-                <div role="cell" style="color:var(--teal-ink)">합계 20문항 · 점수 = 충족 / (충족 + 감점)</div>
-                <div role="cell" style="color:var(--orange-ink)">+ 답변 전체에 대한 자유 의견</div>
+                <div role="cell" class="f-gc" data-i18n="about.pt.f1">합계 20문항 · 점수 = 충족 / (충족 + 감점)</div>
+                <div role="cell" class="f-ca" data-i18n="about.pt.f2">+ 답변 전체에 대한 자유 의견</div>
               </div>
             </div>
           </details>
-        </div>
+            </div>
           </details>
           <details class="more-item" id="ethics">
-            <summary><span class="mi-text"><span class="mi-k">윤리</span><span class="mi-t">데이터와 윤리</span><span class="mi-d">가상 환자 · 가명 분석 · 블라인드</span></span></summary>
+            <summary><span class="mi-text"><span class="mi-k" data-i18n="about.ethics.k">윤리</span><span class="mi-t" data-i18n="about.ethics.t">데이터와 윤리</span><span class="mi-d" data-i18n="about.ethics.d">가상 환자 · 가명 분석 · 블라인드</span></span></summary>
             <div class="more-body">
-          <ul class="ethics">
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><div><h3>가상(합성) 환자만 사용</h3><p>실제 환자 정보는 없습니다.</p></div></li>
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-shield"/></svg></span><div><h3>가명 코드로 분석</h3><p>분석과 발표에는 성명 대신 가명 코드를 씁니다.</p></div></li>
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-pen"/></svg></span><div><h3>참여 동의는 시작 화면에서</h3><p>수집 항목을 확인하고 동의한 뒤 시작합니다.</p></div></li>
-            <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-blind"/></svg></span><div><h3>AI 이름은 공개하지 않음</h3><p>답변·채점에 쓰인 AI 이름은 밝히지 않습니다.</p></div></li>
-          </ul>
-        </div>
+              <ul class="ethics">
+                <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-db"/></svg></span><div><h3 data-i18n="about.ethics.1.t">가상(합성) 환자만 사용</h3><p data-i18n="about.ethics.1.p">실제 환자 정보는 없습니다.</p></div></li>
+                <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-shield"/></svg></span><div><h3 data-i18n="about.ethics.2.t">가명 코드로 분석</h3><p data-i18n="about.ethics.2.p">분석과 발표에는 성명 대신 가명 코드를 씁니다.</p></div></li>
+                <li><span class="ei" aria-hidden="true"><svg class="ic"><use href="../assets/icons.svg#i-blind"/></svg></span><div><h3 data-i18n="about.ethics.3.t">AI 이름은 공개하지 않음</h3><p data-i18n="about.ethics.3.p">답변·채점에 쓰인 AI 이름은 밝히지 않습니다.</p></div></li>
+              </ul>
+            </div>
           </details>
           </div>
         </section>
@@ -513,24 +503,20 @@
         <!-- FAQ -->
         <section class="doc-sec" id="faq" aria-labelledby="faqH">
           <div class="sec-head">
-                        <h2 id="faqH">자주 묻는 질문</h2>
+            <h2 id="faqH" data-i18n="about.toc.faq">자주 묻는 질문</h2>
           </div>
           <div class="faq">
             <details>
-              <summary>시간은 얼마나 걸리나요?</summary>
-              <div class="a"><p>임상 수용성 평가는 약 20–30분, 가이드라인 부합도 검증은 약 10–25분입니다.</p></div>
+              <summary data-i18n="about.faq.1.q">어떤 AI가 답변을 만들었나요?</summary>
+              <div class="a"><p data-i18n="about.faq.1.a">공정한 평가를 위해 AI 이름은 공개하지 않고 번호로만 표시합니다.</p></div>
             </details>
             <details>
-              <summary>중간에 멈춰도 되나요?</summary>
-              <div class="a"><p>네. 자동 저장되어 같은 기기에서 다시 열면 이어서 진행됩니다.</p></div>
+              <summary data-i18n="about.faq.2.q">실제 환자 정보가 들어 있나요?</summary>
+              <div class="a"><p data-i18n="about.faq.2.a">아니요. 모든 환자는 6개 임상 차원을 조합해 만든 가상(합성) 환자입니다.</p></div>
             </details>
             <details>
-              <summary>어떤 AI가 답변을 만들었나요?</summary>
-              <div class="a"><p>공정한 평가를 위해 AI 이름은 공개하지 않고 번호로만 표시합니다.</p></div>
-            </details>
-            <details>
-              <summary>실제 환자 정보가 들어 있나요?</summary>
-              <div class="a"><p>아니요. 모든 환자는 6개 임상 차원을 조합해 만든 가상(합성) 환자입니다.</p></div>
+              <summary data-i18n="about.faq.3.q">케이스가 추가되면 이전 결과는 어떻게 되나요?</summary>
+              <div class="a"><p data-i18n="about.faq.3.a">그대로 남습니다. 결과에는 케이스 세트 번호가 함께 기록되고, 모든 세트가 같은 채점 기준을 쓰므로 세트끼리 비교할 수 있습니다.</p></div>
             </details>
           </div>
         </section>
@@ -540,15 +526,13 @@
 
   <footer class="site-footer">
     <div class="wrap">
-      <p><b>주식회사 애스클립 (Asclep)</b> · 연구용 평가 사이트 · 모든 환자 정보는 가상(합성) 자료입니다.</p>
-      <nav aria-label="바닥글">
-        <a href="../" data-carry>홈</a>
-        <a href="../ca/" data-carry>임상 수용성 평가</a>
-        <a href="../gc/" data-carry>가이드라인 부합도 검증</a>
+      <p data-i18n-html="site.footer.about"><b>주식회사 애스클립 (Asclep)</b> · 연구용 평가 사이트 · 모든 환자 정보는 가상(합성) 자료입니다.</p>
+      <nav data-i18n-attr="aria-label:site.footer.nav" aria-label="바닥글">
+        <a href="../" data-carry data-i18n="site.nav.home">홈</a>
       </nav>
     </div>
   </footer>
 
-  <script src="../assets/site.js?v=2026-11-20.site-v3"></script>
+  <script src="../assets/site.js?v=2026-11-21.l1"></script>
 </body>
 </html>

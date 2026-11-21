@@ -138,8 +138,14 @@ item_id, unit, unit_order (1|2), item_order (1-based within session), patient, c
 audit_mark, audit_category, rater_verdict, audit_corrected, ai_final,
 agree (bool), phys_verdict ("met"|"deducted"|"not_applicable"; = ai_final when agree), comment,
 answered_at, item_ms (visible), active_ms, ttfd_ms (time to first decision), changes,
-opened { criterion, full_answer, basis, patient } (bools)
+opened { criterion, full_answer, basis, patient } (bools),
+ui_lang ('ko'|'en': UI language when agree/verdict was last chosen), ui_langs [languages the item screen was shown in],
+ui_lang_mixed (bool: seen in both languages)
 ```
+UI language and case set (same rules as CA, `docs/DATA_CONTRACT.md` → "UI language and case set"): every payload carries top-level
+`ui_lang` (UI language at send time) and `set_id` (case set, `'v1'` = current study); `session` adds `ui_lang_start`,
+`ui_lang_switches`, `ui_langs[]`. Answer values stay canonical (Korean label + code, verdict ids) in either language. Audit
+categories, rater deduction types and audit-evidence source labels are translated on screen only; `audit_category` stays Korean.
 
 ## Sheets (backend `gas/gc/*.gs` → `gas/GcCode.gs`, GC spreadsheet)
 Conventions as CA (`docs/DATA_CONTRACT.md`): text cells with leading apostrophe, real booleans/numbers, label + `_code`.

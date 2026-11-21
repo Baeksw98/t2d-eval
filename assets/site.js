@@ -1,18 +1,26 @@
-/* Site pages (landing /, About /about/) — no dependencies.
+/* Site pages (landing /, About /about/). Needs assets/i18n.js + i18n/site.js (T2D.t); data/design.js is optional.
  * 1) Carries the attribution params (src · site · wave) into links marked data-carry.
  * 2) Landing: shows an '이어서 하기' banner when this browser holds an unfinished evaluation.
  *    Reads (never writes) the evaluation apps' localStorage:
  *      CA  't2d-ca:T2D-CA-2026:v3'  (app.js: STORE_KEY = 't2d-ca:' + STUDY_ID + ':v3', screen intro → case → final → done)
  *      GC  'gc:state:v1'            (gc/gc.js: screen starting → eval → final → done)
  *      GC  'gc:draft:v1'            (gc/gc.js: next-Part continuation saved before its session starts; has .linked)
- * 3) About: highlights the current section in the sticky table of contents. On phones the long figure bodies and the
- *    phase table (details[data-mobile-closed], open in the HTML) start closed; a link into one opens it.
+ * 3) About: highlights the current section in the sticky table of contents. On phones details[data-mobile-closed]
+ *    (open in the HTML) start closed; a link into a closed block opens it.
  * 4) Entry referrer: keeps the external origin of this visit ('' = direct) in sessionStorage 't2d:entry_ref', because
- *    on /ca/ and /gc/ document.referrer is then this site; app.js / gc.js REF_ORIGIN fall back to it (no payload change). */
+ *    on /ca/ and /gc/ document.referrer is then this site; app.js / gc.js REF_ORIGIN fall back to it (no payload change).
+ * 5) Language + theme: wires the header controls (T2D.controlsHTML(), inserted inline in the header) and re-renders the
+ *    JS-made text (banner, times, case-set line) on 't2d:lang'.
+ * 6) Active case set (window.T2D_DESIGN from data/design.js): landing card times (ca.minutes, gc.minutes or the Parts'
+ *    range; the HTML keeps the v1 times as fallback) and the About 'current case set' line (#setNow, hidden without it).
+ *    The pages do not load data/design.js yet: add <script src="data/design.js"> (About: ../data/design.js) before this
+ *    file once the case pipeline writes it. qr/qr.js reads the same object for its times and Types/Parts. */
 (function () {
   'use strict';
 
   var CARRY = ['src', 'site', 'wave'];
+  var I = window.T2D && window.T2D.t ? window.T2D : null;
+  var t = function (k, v) { return I ? I.t(k, v) : ''; };
 
   // ---- 4) entry referrer (landing also does this in its <head>, before a legacy redirect) ----
   try {
@@ -22,6 +30,9 @@
   var CA_KEY = 't2d-ca:T2D-CA-2026:v3';
   var GC_KEY = 'gc:state:v1';
   var GC_DRAFT_KEY = 'gc:draft:v1';
+
+  // ---- 5) header controls ----
+  if (I && I.bindControls) I.bindControls(document);
 
   // ---- 1) attribution params ----
   var carried = [];
@@ -44,14 +55,45 @@
   }
   carryLinks(document);
 
-  // ---- 2) resume banner ----
-  function read(key) {
-    try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch (_) { return null; }
-  }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  // ---- 6) active case set ----
+  var DESIGN = window.T2D_DESIGN && typeof window.T2D_DESIGN === 'object' ? window.T2D_DESIGN : null;
+  function range(m) {
+    return m && m.length === 2 && isFinite(m[0]) && isFinite(m[1]) && m[0] > 0 && m[1] >= m[0] ? [Number(m[0]), Number(m[1])] : null;
+  }
+  function designMinutes(track) {
+    var d = DESIGN && DESIGN[track];
+    if (!d) return null;
+    var r = range(d.minutes);
+    if (r || track !== 'gc' || !d.parts || !d.parts.length) return r;
+    var lo = Infinity, hi = 0;
+    d.parts.forEach(function (p) { var pr = range(p && p.minutes); if (pr) { lo = Math.min(lo, pr[0]); hi = Math.max(hi, pr[1]); } });
+    return hi ? [lo, hi] : null;
+  }
+  function renderMinutes() {
+    if (!I) return;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-minutes]'), function (el) {
+      var r = designMinutes(el.getAttribute('data-minutes')) || [el.getAttribute('data-lo'), el.getAttribute('data-hi')];
+      el.textContent = t('site.pick.minutes', { lo: r[0], hi: r[1] });
+    });
+  }
+  function renderSet() {
+    var el = document.getElementById('setNow');
+    if (!el || !I || !DESIGN || !DESIGN.set_id) return;
+    var n = DESIGN.units && DESIGN.units.length;
+    el.innerHTML = '<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-layers"/></svg><span>' +
+      t(n ? 'about.set.now' : 'about.set.now0', { id: esc(DESIGN.set_id), n: n || 0 }) + '</span>';
+    el.hidden = false;
+  }
+
+  // ---- 2) resume banner ----
+  function read(key) {
+    try { var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch (_) { return null; }
   }
   function letter(x) { x = String(x || '').toUpperCase(); return /^[A-Z]$/.test(x) ? x : ''; }
 
@@ -59,19 +101,19 @@
     var out = [];
     var ca = read(CA_KEY);
     if (ca && ca.v === 1) {
-      var t = letter(ca.study_type) ? 'Type ' + letter(ca.study_type) : '';
+      var ty = letter(ca.study_type) ? 'Type ' + letter(ca.study_type) : '';
       var n = (ca.order && ca.order.length) || 0;
       var unsent = (ca.outbox && ca.outbox.length) || 0;
       if (ca.screen === 'case') {
         var ci = (typeof ca.caseIdx === 'number' ? ca.caseIdx : 0) + 1;
-        out.push({ track: 'ca', href: 'ca/', title: '진행 중인 임상 수용성 평가가 있습니다',
-          sub: [t, n ? '케이스 ' + Math.min(ci, n) + '/' + n + ' 진행 중' : '진행 중'], btn: '이어서 하기', icon: 'i-resume', test: ca.is_test });
+        out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.case.t'),
+          sub: [ty, n ? t('site.resume.case', { i: Math.min(ci, n), n: n }) : t('site.resume.inprog')], btn: t('site.resume.btn'), icon: 'i-resume', test: ca.is_test });
       } else if (ca.screen === 'final') {
-        out.push({ track: 'ca', href: 'ca/', title: '임상 수용성 평가 제출만 남았습니다',
-          sub: [t, '마지막 문항과 제출'], btn: '이어서 하기', icon: 'i-resume', test: ca.is_test });
+        out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.final.t'),
+          sub: [ty, t('site.resume.ca.final.s')], btn: t('site.resume.btn'), icon: 'i-resume', test: ca.is_test });
       } else if (ca.screen === 'done' && unsent) {
-        out.push({ track: 'ca', href: 'ca/', title: '전송되지 않은 임상 수용성 평가 응답이 있습니다',
-          sub: [t, '평가 페이지를 열면 다시 전송합니다'], btn: '열어서 전송하기', icon: 'i-send', test: ca.is_test });
+        out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.unsent.t'),
+          sub: [ty, t('site.resume.ca.unsent.s')], btn: t('site.resume.btn.send'), icon: 'i-send', test: ca.is_test });
       }
     }
     var gs = read(GC_KEY);
@@ -81,46 +123,51 @@
       var gUnsent = (gs.outbox && gs.outbox.length) || 0;
       if (gs.screen === 'eval') {
         gcActive = true;
-        out.push({ track: 'gc', href: 'gc/', title: '진행 중인 가이드라인 부합도 검증이 있습니다',
-          sub: [p, '진행 중'], btn: '이어서 하기', icon: 'i-resume', test: gs.is_test });
+        out.push({ track: 'gc', href: 'gc/', title: t('site.resume.gc.eval.t'),
+          sub: [p, t('site.resume.inprog')], btn: t('site.resume.btn'), icon: 'i-resume', test: gs.is_test });
       } else if (gs.screen === 'final') {
         gcActive = true;
-        out.push({ track: 'gc', href: 'gc/', title: '가이드라인 부합도 검증 제출만 남았습니다',
-          sub: [p, '마무리 문항과 제출'], btn: '이어서 하기', icon: 'i-resume', test: gs.is_test });
+        out.push({ track: 'gc', href: 'gc/', title: t('site.resume.gc.final.t'),
+          sub: [p, t('site.resume.gc.final.s')], btn: t('site.resume.btn'), icon: 'i-resume', test: gs.is_test });
       } else if (gs.screen === 'done' && gUnsent) {
         gcActive = true;
-        out.push({ track: 'gc', href: 'gc/', title: '전송되지 않은 가이드라인 부합도 검증 응답이 있습니다',
-          sub: [p, '검증 페이지를 열면 다시 전송합니다'], btn: '열어서 전송하기', icon: 'i-send', test: gs.is_test });
+        out.push({ track: 'gc', href: 'gc/', title: t('site.resume.gc.unsent.t'),
+          sub: [p, t('site.resume.gc.unsent.s')], btn: t('site.resume.btn.send'), icon: 'i-send', test: gs.is_test });
       }
     }
     if (!gcActive) {
       var d = read(GC_DRAFT_KEY);
       if (d && d.linked) {
         var dp = letter(d.part);
-        out.push({ track: 'gc', href: 'gc/', title: '가이드라인 부합도 검증을 이어서 할 수 있습니다',
-          sub: [dp ? 'Part ' + dp + ' 준비됨' : '다음 Part 준비됨', '처음 입력하신 정보와 동의를 그대로 사용'], btn: '이어서 하기', icon: 'i-resume' });
+        out.push({ track: 'gc', href: 'gc/', title: t('site.resume.gc.draft.t'),
+          sub: [dp ? t('site.resume.gc.draft.part', { p: dp }) : t('site.resume.gc.draft.next'), t('site.resume.gc.draft.s')],
+          btn: t('site.resume.btn'), icon: 'i-resume' });
       }
     }
     return out;
   }
 
   var zone = document.getElementById('resume');
-  if (zone) {
+  function renderResume() {
+    if (!zone || !I) return;
     var items = findResumes();
-    if (items.length) {
-      zone.innerHTML = '<h2 class="sr-only">이어서 하기</h2>' + items.map(function (r) {
-        var sub = r.sub.filter(Boolean).join(' · ') + (r.test ? ' · 테스트 응답' : '') + ' — 이 기기·브라우저에 저장되어 있습니다.';
-        return '<div class="resume ' + r.track + '">' +
-          '<span class="r-icon" aria-hidden="true"><svg class="ic"><use href="assets/icons.svg#' + r.icon + '"/></svg></span>' +
-          '<div><h3 class="r-title">' + esc(r.title) + '</h3><p>' + esc(sub) + '</p></div>' +
-          '<a class="btn ' + (r.track === 'gc' ? 'btn-gc' : 'btn-ca') + '" data-carry href="' + esc(r.href) + '">' + esc(r.btn) +
-          '<svg class="ic" aria-hidden="true"><use href="assets/icons.svg#i-arrow"/></svg></a>' +
-        '</div>';
-      }).join('');
-      carryLinks(zone);
-      zone.hidden = false;
-    }
+    if (!items.length) { zone.hidden = true; zone.innerHTML = ''; return; }
+    zone.innerHTML = '<h2 class="sr-only">' + esc(t('site.resume.h')) + '</h2>' + items.map(function (r) {
+      var sub = r.sub.filter(Boolean).join(' · ') + (r.test ? ' · ' + t('site.resume.test') : '') + ' — ' + t('site.resume.saved');
+      return '<div class="resume ' + r.track + '">' +
+        '<span class="r-icon" aria-hidden="true"><svg class="ic"><use href="assets/icons.svg#' + r.icon + '"/></svg></span>' +
+        '<div><h3 class="r-title">' + esc(r.title) + '</h3><p>' + esc(sub) + '</p></div>' +
+        '<a class="btn ' + (r.track === 'gc' ? 'btn-gc' : 'btn-ca') + '" data-carry href="' + esc(r.href) + '">' + esc(r.btn) +
+        '<svg class="ic" aria-hidden="true"><use href="assets/icons.svg#i-arrow"/></svg></a>' +
+      '</div>';
+    }).join('');
+    carryLinks(zone);
+    zone.hidden = false;
   }
+
+  function renderAll() { renderMinutes(); renderSet(); renderResume(); }
+  renderAll();
+  window.addEventListener('t2d:lang', renderAll);
 
   // ---- 3a) collapsible blocks ----
   //  · details[data-mobile-closed]: closed on phones, open elsewhere (and without JS)

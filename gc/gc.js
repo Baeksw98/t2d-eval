@@ -1,12 +1,18 @@
 /* 가이드라인 부합도 검증 (Guideline Concordance · Physician Validation) — app
  * 분과전문의가 AI 감사가 표시한(△/✗) AI 채점 판정만 확인합니다. 계약: docs/GC_CONTRACT.md
- * 패턴(보관함·재전송·자동 저장·탭 보호·시간 측정)은 루트 app.js(임상 수용성 평가, /ca/)와 같습니다. */
+ * 패턴(보관함·재전송·자동 저장·탭 보호·시간 측정)은 루트 app.js(임상 수용성 평가, /ca/)와 같습니다.
+ * 화면 문구: i18n/gc.js (+ 환자 기록·처방·답 이름은 i18n/ca.js) · 언어/테마 런타임: assets/i18n.js
+ * 문항 설정: gc-config.js (한국어 = 저장 값, en = 영어 화면 번역). 응답에는 언어와 관계없이 한국어 원문 + code / id 를 저장합니다.
+ * 케이스 세트: data/gc_items.js (window.GC_DATA, set_id) + ../data/cases.js + ../data/design.js (window.T2D_DESIGN.gc.parts).
+ *   저장된 진행 상태(또는 이어서 하기 초안)의 세트가 활성 세트와 다르면 data/sets/<id>/ 보관본을 불러온 뒤 이어서 진행합니다. */
 (function () {
   'use strict';
 
   var CFG = window.GC_CONFIG;
-  var G = window.GC_DATA;
+  var G = window.GC_DATA;              // 부팅(boot) 때 진행 중인 세션의 세트로 바뀔 수 있음
   var DATA = window.T2D_DATA;
+  function setOf(g, d) { return (g && g.set_id) || (d && d.set_id) || 'v1'; }
+  var ACTIVE_SET = setOf(G, DATA);
   var STORE_KEY = 'gc:state:v1';
   var DRAFT_KEY = 'gc:draft:v1';     // 다른 Part 이어서 하기 시작 화면(세션 시작 전)만 보관
   var IDLE_MS = 180000;              // 3분 이상 조작이 없으면 idle 로 분류
@@ -23,44 +29,92 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Language (assets/i18n.js + i18n/gc.js + i18n/ca.js). 화면은 T2D.lang 으로 그리고, 응답에는 항상 한국어 원문 + code / id.
+  // ---------------------------------------------------------------------------
+  var I18N = window.T2D || {};
+  function t(key, vars) { return I18N.t ? I18N.t(key, vars) : key; }
+  function uiLang() { return I18N.lang === 'en' ? 'en' : 'ko'; }
+  function pick(v) {   // {ko, en} 또는 문자열 → 화면 언어의 문자열
+    if (I18N.pick) return I18N.pick(v);
+    return v && typeof v === 'object' ? String(v.ko == null ? '' : v.ko) : String(v == null ? '' : v);
+  }
+  // config 항목의 화면 문구: 영어 화면이면 o.en[k] (있을 때), 아니면 o[k] (한국어 원문 = 저장 값). {ko, en} 객체도 받는다.
+  function tr(o, k) {
+    if (!o) return '';
+    var v = o[k];
+    if (uiLang() === 'en' && o.en && o.en[k] != null) v = o.en[k];
+    return pick(v);
+  }
+  // 선택지 i 의 화면 문구 (o.options[i] 는 저장 값, o.en.options[i] 는 영어 화면 번역)
+  function optLabel(o, i) {
+    if (uiLang() === 'en' && o.en && o.en.options && o.en.options[i] != null) return pick(o.en.options[i]);
+    return pick(o.options[i]);
+  }
+  // 저장된 값(한국어 원문) → 화면 문구 (이어서 하기 요약 등)
+  function valueLabel(f, v) {
+    var i = f && f.options ? f.options.indexOf(v) : -1;
+    return i >= 0 ? optLabel(f, i) : String(v == null ? '' : v);
+  }
+
+  // ---------------------------------------------------------------------------
   // Study definitions
   // ---------------------------------------------------------------------------
-  var PARTS = CFG.PARTS;
   var VERDICTS = CFG.VERDICTS;
   var PROFILE = CFG.PROFILE_FIELDS || [];
   var END_ITEMS = CFG.END_ITEMS || [];
   var ELIG = CFG.ELIGIBILITY;
-  var Q_LABEL = {
-    '1.1': '의뢰 판단', '1.2': '환자 평가',
-    '2.1': '효능', '2.2': '안전성', '2.3': '실행 가능성',
-    '3.1': '동반질환 기반 선택', '3.2': '체중 및 BMI', '3.3': 'HbA1c 목표', '3.4': '용량', '3.5': '금기 및 주의사항',
-    '3.6': '복약 순응도', '3.7': '비용 및 급여', '3.8': '비당뇨 약물 및 상호작용',
-    '4.1': '추적 시기', '4.2': '평가 항목', '4.3': '이상반응 모니터링',
-    '5.1': '자가 혈당 측정', '5.2': '합병증 관리', '5.3': '약물 및 주사 교육', '5.4': '생활습관 및 응급 대응'
-  };
+  // 답 번호 이름·Phase 이름은 임상 수용성 평가와 같은 문구 (i18n/ca.js ca.instrument.*)
+  function qLabel(q) { return t('ca.instrument.q.' + q); }
+  function phaseName(n) { return 'Phase ' + n + ' · ' + t('ca.instrument.p' + n + '.title'); }
   var PHASE_GROUPS = [
-    ['Phase 2 · 약물 조합 추천 요약', ['2.1', '2.2', '2.3']],
-    ['Phase 3 · 약물 선택 시 고려사항', ['3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8']],
-    ['Phase 4 · 추적관찰 및 모니터링', ['4.1', '4.2', '4.3']],
-    ['Phase 5 · 환자 교육', ['5.1', '5.2', '5.3', '5.4']]
+    [2, ['2.1', '2.2', '2.3']],
+    [3, ['3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8']],
+    [4, ['4.1', '4.2', '4.3']],
+    [5, ['5.1', '5.2', '5.3', '5.4']]
   ];
   var ALL_Q = ['2.1', '2.2', '2.3', '3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '4.1', '4.2', '4.3', '5.1', '5.2', '5.3', '5.4'];
   var END_BY_ID = {}; END_ITEMS.forEach(function (f) { END_BY_ID[f.id] = f; });
   var PROFILE_BY_ID = {}; PROFILE.forEach(function (f) { PROFILE_BY_ID[f.id] = f; });
 
+  // Part(배정 단위): 활성 세트의 data/design.js (T2D_DESIGN.gc.parts) → 없거나 이 세트의 데이터와 맞지 않으면 gc-config.js PARTS
+  function validParts(list) {
+    return Array.isArray(list) && list.length > 0 && list.every(function (p) {
+      return p && p.id && Array.isArray(p.sequences) && p.sequences.length > 0 && p.sequences.every(function (seq) {
+        return Array.isArray(seq) && seq.length > 0 && seq.every(function (k) { return !!(G && G.units && G.units[k] && DATA && DATA.outputs && DATA.outputs[k]); });
+      });
+    });
+  }
+  function resolveParts() {
+    var d = window.T2D_DESIGN, fromDesign = d && d.gc && d.gc.parts;
+    if (validParts(fromDesign) && (!d.set_id || d.set_id === setOf(G, DATA))) return fromDesign;
+    return CFG.PARTS;
+  }
+  var PARTS = resolveParts();
   function partById(id) { for (var i = 0; i < PARTS.length; i++) if (PARTS[i].id === id) return PARTS[i]; return null; }
+  function partLabel(p) { return p ? pick(p.label) : ''; }
   function verdictById(id) { for (var i = 0; i < VERDICTS.length; i++) if (VERDICTS[i].id === id) return VERDICTS[i]; return null; }
-  function vLabel(id) { var v = verdictById(id); return v ? v.label : String(id || ''); }
+  function vLabel(id) { var v = verdictById(id); return v ? tr(v, 'label') : String(id || ''); }
   function unitItems(k) { return (G.units[k] && G.units[k].items) || []; }
   function partItemCount(p) { return p.sequences[0].reduce(function (a, k) { return a + unitItems(k).length; }, 0); }
-  // 판정 수 × 1건당 예상 시간 → '약 20–25분' 같은 5분 단위 범위
-  function minutesRange(n) {
-    var m = n * (Number(CFG.MINUTES_PER_ITEM) || 1);
-    if (m <= 5) return '약 5분';
-    var lo = Math.floor(m / 5) * 5;
-    return '약 ' + lo + '–' + (lo + 5) + '분';
+  // 한 Part 의 답변 수·환자 수 (안내 문구용; 세트마다 다를 수 있음)
+  function partShape(p) {
+    var seq = (p && p.sequences[0]) || [], pts = {};
+    seq.forEach(function (k) { var u = G.units[k]; if (u) pts[u.patient] = 1; });
+    return { u: seq.length || 2, p: Object.keys(pts).length || 2 };
   }
-  var URL_PART = partById(String(params.get('part') || '').toUpperCase()) ? String(params.get('part')).toUpperCase() : '';
+  // 예상 시간: design.js 의 Part minutes [lo, hi] → 없으면 판정 수 × 1건당 예상 시간의 5분 단위 범위 ('약 20–25분')
+  function minutesRange(n, p) {
+    var mm = p && p.minutes;
+    if (Array.isArray(mm) && mm.length === 2 && mm[0] > 0 && mm[1] >= mm[0]) return t('gc.min.range', { lo: mm[0], hi: mm[1] });
+    var m = n * (Number(CFG.MINUTES_PER_ITEM) || 1);
+    if (m <= 5) return t('gc.min.about', { m: 5 });
+    var lo = Math.floor(m / 5) * 5;
+    return t('gc.min.range', { lo: lo, hi: lo + 5 });
+  }
+  function nVerdicts(n) { return t(n === 1 ? 'gc.n.verdict1' : 'gc.n.verdicts', { n: n }); }
+  function comboName(n) { return n ? t('gc.combo.n', { n: n }) : 'Phase 1'; }
+  function urlPart() { var v = String(params.get('part') || '').toUpperCase(); return partById(v) ? v : ''; }
+  var URL_PART = urlPart();
 
   // 접속 경로(QR·카카오톡·링크)와 기관·차수 코드 — 개인정보 없음
   function safeParam(k) { return String(params.get(k) || '').replace(/[^0-9A-Za-z_\-]/g, '').slice(0, 32); }
@@ -87,11 +141,17 @@
     ['src', 'site', 'wave'].forEach(function (k) { var v = safeParam(k); if (v) q.set(k, v); });
     return q.toString() ? '?' + q.toString() : '';
   })();
+  var BACK_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>';
   function siteLinksHTML() {
-    return '<nav class="site-links" aria-label="사이트 메뉴">' +
-      '<a href="../' + SITE_QS + '" id="homeLink"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>처음 화면</a>' +
+    return '<nav class="site-links" aria-label="' + esc(t('gc.nav.aria')) + '">' +
+      '<a href="../' + SITE_QS + '" id="homeLink">' + BACK_SVG + esc(t('gc.nav.home')) + '</a>' +
       '<span class="sep" aria-hidden="true">·</span>' +
-      '<a href="../about/' + SITE_QS + '" id="aboutLink">벤치마크 소개</a></nav>';
+      '<a href="../about/' + SITE_QS + '" id="aboutLink">' + esc(t('gc.nav.about')) + '</a></nav>';
+  }
+  // 영어 화면에서 케이스 내용(환자 기록·CDSS 답변·AI 채점/감사 문구)은 원문(한국어)으로 보인다는 안내 — 화면 영역마다 한 번
+  function srcNoteHTML() {
+    return uiLang() === 'en' ? '<p class="src-note"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-3a15.7 15.7 0 0 0-1.4-3.6A8 8 0 0 1 18.9 8zM12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4zM4.3 14a8 8 0 0 1 0-4h3.4a16.5 16.5 0 0 0 0 4H4.3zm.8 2h3a15.7 15.7 0 0 0 1.4 3.6A8 8 0 0 1 5.1 16zm3-8h-3a8 8 0 0 1 4.4-3.6C8.9 5.5 8.4 6.7 8.1 8zM12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4zm2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4zm.3 5.6c.6-1.1 1.1-2.3 1.4-3.6h3a8 8 0 0 1-4.4 3.6zm1.7-5.6a16.5 16.5 0 0 0 0-4h3.4a8 8 0 0 1 0 4h-3.4z"/></svg>' +
+      esc(t('gc.srcNote')) + '</p>' : '';
   }
   // 기기 ID 는 임상 수용성 평가와 같은 키를 씀 (같은 기기에서 두 트랙 참여 여부 분석용, 개인정보 아님)
   var DEVICE_ID = (function () {
@@ -136,20 +196,21 @@
   }
   function fmtMin(ms) {
     var m = Math.round(ms / 60000);
-    if (m < 1) return '1분 미만';
-    if (m < 60) return m + '분';
-    return Math.floor(m / 60) + '시간 ' + (m % 60) + '분';
+    if (m < 1) return t('gc.time.lt1');
+    if (m < 60) return t('gc.time.min', { m: m });
+    return t('gc.time.hm', { h: Math.floor(m / 60), m: m % 60 });
   }
+  // 월 비용: 숫자(범위)면 화면 언어 형식으로, 아니면 원문 그대로(케이스 내용, lang="ko") — app.js 와 같음
   function fmtCost(v) {
     var raw = String(v == null ? '' : v).trim();
-    var t = raw.replace(/원/g, '').trim();
-    if (!t || /^[-–—]$/.test(t)) return '—';
-    var parts = t.split(/\s*[–—-]\s*/);
+    var s = raw.replace(/원/g, '').trim();
+    if (!s || /^[-–—]$/.test(s)) return '—';
+    var parts = s.split(/\s*[–—-]\s*/);
     var NUM = /^(\d{1,3}(,\d{3})+|\d+)$/;
-    if (parts.length > 2 || !parts.every(function (x) { return NUM.test(x); })) return esc(raw);
+    if (parts.length > 2 || !parts.every(function (x) { return NUM.test(x); })) return '<span lang="ko">' + esc(raw) + '</span>';
     var nums = parts.map(function (x) { return Number(x.replace(/,/g, '')); });
     if (nums.length === 2 && nums[0] === nums[1]) nums = [nums[0]];
-    return nums.map(function (n) { return n.toLocaleString('ko-KR'); }).join('–') + '원';
+    return esc(t('ca.rx.krw', { n: nums.map(function (n) { return n.toLocaleString('ko-KR'); }).join('–') }));
   }
   var toastTimer = null;
   function toast(msg, ms) {
@@ -185,6 +246,9 @@
       study_id: CFG.STUDY_ID,
       app_version: CFG.APP_VERSION,
       data_version: G.data_version,
+      set_id: setOf(G, DATA),           // 케이스 세트 (이 필드가 없는 이전 상태 = v1)
+      ui_lang_start: uiLang(),          // 세션을 시작한 화면 언어
+      ui_langs: [uiLang()],             // 이 세션에서 보인 화면 언어들 (시작·전환·이어서 하기)
       session_id: uuid(),
       is_test: URL_TEST || !CFG.ENDPOINT,
       evaluator: evaluator,
@@ -276,7 +340,8 @@
   function emptyDraft() {
     return {
       eligible: '', name: '', fields: {}, missing: [], part: URL_PART, consent: false, consent_at: null, consent_inherited: false,
-      linked: null, done_parts: [], evaluator_id: null, prev_patients: [], pending: [], introBucket: emptyBucket()
+      linked: null, done_parts: [], evaluator_id: null, prev_patients: [], pending: [], introBucket: emptyBucket(),
+      set_id: setOf(G, DATA)   // 이어서 하기 초안의 세트 (없는 이전 초안 = v1)
     };
   }
   function loadDraft() {
@@ -284,6 +349,7 @@
       var d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
       if (!d || !d.linked) return null;
       var base = emptyDraft();
+      if (!d.set_id) d.set_id = 'v1';             // set_id 가 없는 이전 초안 = 세트 v1
       var oldDraft = !Array.isArray(d.missing);   // v1 페이지가 저장한 초안: missing 이 없음 → 아래에서 다시 계산
       Object.keys(base).forEach(function (k) { if (d[k] === undefined) d[k] = base[k]; });
       if (!d.fields || typeof d.fields !== 'object') d.fields = {};
@@ -295,6 +361,7 @@
   }
   function saveDraft() {
     if (S || !draft.linked) return;
+    draft.set_id = setOf(G, DATA);
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch (_) {}
   }
   var draft = emptyDraft();
@@ -304,7 +371,7 @@
   }
   function missingNames() {
     return (draft.linked && draft.missing ? draft.missing : []).map(function (id) {
-      var f = PROFILE_BY_ID[id]; return f ? (f.short || f.label) : '';
+      var f = PROFILE_BY_ID[id]; return f ? (tr(f, 'short') || tr(f, 'label')) : '';
     }).filter(Boolean);
   }
 
@@ -320,8 +387,8 @@
   }
   // 첫 번째로 비어 있는 필수 항목: [오류 문구, 포커스할 요소 선택자]
   function draftError() {
-    if (draft.eligible !== 'yes') return ['참여 자격 문항에 답해 주세요.', '#eligCard'];
-    if (!draft.name.trim()) return ['성명을 입력해 주세요.', '#evName'];
+    if (draft.eligible !== 'yes') return [t('gc.err.elig'), '#eligCard'];
+    if (!draft.name.trim()) return [t('gc.err.name'), '#evName'];
     for (var i = 0; i < PROFILE.length; i++) {
       var f = PROFILE[i];
       if (f.required && !String(draft.fields[f.id] || '').trim()) {
@@ -330,15 +397,15 @@
           draft.missing = (draft.missing || []).concat([f.id]);
           saveDraft(); render();
         }
-        return ['검증자 정보 문항에 모두 답해 주세요.', '[data-field="' + f.id + '"]'];
+        return [t('gc.err.profile'), '[data-field="' + f.id + '"]'];
       }
     }
-    if (!partById(draft.part) || draft.done_parts.indexOf(draft.part) >= 0) return ['검증할 Part를 선택해 주세요.', '.part-grid'];
-    if (!draft.consent) return ['연구 참여 동의에 체크해 주세요.', '#evConsent'];
+    if (!partById(draft.part) || draft.done_parts.indexOf(draft.part) >= 0) return [t('gc.err.part'), '.part-grid'];
+    if (!draft.consent) return [t('gc.err.consent'), '#evConsent'];
     return null;
   }
 
-  var S = load();
+  var S = null;   // 저장된 진행 상태는 부팅(boot) 때 불러온다 (세트 보관본을 먼저 불러와야 할 수 있음)
   var STEPS = [];   // [{u, i}] — i = -1 은 답변(unit) 안내 화면
   function buildSteps() {
     STEPS = [];
@@ -348,7 +415,6 @@
       unitItems(k).forEach(function (_, i) { STEPS.push({ u: u, i: i }); });
     });
   }
-  if (S) { lastRev = S.rev || 0; buildSteps(); }
 
   function curStep() { return STEPS[S.stepIdx] || STEPS[0]; }
   function curItem() { var st = curStep(); return (st && st.i >= 0) ? unitItems(S.order[st.u])[st.i] : null; }
@@ -448,8 +514,8 @@
     }).then(function (res) { return res.text(); })
       .then(function (txt) {
         var j;
-        try { j = JSON.parse(txt); } catch (_) { throw new Error('서버 응답 형식 오류'); }
-        if (!j || !j.ok) throw new Error((j && j.error) || '서버 오류');
+        try { j = JSON.parse(txt); } catch (_) { throw new Error(t('gc.net.badResponse')); }
+        if (!j || !j.ok) throw new Error((j && j.error) || t('gc.net.serverError'));
         return j;
       })
       .finally(function () { clearTimeout(timer); });
@@ -466,7 +532,9 @@
       session_ordinal: S.session_ordinal || 1, linked_session_id: S.linked_session_id,
       part: S.part, sequence_index: S.seq_index, seq_source: S.seq_source, order: S.order,
       n_sequences: partSeqs().length,
-      entry: S.entry || ENTRY, consent: S.consent || {}, incentive: CFG.INCENTIVE || ''
+      entry: S.entry || ENTRY, consent: S.consent || {}, incentive: CFG.INCENTIVE || '',
+      ui_lang: uiLang(),                 // 이 응답을 보낼 때의 화면 언어 (값은 언어와 관계없이 한국어 원문 + code / 판정 id)
+      set_id: S.set_id || 'v1'           // 세션의 케이스 세트 (set_id 가 없는 이전 상태 = v1)
     };
   }
 
@@ -505,7 +573,8 @@
     en.type_param = URL_PART;   // 방문 기록(Visits.TypeParam)에 링크의 ?part= 값
     beacon({
       action: 'view', msg_id: uuid(), client_time: nowIso(), study_id: CFG.STUDY_ID, app_version: CFG.APP_VERSION,
-      is_test: URL_TEST, visit_id: VISIT_ID, device_id: DEVICE_ID, entry: en, form_factor: deviceInfo().form_factor
+      is_test: URL_TEST, visit_id: VISIT_ID, device_id: DEVICE_ID, entry: en, form_factor: deviceInfo().form_factor,
+      ui_lang: uiLang(), set_id: setOf(G, DATA)
     });
   }
 
@@ -551,6 +620,13 @@
   // ---------------------------------------------------------------------------
   // Records
   // ---------------------------------------------------------------------------
+  // 화면 언어 기록: obj.ui_langs 에 지금 언어를 (처음 보일 때만) 더한다 — 판정·세션이 어느 언어로 보였는지 (분석용)
+  function noteLang(obj) {
+    if (!obj) return;
+    var l = uiLang();
+    if (!obj.ui_langs) obj.ui_langs = [];
+    if (obj.ui_langs.indexOf(l) < 0) obj.ui_langs.push(l);
+  }
   function buildJudgment(u, i) {
     var item = unitItems(S.order[u])[i], j = jm(item);
     var o = j.opened || {};
@@ -564,6 +640,8 @@
       answered_at: j.answered_at,
       item_ms: Math.round(j.active_ms + j.idle_ms), active_ms: Math.round(j.active_ms),
       ttfd_ms: j.ttfd_ms, changes: j.changes, visits: j.visits,
+      // 화면 언어: 마지막으로 동의·판정을 고른 때의 언어 / 이 판정 화면이 보인 언어들 (2개 = 언어를 바꿔 가며 본 판정)
+      ui_lang: j.ui_lang || null, ui_langs: (j.ui_langs || []).slice(), ui_lang_mixed: (j.ui_langs || []).length > 1,
       opened: { criterion: !!o.criterion, full_answer: !!o.full_answer, basis: !!o.basis, patient: !!o.patient }
     };
   }
@@ -594,7 +672,11 @@
       intro_ms: Math.round(m.intro.active_ms + m.intro.idle_ms),
       final_ms: Math.round(m.final.active_ms + m.final.idle_ms),
       resumes: m.resumes, interruptions: m.interruptions || 0, send_failures: m.send_failures || 0,
-      items_done: counts().done
+      items_done: counts().done,
+      // 화면 언어 이력: 시작 언어, 언어 전환 횟수, 이 세션에서 보인 언어들
+      ui_lang_start: S.ui_lang_start || null,
+      ui_lang_switches: S.ui_lang_switches || 0,
+      ui_langs: (S.ui_langs || [S.ui_lang_start || 'ko']).slice()
     };
   }
 
@@ -624,6 +706,7 @@
       var j = jm(curItem());
       j.visits += 1;
       if (!j.first_enter) j.first_enter = nowIso();
+      noteLang(j);
     }
     T.lastInteract = performance.now();
     save();
@@ -638,10 +721,10 @@
     var err = draftError();
     if (err) {
       toast(err[0]);
-      var t = elMain.querySelector(err[1]);
-      if (t) {
-        t.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
-        var f = t.matches('input, button') ? t : t.querySelector('button:not([disabled]), input');
+      var tg = elMain.querySelector(err[1]);
+      if (tg) {
+        tg.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
+        var f = tg.matches('input, button') ? tg : tg.querySelector('button:not([disabled]), input');
         if (f) try { f.focus({ preventScroll: true }); } catch (_) {}
       }
       return;
@@ -735,7 +818,7 @@
       if (item) {
         var j = jm(item);
         if (!jComplete(j)) {
-          toast(j.agree === false ? '올바른 판정을 선택해 주세요.' : '동의 또는 비동의를 선택해 주세요.');
+          toast(t(j.agree === false ? 'gc.err.alt' : 'gc.err.agree'));
           return;
         }
         commitCurrent();
@@ -748,13 +831,13 @@
     if (S.screen === 'final') {
       var missing = END_ITEMS.filter(function (f) { return f.required && !(S.end_items[f.id] && S.end_items[f.id].value); });
       if (missing.length) {
-        toast('마무리 문항에 모두 답해 주세요.');
+        toast(t('gc.err.endItems'));
         var seg = elMain.querySelector('[data-field="' + missing[0].id + '"]');
         if (seg) { seg.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' }); var b = seg.querySelector('button'); if (b) b.focus({ preventScroll: true }); }
         return;
       }
       var incomplete = counts();
-      if (incomplete.done < incomplete.total) { toast('아직 확인하지 않은 판정이 있습니다.'); return; }
+      if (incomplete.done < incomplete.total) { toast(t('gc.err.incomplete')); return; }
       S.finished_at = nowIso();
       S.screen = 'done';
       var fp = basePayload('gc_finish');
@@ -796,6 +879,7 @@
     if (j.ttfd_ms == null) j.ttfd_ms = decisionTime(j);
     else if (j.agree !== null) j.changes += 1;
     j.history.push([v ? 'agree' : 'disagree', decisionTime(j)]);
+    j.ui_lang = uiLang(); noteLang(j);
     j.agree = v;
     save();
     redrawDock('[data-agree="' + (v ? '1' : '0') + '"]');
@@ -807,6 +891,7 @@
     if (j.agree !== false || id === item.final || !verdictById(id) || j.alt_verdict === id) return;
     if (j.alt_verdict) j.changes += 1;
     j.history.push(['verdict:' + id, decisionTime(j)]);
+    j.ui_lang = uiLang(); noteLang(j);
     j.alt_verdict = id;
     save();
     redrawDock('[data-alt="' + id + '"]');
@@ -824,9 +909,7 @@
   function openDrawer() {
     if (!S || S.screen !== 'eval' || staleTab || !S.order) return;
     tick();
-    var out = DATA.outputs[S.order[curStep().u]];
-    elDrawerBody.innerHTML = patientHTML(DATA.patients[out.patient], true);
-    $('drawerTitle').textContent = '환자 정보 · ' + out.patient;
+    fillDrawer();
     lastFocus = document.activeElement;
     elDrawer.hidden = false; elBackdrop.hidden = false;
     document.body.style.overflow = 'hidden';
@@ -838,6 +921,12 @@
     save();
     elDrawerBody.scrollTop = 0;
     $('drawerClose').focus();
+  }
+  function fillDrawer() {
+    var out = DATA.outputs[S.order[curStep().u]];
+    elDrawerBody.innerHTML = srcNoteHTML() + patientHTML(DATA.patients[out.patient], true);
+    $('drawerTitle').textContent = t('gc.drawer.titleId', { id: out.patient });
+    $('drawerClose').setAttribute('aria-label', t('gc.close'));
   }
   function closeDrawer() {
     if (elDrawer.hidden) return;
@@ -870,56 +959,73 @@
     return m ? { num: m[1].replace(/\s+/g, ''), unit: m[2] } : { num: String(v), unit: null };
   }
 
+  // 환자 기록: 항목 이름은 화면 언어, 값(케이스 내용)은 원문 그대로 lang="ko" 로 표시 (app.js 와 같음; 문구 키는 i18n/ca.js)
+  function ko(html) { return '<span lang="ko">' + html + '</span>'; }
+  // 인구통계(예: '61세 남성 (아시아인)'): 영어 화면이면 정형화된 앞부분(나이·성별·흔한 인종 표기)만 번역하고
+  // 나머지는 원문(lang="ko")으로 둔다. noParen: 괄호 부분(인종)을 뺀 짧은 형태.
+  var ETH_KEYS = { '아시아인': 'asian', '백인': 'white', '흑인': 'black' };
+  function demoHTML(s, noParen) {
+    s = String(s == null ? '' : s);
+    if (noParen) s = s.replace(/\s*\(.*\)$/, '');
+    if (uiLang() !== 'en') return '<span lang="ko">' + esc(s) + '</span>';
+    var m = s.match(/^(\d+)세\s*(남성|여성)/);
+    if (!m) return '<span lang="ko">' + esc(s) + '</span>';
+    var out = esc(t('ca.pt.demoAgeSex', { age: m[1], sex: t(m[2] === '남성' ? 'ca.pt.sex.m' : 'ca.pt.sex.f') }));
+    var rest = s.slice(m[0].length).trim(), e = rest.match(/^\((아시아인|백인|흑인)\)$/);
+    if (e) out += ' (' + esc(t('ca.pt.eth.' + ETH_KEYS[e[1]])) + ')';
+    else if (rest) out += ' <span lang="ko">' + esc(rest) + '</span>';
+    return out;
+  }
+  function liKo(arr) { return (arr || []).map(function (s) { return '<li lang="ko">' + esc(s) + '</li>'; }).join(''); }
   function patientHTML(p) {
     var h = [];
-    var sym = (p.symptoms || []).map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('');
     h.push(
       '<section class="card">' +
         '<div class="pt-head"><span class="pt-id">' + esc(p.id) + '</span>' +
-        '<span class="pt-demo">' + esc(p.demographics) + '</span>' +
-        '<span class="pill">' + esc(p.visit_type) + '</span></div>' +
-        '<p class="small muted" style="margin-top:4px">합성(가상) 환자 자료이며 실제 환자 정보가 아닙니다.</p>' +
+        '<span class="pt-demo">' + demoHTML(p.demographics) + '</span>' +
+        '<span class="pill" lang="ko">' + esc(p.visit_type) + '</span></div>' +
+        '<p class="small muted" style="margin-top:4px">' + esc(t('ca.pt.synthetic')) + '</p>' +
         '<dl class="kv" style="margin-top:12px">' +
-          '<dt>내원 이유</dt><dd>' + esc(p.visit_reason) + '</dd>' +
-          '<dt>진단 경위</dt><dd>' + esc(p.diagnosis_history) + '</dd>' +
-          '<dt>현재 증상</dt><dd><ul class="clean">' + sym + '</ul></dd>' +
+          '<dt>' + esc(t('ca.pt.visitReason')) + '</dt><dd lang="ko">' + esc(p.visit_reason) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.dxHistory')) + '</dt><dd lang="ko">' + esc(p.diagnosis_history) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.symptoms')) + '</dt><dd><ul class="clean">' + liKo(p.symptoms) + '</ul></dd>' +
         '</dl>' +
       '</section>'
     );
 
-    var hl = function (t) { return /\((No)\)|:\s*Normal|Category:\s*Normal/i.test(t) ? '' : ' hl'; };
+    var hl = function (x) { return /\((No)\)|:\s*Normal|Category:\s*Normal/i.test(x) ? '' : ' hl'; };
     var tags = function (arr, highlight) {
-      return '<div class="tags">' + arr.map(function (t) {
-        return '<span class="tag' + (highlight ? hl(t) : '') + '">' + esc(t) + '</span>';
+      return '<div class="tags">' + arr.map(function (x) {
+        return '<span class="tag' + (highlight ? hl(x) : '') + '" lang="ko">' + esc(x) + '</span>';
       }).join('') + '</div>';
     };
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">병력</h3>' +
+        '<h3 class="section-title">' + esc(t('ca.pt.history')) + '</h3>' +
         '<dl class="kv">' +
-          '<dt>기타 질환</dt><dd>' + tags(p.history.other_conditions, true) + '</dd>' +
-          '<dt>당뇨 관련<br>동반질환</dt><dd>' + tags(p.history.dm_comorbidities, true) + '</dd>' +
-          '<dt>가족력</dt><dd>' + esc(p.history.family) + '</dd>' +
-          '<dt>사회력</dt><dd><ul class="clean">' + p.history.social.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul></dd>' +
+          '<dt>' + esc(t('ca.pt.otherConditions')) + '</dt><dd>' + tags(p.history.other_conditions, true) + '</dd>' +
+          '<dt>' + t('ca.pt.dmComorbHtml') + '</dt><dd>' + tags(p.history.dm_comorbidities, true) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.family')) + '</dt><dd lang="ko">' + esc(p.history.family) + '</dd>' +
+          '<dt>' + esc(t('ca.pt.social')) + '</dt><dd><ul class="clean">' + liKo(p.history.social) + '</ul></dd>' +
         '</dl>' +
       '</section>'
     );
 
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">현재 복용약</h3>' +
-        '<ul class="clean">' + p.medications.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>' +
-        '<h3 class="section-title" style="margin-top:14px">신체검사 (현재)</h3>' + tags(p.exam, false) +
+        '<h3 class="section-title">' + esc(t('ca.pt.meds')) + '</h3>' +
+        '<ul class="clean">' + liKo(p.medications) + '</ul>' +
+        '<h3 class="section-title" style="margin-top:14px">' + esc(t('ca.pt.exam')) + '</h3>' + tags(p.exam, false) +
       '</section>'
     );
 
-    var th = function (lg, sm) { return '<span class="lg">' + lg + '</span><span class="sm">' + sm + '</span>'; };
-    var head = '<tr><th class="name">항목</th><th>' + th('-12개월', '-12m') + '</th><th>' + th('-9개월', '-9m') + '</th><th>' +
-      th('-6개월', '-6m') + '</th><th>' + th('-3개월', '-3m') + '</th><th class="now">현재</th></tr>';
+    var th = function (k) { return '<span class="lg">' + esc(t('ca.pt.m' + k)) + '</span><span class="sm">-' + k + 'm</span>'; };
+    var head = '<tr><th class="name">' + esc(t('ca.pt.labItem')) + '</th><th>' + th(12) + '</th><th>' + th(9) + '</th><th>' +
+      th(6) + '</th><th>' + th(3) + '</th><th class="now">' + esc(t('ca.pt.now')) + '</th></tr>';
     var rows = [], lastGroup = null;
     p.labs.forEach(function (lab) {
       if (lab.group !== lastGroup) {
-        rows.push('<tr class="grp"><td colspan="6">' + esc(lab.group) + '</td></tr>');
+        rows.push('<tr class="grp"><td colspan="6" lang="ko">' + esc(lab.group) + '</td></tr>');
         lastGroup = lab.group;
       }
       var parts = lab.values.map(splitUnit);
@@ -927,44 +1033,48 @@
       var same = units.every(function (u) { return u === units[0]; }) && units[0] != null;
       var cells = parts.map(function (x, i) {
         var val = same ? x.num : lab.values[i];
-        return '<td' + (i === parts.length - 1 ? ' class="now"' : '') + '>' + esc(val) + '</td>';
+        return '<td' + (i === parts.length - 1 ? ' class="now"' : '') + ' lang="ko">' + esc(val) + '</td>';
       }).join('');
-      rows.push('<tr><td class="name">' + esc(lab.name) + (same && units[0] ? '<small>' + esc(units[0]) + '</small>' : '') + '</td>' + cells + '</tr>');
+      rows.push('<tr><td class="name" lang="ko">' + esc(lab.name) + (same && units[0] ? '<small>' + esc(units[0]) + '</small>' : '') + '</td>' + cells + '</tr>');
     });
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">검사 수치 (12개월 추이)</h3>' +
+        '<h3 class="section-title">' + esc(t('ca.pt.labs')) + '</h3>' +
         '<div class="lab-wrap"><table class="lab-table"><thead>' + head + '</thead><tbody>' + rows.join('') + '</tbody></table></div>' +
-        '<p class="lab-caption">3개월 간격 측정 · 주황색 배경의 <b>현재</b> 열이 이번 방문 값입니다.</p>' +
-        '<h3 class="section-title" style="margin-top:14px">추가 검사</h3>' +
-        '<ul class="clean">' + p.extra_tests.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+        '<p class="lab-caption">' + t('ca.pt.labCaptionHtml') + '</p>' +
+        '<h3 class="section-title" style="margin-top:14px">' + esc(t('ca.pt.extraTests')) + '</h3>' +
+        '<ul class="clean">' + liKo(p.extra_tests) + '</ul>' +
       '</section>'
     );
 
     h.push(
       '<section class="card">' +
-        '<h3 class="section-title">개별 치료 결정 요소</h3>' +
-        '<p class="small" style="font-weight:700;color:var(--navy)">현재까지의 치료 순응도</p>' +
-        '<ul class="clean" style="margin-top:4px">' + p.adherence.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
-        '<p class="small" style="font-weight:700;color:var(--navy);margin-top:12px">경제적 여건</p>' +
-        '<p style="margin-top:4px">' + esc(p.economics) + '</p>' +
+        '<h3 class="section-title">' + esc(t('ca.pt.factors')) + '</h3>' +
+        '<p class="small" style="font-weight:700;color:var(--navy)">' + esc(t('ca.pt.adherence')) + '</p>' +
+        '<ul class="clean" style="margin-top:4px">' + liKo(p.adherence) + '</ul>' +
+        '<p class="small" style="font-weight:700;color:var(--navy);margin-top:12px">' + esc(t('ca.pt.economics')) + '</p>' +
+        '<p style="margin-top:4px" lang="ko">' + esc(p.economics) + '</p>' +
       '</section>'
     );
     return h.join('');
   }
 
   var DECISION_CLASS = { '신규': 'new', '유지': 'keep', '중단': 'stop', '감량': 'reduce' };
+  // 처방 결정(신규·유지·중단·감량)과 급여 여부는 정해진 값 → 화면 언어로. 그 밖의 값은 원문 그대로
+  function decisionHTML(d) { var c = DECISION_CLASS[d]; return c ? esc(t('ca.rx.decision.' + c)) : ko(esc(d)); }
+  function coverageHTML(r) { return r === '급여' ? esc(t('ca.rx.cov')) : r === '비급여' ? esc(t('ca.rx.nocov')) : ko(esc(r)); }
   function rxHTML(rx) {
     var cls = DECISION_CLASS[rx.decision] || 'keep';
     var cov = rx.reimbursement === '급여' ? 'cov' : 'nocov';
     return '<div class="rx' + (cls === 'stop' ? ' stopped' : '') + '">' +
-      '<div class="rx-top"><span class="badge ' + cls + '">' + esc(rx.decision) + '</span>' +
-      '<span class="rx-drug">' + esc(rx.drug) + '</span><span class="rx-class">' + esc(rx.class) + '</span></div>' +
-      '<div class="rx-dose">' + esc(rx.dose) + ' · ' + esc(rx.frequency) + '</div>' +
+      '<div class="rx-top"><span class="badge ' + cls + '">' + decisionHTML(rx.decision) + '</span>' +
+      '<span class="rx-drug" lang="ko">' + esc(rx.drug) + '</span><span class="rx-class" lang="ko">' + esc(rx.class) + '</span></div>' +
+      '<div class="rx-dose" lang="ko">' + esc(rx.dose) + ' · ' + esc(rx.frequency) + '</div>' +
       '<dl class="rx-meta">' +
-        '<dt>용량 조절</dt><dd>' + esc(rx.titration || '—') + '</dd>' +
-        '<dt>급여·비용</dt><dd><span class="badge ' + cov + '">' + esc(rx.reimbursement) + '</span> 월 ' + fmtCost(rx.monthly_cost_krw) + '</dd>' +
-        (rx.alternatives ? '<dt>대체 약제</dt><dd>' + esc(rx.alternatives) + '</dd>' : '') +
+        '<dt>' + esc(t('ca.rx.titration')) + '</dt><dd lang="ko">' + esc(rx.titration || '—') + '</dd>' +
+        '<dt>' + esc(t('ca.rx.coverage')) + '</dt><dd><span class="badge ' + cov + '">' + coverageHTML(rx.reimbursement) + '</span> ' +
+          t('ca.rx.perMonthHtml', { cost: fmtCost(rx.monthly_cost_krw) }) + '</dd>' +
+        (rx.alternatives ? '<dt>' + esc(t('ca.rx.alternatives')) + '</dt><dd lang="ko">' + esc(rx.alternatives) + '</dd>' : '') +
       '</dl></div>';
   }
   function rxListHTML(list) { return '<div class="rx-list">' + list.map(rxHTML).join('') + '</div>'; }
@@ -972,7 +1082,7 @@
   function drugChipsHTML(cb) {
     return '<div class="cc-drugs">' + cb.prescription.map(function (rx) {
       var cls = DECISION_CLASS[rx.decision] || 'keep';
-      return '<span class="drug ' + cls + '"><b>' + esc(rx.drug) + '</b><em>' + esc(rx.decision) + '</em></span>';
+      return '<span class="drug ' + cls + '"><b lang="ko">' + esc(rx.drug) + '</b><em>' + decisionHTML(rx.decision) + '</em></span>';
     }).join('') + '</div>';
   }
 
@@ -981,28 +1091,27 @@
   // ---------------------------------------------------------------------------
   function vdHTML(id, extra) {
     return '<span class="vd v-' + esc(id) + (extra ? ' ' + extra : '') + '">' + esc(vLabel(id)) +
-      (extra && extra.indexOf('struck') >= 0 ? '<span class="sr-only"> (보정 전)</span>' : '') + '</span>';
+      (extra && extra.indexOf('struck') >= 0 ? '<span class="sr-only">' + esc(t('gc.vd.struckSr')) + '</span>' : '') + '</span>';
   }
-  // AI 감사 표시: △ = 판정은 유지하되 근거 보완이 필요하다는 의견 / ✗ = 판정이 틀렸다고 보고 바로잡음
-  var MARK = {
-    minor: { sym: '△', label: '근거 보완', meaning: '판정은 유지하되, 근거(인용·사유)에 보완이 필요하다는 의견입니다.' },
-    major: { sym: '✗', label: '판정 보정', meaning: 'AI 채점의 판정이 틀렸다고 보고 판정을 바로잡았습니다.' }
-  };
+  // AI 감사 표시: △ = 판정은 유지하되 근거 보완이 필요하다는 의견 / ✗ = 판정이 틀렸다고 보고 바로잡음 (문구: gc.instrument.mark.*)
+  var MARK = { minor: { sym: '△', key: 'minor' }, major: { sym: '✗', key: 'major' } };
   function markOf(mark) { return mark === 'major' ? MARK.major : MARK.minor; }
+  function markLabel(mark) { return t('gc.instrument.mark.' + markOf(mark).key + '.label'); }
+  function markMeaning(mark) { return t('gc.instrument.mark.' + markOf(mark).key + '.meaning'); }
   function mkHTML(mark) {
     var m = markOf(mark);
-    return '<span class="mk ' + (mark === 'major' ? 'major' : 'minor') + '"><span aria-hidden="true">' + m.sym + '</span> ' + m.label + '</span>';
+    return '<span class="mk ' + (mark === 'major' ? 'major' : 'minor') + '"><span aria-hidden="true">' + m.sym + '</span> ' + esc(markLabel(mark)) + '</span>';
   }
   // AI 감사가 판정을 바꿨는지 (✗ 의 보정 판정이 AI 채점 판정과 다름) — 화면 ④ 의 '감사에서 바뀜'
   function changedByAudit(item) { return !!item.audit.corrected && item.audit.corrected !== item.rater.verdict; }
   function answerParts(out, combo, q) {
     if (!combo) {
       var p1 = out.phase_1 || {};
-      if (q === '1.1') { var a1 = p1['1.1'] || {}; return { callout: a1.referral ? { label: '의뢰', text: a1.referral } : null, text: a1.answer || '' }; }
+      if (q === '1.1') { var a1 = p1['1.1'] || {}; return { callout: a1.referral ? { label: t('gc.ans.referral'), text: a1.referral } : null, text: a1.answer || '' }; }
       return { callout: null, text: typeof p1[q] === 'string' ? p1[q] : '' };
     }
     var a = out.combinations[combo - 1].answers[q];
-    if (a && typeof a === 'object') return { callout: a.next_visit ? { label: '다음 방문', text: a.next_visit } : null, text: a.answer || '' };
+    if (a && typeof a === 'object') return { callout: a.next_visit ? { label: t('gc.ans.nextVisit'), text: a.next_visit } : null, text: a.answer || '' };
     return { callout: null, text: a == null ? '' : String(a) };
   }
   function partsContain(ap, q) { return ap.text.indexOf(q) >= 0 || (ap.callout && ap.callout.text.indexOf(q) >= 0); }
@@ -1070,26 +1179,26 @@
   function hasMark(ap, qs) {
     return (qs || []).some(function (q) { q = String(q || '').trim(); return q.length >= 4 && partsContain(ap, q); });
   }
+  // 답변 본문(케이스 내용)은 lang="ko"; 라벨('다음 방문' 등)만 화면 언어
   function answerBodyHTML(ap, rq, aq) {
-    return (ap.callout ? '<span class="callout"><small>' + esc(ap.callout.label) + '</small>' + markHTML(ap.callout.text, rq, aq) + '</span>' : '') +
-      '<p>' + (ap.text ? markHTML(ap.text, rq, aq) : '<span class="muted">(답변 없음)</span>') + '</p>';
+    return (ap.callout ? '<span class="callout"><small>' + esc(ap.callout.label) + '</small><span lang="ko">' + markHTML(ap.callout.text, rq, aq) + '</span></span>' : '') +
+      (ap.text ? '<p lang="ko">' + markHTML(ap.text, rq, aq) + '</p>' : '<p><span class="muted">' + esc(t('gc.ans.none')) + '</span></p>');
   }
 
   // ---- 판정 화면: 채점 항목(맥락) → ① CDSS 답변 → ② AI 채점 사유 → ③ AI 감사 의견 → ④ 최종 판정 ----
-  // 판정 화면을 읽는 순서 (시작 화면·답변 안내 화면에서 같은 모양으로 보여 줌)
-  var READ_ORDER = ['CDSS 답변', 'AI 채점 사유', 'AI 감사 의견', '최종 판정'];
   // 문장 안의 작은 단계 번호 배지 (①–④ 글자 대신: 글꼴과 관계없이 단계 머리의 번호와 같은 모양)
   function nbHTML(n) { return '<span class="gc-nb">' + n + '</span>'; }
+  // 판정 화면을 읽는 순서 (시작 화면·답변 안내 화면에서 같은 모양으로 보여 줌)
   function readOrderHTML() {
-    return '<ol class="gc-order" aria-label="판정 화면 읽는 순서">' + READ_ORDER.map(function (t, i) {
-      return '<li><span class="gc-step-no" aria-hidden="true">' + (i + 1) + '</span>' + esc(t) + '</li>';
+    return '<ol class="gc-order" aria-label="' + esc(t('gc.order.aria')) + '">' + [1, 2, 3, 4].map(function (i) {
+      return '<li><span class="gc-step-no" aria-hidden="true">' + i + '</span>' + esc(t('gc.order.' + i)) + '</li>';
     }).join('') + '</ol>';
   }
   // 단계 머리: 번호 배지 + 제목(h2) + 오른쪽 요약 칩. 스크린리더에는 'N단계.' 가 앞에 읽힘
   function stepHeadHTML(n, title, sub, aside) {
     return '<header class="gc-step-head">' +
       '<span class="gc-step-no" aria-hidden="true">' + n + '</span>' +
-      '<div class="gc-step-tt"><h2 class="gc-step-title" id="gcS' + n + 'h"><span class="sr-only">' + n + '단계. </span>' + title + '</h2>' +
+      '<div class="gc-step-tt"><h2 class="gc-step-title" id="gcS' + n + 'h"><span class="sr-only">' + esc(t('gc.step.sr', { n: n })) + '</span>' + title + '</h2>' +
         (sub ? '<p class="gc-step-sub">' + sub + '</p>' : '') + '</div>' +
       (aside ? '<div class="gc-step-aside">' + aside + '</div>' : '') +
     '</header>';
@@ -1100,7 +1209,8 @@
   }
   // 인용문 위치 안내: 'here' → ① 답변에 표시 / 같은 조합의 다른 답(① 아래 '인용된 다른 답'에 함께 표시) / 찾지 못함
   function locNote(loc) {
-    return loc === 'here' ? nbHTML(1) + ' 답변에 표시' : loc ? '답 ' + esc(loc) + '에 있음 · ' + nbHTML(1) + '에 함께 표시' : '답변 원문에서 그대로 찾을 수 없음';
+    return loc === 'here' ? t('gc.loc.hereHtml', { nb: nbHTML(1) })
+      : loc ? t('gc.loc.otherHtml', { q: esc(loc), nb: nbHTML(1) }) : esc(t('gc.loc.miss'));
   }
   // ②·③이 인용한 문장이 이 판정의 답이 아닌 같은 조합(또는 Phase 1)의 다른 답에 있으면 그 답 번호들 (답 순서대로)
   // → ① 에서 바로 보여 준다 (전체 답변 펼침에서 찾지 않아도 되게)
@@ -1115,36 +1225,75 @@
     });
     return { qs: (item.combo ? ALL_Q : ['1.1', '1.2']).filter(function (q) { return hit[q]; }), r: by.r, a: by.a };
   }
-  // 데이터의 'Rater' 는 화면 용어 'AI 채점' 으로 (화면 어디에도 Rater 라는 말이 없음)
+  // 데이터의 'Rater' 는 화면 용어 'AI 채점' 으로 (화면 어디에도 Rater 라는 말이 없음). 케이스 내용(한국어) 안의 치환이다.
   function screenTerms(s) {
     return String(s == null ? '' : s).replace(/Rater(는|가)?/g, function (_, p) {
       return 'AI 채점' + (p === '는' ? '은' : p === '가' ? '이' : '');
     });
   }
+  // 고정 용어(채점 감점 유형 · 감사 오류 유형 '… · …')의 영어 화면 문구. 저장 값(payload audit_category 등)은 한국어 그대로이고,
+  // 모르는 용어가 하나라도 있으면 null → 원문(한국어, lang="ko")을 그대로 보여 준다 (새 세트에 새 용어가 들어와도 깨지지 않게).
+  var TERM_KEYS = {
+    '다루지 않음': 'notAddressed', '틀린 권고': 'wrongRec',
+    '답변 내용 오독': 'misread', '환자 사실 오류': 'patientFact', '인용 불일치': 'quoteMismatch',
+    '항목 적용 오류': 'misapplied', '사유 부족': 'thinReason', '충족 여부': 'aspectVerdict', '인용과 사유': 'aspectQuotes'
+  };
+  function trTerm(s) {
+    s = String(s == null ? '' : s).trim();
+    if (uiLang() !== 'en' || !s) return null;
+    var parts = s.split(/\s*·\s*/), out = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (!Object.prototype.hasOwnProperty.call(TERM_KEYS, parts[i])) return null;
+      out.push(t('gc.term.' + TERM_KEYS[parts[i]]));
+    }
+    return out.join(' · ');
+  }
+  // 감사 근거 출처 표시('CDSS 답변 조합 1, 2.2', '환자 기록 병력', '채점 항목 Q2.2-04 감점 기준', '가이드라인 …')의 영어 화면 문구 (모르면 null)
+  var REC_KEYS = { '병력': 'history', '검사 수치': 'labs', '인구통계': 'demo' };
+  function trEvidenceLabel(s) {
+    s = String(s == null ? '' : s).trim();
+    if (uiLang() !== 'en' || !s) return null;
+    var m;
+    if ((m = s.match(/^CDSS 답변 조합 (\d+),? ?처방$/))) return t('gc.term.evRx', { c: m[1] });
+    if ((m = s.match(/^CDSS 답변 조합 (\d+),? ?(\d+(?:\.\d+)?)$/))) return t('gc.term.evAns', { c: m[1], q: m[2] });
+    if ((m = s.match(/^CDSS 답변,? ?(\d+(?:\.\d+)?)$/))) return t('gc.term.evAnsP1', { q: m[1] });
+    if ((m = s.match(/^환자 기록 (병력|검사 수치|인구통계)$/))) return t('gc.term.evRecord', { what: t('gc.term.rec.' + REC_KEYS[m[1]]) });
+    if ((m = s.match(/^채점 항목 (\S+) (감점|지침) 기준$/))) return t('gc.term.evElem', { id: m[1], kind: t(m[2] === '감점' ? 'gc.term.crit.deduct' : 'gc.term.crit.guide') });
+    if ((m = s.match(/^가이드라인 ([\x20-\x7E]+)$/))) return t('gc.term.evGuide', { ref: m[1] });
+    return null;
+  }
+  // '오류 유형 · 값' 줄: 값을 번역할 수 있으면 화면 언어로, 아니면 원문(lang="ko")
+  function catHTML(labelKey, value) {
+    var en = trTerm(value);
+    return en !== null
+      ? '<p class="gc-cat"><span>' + esc(t(labelKey)) + '</span>' + esc(en) + '</p>'
+      : '<p class="gc-cat" lang="ko"><span lang="' + uiLang() + '">' + esc(t(labelKey)) + '</span>' + esc(screenTerms(value)) + '</p>';
+  }
 
   // 채점 항목 (맥락): 요소 ID·제목, 감점 기준(접힘). 충족·감점의 뜻은 ④ 와 비동의 버튼에 있음
   function elementCardHTML(item) {
     return '<section class="card gc-elem" aria-labelledby="gcTitle">' +
-      '<div class="gc-elem-top"><span class="gc-elem-id">' + esc(item.element) + '</span><span class="gc-elem-k">채점 항목</span></div>' +
-      '<h1 class="gc-title" id="gcTitle">' + esc(item.title) + '</h1>' +
+      '<div class="gc-elem-top"><span class="gc-elem-id">' + esc(item.element) + '</span><span class="gc-elem-k">' + esc(t('gc.elem.k')) + '</span></div>' +
+      '<h1 class="gc-title" id="gcTitle" lang="ko">' + esc(item.title) + '</h1>' +
       '<div class="gc-crit">' +
-        '<h2 class="gc-crit-k">감점 기준</h2>' +
-        '<div class="gc-clamp' + (ui.critOpen ? ' open' : '') + '" id="gcCrit">' + esc(item.criterion) + '</div>' +
+        '<h2 class="gc-crit-k">' + esc(t('gc.elem.crit')) + '</h2>' +
+        '<div class="gc-clamp' + (ui.critOpen ? ' open' : '') + '" id="gcCrit" lang="ko">' + esc(item.criterion) + '</div>' +
         '<button type="button" class="gc-more-btn" data-act="crit" aria-expanded="' + ui.critOpen + '" aria-controls="gcCrit">' +
-          (ui.critOpen ? '접기' : '전체 보기') + '</button>' +
+          esc(t(ui.critOpen ? 'gc.elem.less' : 'gc.elem.more')) + '</button>' +
       '</div>' +
+      srcNoteHTML() +
     '</section>';
   }
   function fullAnswerHTML(item, out, cb, rq, aq) {
     var row = function (q) {
       var cur = q === item.question;
-      return '<div class="gc-full-row' + (cur ? ' cur' : '') + '"><div class="gc-full-q"><b>' + esc(q) + '</b> ' + esc(Q_LABEL[q] || '') +
-        (cur ? ' <span class="pill orange">이 판정의 답</span>' : '') + '</div>' +
+      return '<div class="gc-full-row' + (cur ? ' cur' : '') + '"><div class="gc-full-q"><b>' + esc(q) + '</b> ' + esc(qLabel(q)) +
+        (cur ? ' <span class="pill orange">' + esc(t('gc.full.this')) + '</span>' : '') + '</div>' +
         answerBodyHTML(answerParts(out, item.combo, q), rq, aq) + '</div>';
     };
-    if (!cb) return '<div class="gc-full"><h3 class="mini">Phase 1 · 환자 분류 및 의뢰</h3>' + ['1.1', '1.2'].map(row).join('') + '</div>';
-    return '<div class="gc-full"><h3 class="mini">처방 (조합 ' + item.combo + ')</h3>' + rxListHTML(cb.prescription) +
-      PHASE_GROUPS.map(function (g) { return '<h3 class="mini">' + esc(g[0]) + '</h3>' + g[1].map(row).join(''); }).join('') + '</div>';
+    if (!cb) return '<div class="gc-full"><h3 class="mini">' + esc(phaseName(1)) + '</h3>' + ['1.1', '1.2'].map(row).join('') + '</div>';
+    return '<div class="gc-full"><h3 class="mini">' + esc(t('gc.full.rx', { n: item.combo })) + '</h3>' + rxListHTML(cb.prescription) +
+      PHASE_GROUPS.map(function (g) { return '<h3 class="mini">' + esc(phaseName(g[0])) + '</h3>' + g[1].map(row).join(''); }).join('') + '</div>';
   }
   // ① CDSS 답변: 이 조합의 이 답 (AI 채점 인용 = 노란 표시, AI 감사 근거 = 초록 점선)
   //    + ②·③이 인용한 문장이 같은 조합의 다른 답에 있으면 그 답도 바로 아래에 (표시한 채로)
@@ -1155,84 +1304,88 @@
     var oParts = others.map(function (q) { return answerParts(out, item.combo, q); });
     var hasR = hasMark(ap, rq) || oParts.some(function (p) { return hasMark(p, rq); });
     var hasA = hasMark(ap, aq) || oParts.some(function (p) { return hasMark(p, aq); });
-    var where = (item.combo ? '조합 ' + item.combo : 'Phase 1') + ' · 답 ' + item.question + ' ' + (Q_LABEL[item.question] || '');
-    var citedK = co.r && co.a ? 'AI 채점·감사가 인용한 다른 답' : co.r ? 'AI 채점이 인용한 다른 답' : 'AI 감사가 근거로 든 다른 답';
-    var cited = others.length ? '<div class="gc-cited"><h3 class="mini">' + citedK + '</h3>' +
+    var where = t('gc.ans.where', { loc: comboName(item.combo), q: item.question, label: qLabel(item.question) });
+    var citedK = t(co.r && co.a ? 'gc.ans.citedBoth' : co.r ? 'gc.ans.citedR' : 'gc.ans.citedA');
+    var cited = others.length ? '<div class="gc-cited"><h3 class="mini">' + esc(citedK) + '</h3>' +
       others.map(function (q, i) {
-        return '<div class="gc-cited-row" data-q="' + esc(q) + '"><div class="gc-full-q"><b>답 ' + esc(q) + '</b> ' + esc(Q_LABEL[q] || '') + '</div>' +
+        return '<div class="gc-cited-row" data-q="' + esc(q) + '"><div class="gc-full-q"><b>' + esc(t('gc.q', { q: q })) + '</b> ' + esc(qLabel(q)) + '</div>' +
           answerBodyHTML(oParts[i], rq, aq) + '</div>';
       }).join('') + '</div>' : '';
-    return stepHTML(1, 'gc-answer', stepHeadHTML(1, 'CDSS 답변', esc(where)) +
+    return stepHTML(1, 'gc-answer', stepHeadHTML(1, esc(t('gc.ans.title')), esc(where)) +
       // 채점표의 질문은 응답자에게 묻는 말이 아니라 인용임을 분명히 (질문은 아래 dock 의 ④ 하나뿐)
-      (item.question_text ? '<p class="gc-qtext"><span class="gc-qtext-k">채점표 질문 (이 답을 보는 관점)</span>「' + esc(item.question_text) + '」</p>' : '') +
+      (item.question_text ? '<p class="gc-qtext"><span class="gc-qtext-k">' + esc(t('gc.ans.qtextK')) + '</span>' +
+        esc(t('gc.ans.quote', { q: '\u0000' })).split('\u0000').join('<span lang="ko">' + esc(item.question_text) + '</span>') + '</p>' : '') +
       (cb ? drugChipsHTML(cb) : '') +
       '<div class="gc-ans-body">' + answerBodyHTML(ap, rq, aq) + '</div>' +
       cited +
       ((hasR || hasA) ? '<p class="gc-hl-legend">' +
-        (hasR ? '<span><mark class="gc-hl r">노란 표시</mark> ' + nbHTML(2) + ' AI 채점이 인용한 부분</span>' : '') +
-        (hasA ? '<span><mark class="gc-hl a">초록 점선</mark> ' + nbHTML(3) + ' AI 감사가 근거로 든 부분</span>' : '') + '</p>' : '') +
-      '<details class="gc-more" data-track="full_answer"><summary>' + (cb ? '이 조합 전체 답변·처방 보기' : 'Phase 1 전체 답변 보기') + '</summary>' +
+        (hasR ? '<span><mark class="gc-hl r">' + esc(t('gc.ans.legendR')) + '</mark> ' + t('gc.ans.legendRTextHtml', { nb: nbHTML(2) }) + '</span>' : '') +
+        (hasA ? '<span><mark class="gc-hl a">' + esc(t('gc.ans.legendA')) + '</mark> ' + t('gc.ans.legendATextHtml', { nb: nbHTML(3) }) + '</span>' : '') + '</p>' : '') +
+      '<details class="gc-more" data-track="full_answer"><summary>' + esc(t(cb ? 'gc.ans.moreCombo' : 'gc.ans.moreP1')) + '</summary>' +
         fullAnswerHTML(item, out, cb, rq, aq) + '</details>');
   }
   // ② AI 채점: 판정 + 감점 유형 + 사유(본문) + 인용
   function raterStepHTML(item, out) {
     var r = item.rater;
-    var why = r.verdict === 'deducted' ? '왜 감점했나' : r.verdict === 'met' ? '왜 충족으로 봤나' : '판정 사유';
+    var why = t(r.verdict === 'deducted' ? 'gc.rater.whyDeducted' : r.verdict === 'met' ? 'gc.rater.whyMet' : 'gc.rater.whyOther');
     var quotes = r.quotes.length ? '<ul class="gc-quotes">' + r.quotes.map(function (q) {
       var loc = findQuote(out, item, q);
-      return '<li><q>' + esc(q) + '</q><span class="qloc' + (loc ? '' : ' miss') + '">' + locNote(loc) + '</span></li>';
-    }).join('') + '</ul>' : '<p class="small muted">인용한 답변 문장 없음</p>';
-    return stepHTML(2, 'gc-rater', stepHeadHTML(2, 'AI 채점 · ' + why, '', vdHTML(r.verdict)) +
-      (r.verdict === 'deducted' && r.type ? '<p class="gc-cat"><span>감점 유형</span>' + esc(r.type) + '</p>' : '') +
-      '<h3 class="mini">판정 사유</h3><p class="gc-why">' + esc(screenTerms(r.reason) || '—') + '</p>' +
-      '<h3 class="mini">근거로 인용한 답변</h3>' + quotes);
+      return '<li><q lang="ko">' + esc(q) + '</q><span class="qloc' + (loc ? '' : ' miss') + '">' + locNote(loc) + '</span></li>';
+    }).join('') + '</ul>' : '<p class="small muted">' + esc(t('gc.rater.noQuotes')) + '</p>';
+    return stepHTML(2, 'gc-rater', stepHeadHTML(2, esc(t('gc.rater.title', { why: why })), '', vdHTML(r.verdict)) +
+      (r.verdict === 'deducted' && r.type ? catHTML('gc.rater.type', r.type) : '') +
+      '<h3 class="mini">' + esc(t('gc.rater.reason')) + '</h3><p class="gc-why" lang="ko">' + esc(screenTerms(r.reason) || '—') + '</p>' +
+      '<h3 class="mini">' + esc(t('gc.rater.quotes')) + '</h3>' + quotes);
   }
   // ③ AI 감사 의견: 표시의 뜻(쉬운 말) + 의견 + 오류 유형 + 근거
   function auditStepHTML(item, out) {
     var a = item.audit, major = a.mark === 'major';
-    var meaning = (major && !changedByAudit(item)) ? '중대한 문제를 지적했지만 판정은 바꾸지 않았습니다.' : markOf(a.mark).meaning;
-    var ev = a.evidence.length ? '<h3 class="mini">감사 근거</h3><ul class="gc-evidence">' + a.evidence.map(function (e) {
+    var meaning = (major && !changedByAudit(item)) ? t('gc.instrument.mark.majorKept') : markMeaning(a.mark);
+    var ev = a.evidence.length ? '<h3 class="mini">' + esc(t('gc.audit.evidence')) + '</h3><ul class="gc-evidence">' + a.evidence.map(function (e) {
       var p = parseEvidence(e);
-      if (!p.quote) return '<li>' + esc(screenTerms(e)) + '</li>';
+      if (!p.quote) return '<li lang="ko">' + esc(screenTerms(e)) + '</li>';
       var loc = out ? findQuoteAnyCombo(out, item, p.quote) : null;
       var other = !!loc && loc.combo !== item.combo;
-      var note = !loc ? '' : other ? esc('조합 ' + loc.combo + '의 답 ' + loc.q + '에 있는 문장 · 이 화면(조합 ' + item.combo + ')의 답변에는 없음') : locNote(loc.q);
-      return '<li>' + (p.label ? '<span class="ev-src">' + esc(screenTerms(p.label)) + '</span>' : '') + '<q>' + esc(p.quote) + '</q>' +
+      var note = !loc ? '' : other ? esc(t('gc.loc.otherCombo', { c: loc.combo, q: loc.q, cur: item.combo })) : locNote(loc.q);
+      var lblEn = p.label ? trEvidenceLabel(p.label) : null;
+      var lbl = !p.label ? '' : lblEn !== null ? '<span class="ev-src">' + esc(lblEn) + '</span>'
+        : '<span class="ev-src" lang="ko">' + esc(screenTerms(p.label)) + '</span>';
+      return '<li>' + lbl + '<q lang="ko">' + esc(p.quote) + '</q>' +
         (note ? '<span class="qloc' + (other ? ' other' : '') + '">' + note + '</span>' : '') + '</li>';
     }).join('') + '</ul>' : '';
-    return stepHTML(3, 'gc-audit ' + (major ? 'major' : 'minor'), stepHeadHTML(3, 'AI 감사 의견', '', mkHTML(a.mark)) +
+    return stepHTML(3, 'gc-audit ' + (major ? 'major' : 'minor'), stepHeadHTML(3, esc(t('gc.audit.title')), '', mkHTML(a.mark)) +
       '<p class="gc-mark-mean">' + esc(meaning) + '</p>' +
-      '<p class="gc-why">' + esc(screenTerms(a.explanation) || '—') + '</p>' +
-      (a.category ? '<p class="gc-cat"><span>오류 유형</span>' + esc(screenTerms(a.category)) + '</p>' : '') + ev);
+      '<p class="gc-why" lang="ko">' + esc(screenTerms(a.explanation) || '—') + '</p>' +
+      (a.category ? catHTML('gc.audit.category', a.category) : '') + ev);
   }
   // ④ 그래서 최종 판정: AI 채점 판정 → 감사 반영 후 최종 판정 (전문의가 동의 여부를 고르는 대상)
   function finalStepHTML(item) {
     var changed = changedByAudit(item), v = verdictById(item.final);
-    var badge = changed ? '<span class="gc-chg yes">감사에서 바뀜</span>' : '<span class="gc-chg no">변경 없음</span>';
-    return stepHTML(4, 'gc-final' + (changed ? ' changed' : ''), stepHeadHTML(4, '그래서 최종 판정은', '', badge) +
-      '<div class="gc-ba" role="group" aria-label="AI 채점 판정에서 최종 판정으로">' +
-        '<div class="gc-ba-from"><small>AI 채점 판정</small>' + vdHTML(item.rater.verdict, changed ? 'struck' : '') + '</div>' +
+    var badge = changed ? '<span class="gc-chg yes">' + esc(t('gc.s4.changed')) + '</span>' : '<span class="gc-chg no">' + esc(t('gc.s4.unchanged')) + '</span>';
+    return stepHTML(4, 'gc-final' + (changed ? ' changed' : ''), stepHeadHTML(4, esc(t('gc.s4.title')), '', badge) +
+      '<div class="gc-ba" role="group" aria-label="' + esc(t('gc.s4.baAria')) + '">' +
+        '<div class="gc-ba-from"><small>' + esc(t('gc.s4.from')) + '</small>' + vdHTML(item.rater.verdict, changed ? 'struck' : '') + '</div>' +
         '<span class="gc-ba-arrow" aria-hidden="true">→</span>' +
-        '<div class="gc-ba-to"><small>감사 반영 후 최종 판정</small>' + vdHTML(item.final, 'big') + '</div>' +
+        '<div class="gc-ba-to"><small>' + esc(t('gc.s4.to')) + '</small>' + vdHTML(item.final, 'big') + '</div>' +
       '</div>' +
-      (v && v.hint ? '<p class="gc-final-def">「' + esc(v.label) + '」 = ' + esc(v.hint) + '</p>' : ''));
+      (v && v.hint ? '<p class="gc-final-def">' + esc(t('gc.instrument.verdictDef', { label: tr(v, 'label'), hint: tr(v, 'hint') })) + '</p>' : ''));
   }
   function basisHTML(item) {
     if (!item.basis) return '';
     var notes = [];
-    var main = String(item.basis).replace(/〔([^〕]*)〕/g, function (_, t) { notes.push(t); return ''; }).trim();
+    var main = String(item.basis).replace(/〔([^〕]*)〕/g, function (_, x) { notes.push(x); return ''; }).trim();
     var lines = main.split(/\s+\/\s+/).filter(function (x) { return x.trim(); });
-    return '<details class="card gc-basis" data-track="basis"><summary>채점표 적용 근거 <span class="gc-ref">참고</span></summary><div class="gc-basis-body">' +
-      '<p class="small muted">이 환자·조합에 이 채점 항목을 어떻게 적용했는지에 대한 채점표의 설명입니다.</p>' +
-      lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') +
-      notes.map(function (n) { return '<p class="gc-note"><span>채점표 감사 메모</span>' + esc(n) + '</p>'; }).join('') +
+    return '<details class="card gc-basis" data-track="basis"><summary>' + esc(t('gc.basis.title')) + ' <span class="gc-ref">' + esc(t('gc.basis.ref')) + '</span></summary><div class="gc-basis-body">' +
+      '<p class="small muted">' + esc(t('gc.basis.lead')) + '</p>' +
+      lines.map(function (l) { return '<p lang="ko">' + esc(l) + '</p>'; }).join('') +
+      notes.map(function (n) { return '<p class="gc-note" lang="ko"><span lang="' + uiLang() + '">' + esc(t('gc.basis.note')) + '</span>' + esc(n) + '</p>'; }).join('') +
     '</div></details>';
   }
   function patientLine(p) {
     var a1c = null;
     (p.labs || []).forEach(function (l) { if (!a1c && /HbA1c/i.test(l.name)) a1c = l; });
-    return esc(p.demographics) + ' · ' + esc(p.visit_type) +
-      (a1c ? ' · 현재 HbA1c <b>' + esc(a1c.values[a1c.values.length - 1]) + '</b>' : '');
+    return demoHTML(p.demographics) + ' · <span lang="ko">' + esc(p.visit_type) + '</span>' +
+      (a1c ? ' · ' + t('gc.pt.hba1cHtml', { v: '<span lang="ko">' + esc(a1c.values[a1c.values.length - 1]) + '</span>' }) : '');
   }
 
   // ---------------------------------------------------------------------------
@@ -1245,12 +1398,12 @@
       return '<button type="button" role="radio" tabindex="' + tab + '" data-value="' + esc(it.value) + '" aria-checked="' + on + '">' + esc(it.label) + '</button>';
     }).join('');
   }
-  // 선택형 문항 (검증자 정보·마무리 문항 공통)
+  // 선택형 문항 (검증자 정보·마무리 문항 공통). 버튼 값(data-value)은 한국어 원문(저장 값), 보이는 글자만 화면 언어
   function fieldHTML(f, cur, prefix) {
     var id = esc((prefix || '') + f.id);
-    var lab = '<span class="label" id="lbl_' + id + '">' + esc(f.label) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
+    var lab = '<span class="label" id="lbl_' + id + '">' + esc(tr(f, 'label')) + (f.required ? '<span class="req">*</span>' : '') + '</span>';
     if (f.type === 'choice') {
-      var opts = f.options.map(function (o) { return { value: o, label: o }; });
+      var opts = f.options.map(function (o, i) { return { value: o, label: optLabel(f, i) }; });
       var list = f.layout === 'list';
       return '<div class="field">' + lab + '<div class="seg' + (list ? ' list' : ' gc-seg') + '" role="radiogroup" aria-labelledby="lbl_' + id + '" data-field="' + esc(f.id) + '"' +
         (list ? '' : ' style="--n:' + opts.length + '"') + '>' + segHTML(opts, cur) + '</div></div>';
@@ -1261,46 +1414,46 @@
 
   function eligibilityHTML() {
     return '<section class="card" id="eligCard">' +
-      '<h2 class="section-title">참여 자격</h2>' +
-      '<p class="gc-q" id="eligQ">' + esc(ELIG.label) + '<span class="req">*</span></p>' +
+      '<h2 class="section-title">' + esc(t('gc.elig.title')) + '</h2>' +
+      '<p class="gc-q" id="eligQ">' + esc(tr(ELIG, 'label')) + '<span class="req">*</span></p>' +
       '<div class="gc-choice gc-elig" role="group" aria-labelledby="eligQ">' +
-        '<button type="button" class="ch" data-elig="yes" aria-pressed="' + (draft.eligible === 'yes') + '">' + esc(ELIG.yes) + '</button>' +
-        '<button type="button" class="ch" data-elig="no" aria-pressed="false">' + esc(ELIG.no) + '</button>' +
+        '<button type="button" class="ch" data-elig="yes" aria-pressed="' + (draft.eligible === 'yes') + '">' + esc(tr(ELIG, 'yes')) + '</button>' +
+        '<button type="button" class="ch" data-elig="no" aria-pressed="false">' + esc(tr(ELIG, 'no')) + '</button>' +
       '</div>' +
-      '<p class="small muted" style="margin-top:8px">자기 보고로 확인합니다.</p>' +
+      '<p class="small muted" style="margin-top:8px">' + esc(t('gc.elig.self')) + '</p>' +
     '</section>';
   }
   function partPickerHTML() {
-    return '<div class="field gc-parts-field"><span class="label" id="partLabel">검증할 Part<span class="req">*</span></span>' +
-      '<p class="small muted">하나를 골라 주세요. 각 Part는 가상 환자 2명에 대한 서로 다른 CDSS 답변 2건이며, 마친 뒤 다른 Part도 이어서 검증하실 수 있습니다.</p>' +
+    var sh = partShape(PARTS[0]);
+    return '<div class="field gc-parts-field"><span class="label" id="partLabel">' + esc(t('gc.part.label')) + '<span class="req">*</span></span>' +
+      '<p class="small muted">' + esc(t('gc.part.help', { p: sh.p, u: sh.u })) + '</p>' +
       '<div class="part-grid" role="group" aria-labelledby="partLabel">' +
       PARTS.map(function (p) {
         var done = draft.done_parts.indexOf(p.id) >= 0, n = partItemCount(p);
         return '<button type="button" class="part-card" data-part="' + esc(p.id) + '" aria-pressed="' + (!done && draft.part === p.id) + '"' + (done ? ' disabled' : '') + '>' +
-          '<span class="pc-top"><b>' + esc(p.label) + '</b>' + (done ? '<span class="pc-done">완료</span>' : '<span class="radio-dot" aria-hidden="true"></span>') + '</span>' +
-          '<span class="pc-n">판정 <b>' + n + '</b>건</span>' +
-          '<span class="pc-sub">' + esc(minutesRange(n)) + ' · CDSS 답변 2건</span>' +
+          '<span class="pc-top"><b>' + esc(partLabel(p)) + '</b>' + (done ? '<span class="pc-done">' + esc(t('gc.part.done')) + '</span>' : '<span class="radio-dot" aria-hidden="true"></span>') + '</span>' +
+          '<span class="pc-n">' + t('gc.part.nHtml', { n: n }) + '</span>' +
+          '<span class="pc-sub">' + esc(t('gc.part.sub', { min: minutesRange(n, p), u: partShape(p).u })) + '</span>' +
         '</button>';
       }).join('') + '</div></div>';
   }
   function consentHTML() {
     if (draft.consent_inherited) {
-      return '<p class="notice" style="margin-top:18px">연구 참여 동의는 처음 검증 때 하신 동의를 그대로 사용합니다.</p>';
+      return '<p class="notice" style="margin-top:18px">' + esc(t('gc.consent.inherited')) + '</p>';
     }
     return '<div class="field" style="margin-top:18px"><label class="check"><input type="checkbox" id="evConsent"' + (draft.consent ? ' checked' : '') + '>' +
-      '<span>본 검증의 목적을 이해했으며, 다음 정보가 연구 목적으로 수집·분석되는 데 동의합니다: 성명, 분과전문의 경력·근무 기관·AI 사용 빈도, ' +
-      '판정과 의견, 응답 과정 정보(판정별 소요 시간, 접속 경로, 기기 종류). 분석과 발표에는 성명 대신 가명 코드를 사용합니다.' +
-      (CFG.IRB_NO ? ' (IRB 승인번호: ' + esc(CFG.IRB_NO) + ')' : '') + '</span></label></div>';
+      '<span>' + esc(t('gc.consent.text')) +
+      (CFG.IRB_NO ? esc(t('gc.consent.irb', { no: CFG.IRB_NO })) : '') + '</span></label></div>';
   }
   function startBtnHTML() {
     return '<button type="button" class="btn btn-accent btn-block" id="startBtn" data-act="start" style="margin-top:18px">' +
-      (starting ? '검증 준비 중…' : '검증 시작') + '</button>';
+      esc(t(starting ? 'gc.starting' : 'gc.start')) + '</button>';
   }
   function evaluatorCardHTML() {
     return '<section class="card" id="evaluatorCard">' +
-      '<h2 class="section-title">검증자 정보</h2>' +
-      '<div class="field"><label for="evName">성명<span class="req">*</span></label>' +
-        '<input class="input" id="evName" type="text" autocomplete="name" maxlength="40" placeholder="예: 홍길동" value="' + esc(draft.name) + '"></div>' +
+      '<h2 class="section-title">' + esc(t('gc.ev.title')) + '</h2>' +
+      '<div class="field"><label for="evName">' + esc(t('gc.ev.name')) + '<span class="req">*</span></label>' +
+        '<input class="input" id="evName" type="text" autocomplete="name" maxlength="40" placeholder="' + esc(t('gc.ev.namePh')) + '" value="' + esc(draft.name) + '"></div>' +
       '<div id="profileFields">' + PROFILE.map(function (f) { return fieldHTML(f, draft.fields[f.id] || '', 'pf_'); }).join('') + '</div>' +
       partPickerHTML() + consentHTML() + startBtnHTML() +
     '</section>';
@@ -1310,50 +1463,56 @@
     var have = PROFILE.filter(function (f) { return !draft.missing || draft.missing.indexOf(f.id) < 0; });
     var ask = PROFILE.filter(function (f) { return draft.missing && draft.missing.indexOf(f.id) >= 0; });
     var rows = have.map(function (f) {
-      return '<li><span class="muted">' + esc(f.short || f.label) + '</span> — <b>' + esc(draft.fields[f.id] || '—') + '</b></li>';
+      return '<li><span class="muted">' + esc(tr(f, 'short') || tr(f, 'label')) + '</span> — <b>' + esc(valueLabel(f, draft.fields[f.id]) || '—') + '</b></li>';
     }).join('');
     return '<section class="card" id="evaluatorCard">' +
-      '<h2 class="section-title">검증자 정보</h2>' +
-      '<p><b>' + esc(draft.name) + '</b> 선생님</p>' +
+      '<h2 class="section-title">' + esc(t('gc.ev.title')) + '</h2>' +
+      '<p>' + t('gc.ev.teacherHtml', { name: '<span data-ugc>' + esc(draft.name) + '</span>' }) + '</p>' +
       '<ul class="clean small gc-prof">' + rows + '</ul>' +
-      '<p class="small muted" style="margin-top:6px">처음 검증 때 입력하신 정보를 그대로 사용합니다.</p>' +
+      '<p class="small muted" style="margin-top:6px">' + esc(t('gc.ev.reuse')) + '</p>' +
       (ask.length ? '<div id="profileFields" class="gc-prof-ask">' + ask.map(function (f) { return fieldHTML(f, draft.fields[f.id] || '', 'pf_'); }).join('') + '</div>' : '') +
       partPickerHTML() + consentHTML() + startBtnHTML() +
     '</section>';
   }
 
+  // 영어 문장 안에 넣는 설명은 소문자로 시작 ('Met (does not meet …)')
+  function lcFirst(x) { x = String(x || ''); return uiLang() === 'en' ? x.charAt(0).toLowerCase() + x.slice(1) : x; }
   function renderIntro() {
     var linked = !!draft.linked;
     var lp = partById(draft.part);
+    var vm = verdictById('met'), vd = verdictById('deducted');
+    var names = missingNames();
     elMain.innerHTML =
       siteLinksHTML() +   // 시작 화면에만 (판정 중에는 없음). 이어서 하기 정보는 gc:draft:v1 에 남아 있다
       '<section class="card hero">' +
-        '<span class="eyebrow">AI 기반 T2D 임상 의사결정 지원 시스템</span>' +
-        '<h1>가이드라인 부합도 검증</h1>' +
-        '<p class="sub">Guideline Concordance · Physician Validation</p>' +
-        '<p class="desc">AI가 CDSS 답변을 가이드라인 기준으로 채점한 결과 중, 다시 확인이 필요한 판정만 골라 분과전문의 선생님의 확인을 부탁드립니다.</p>' +
+        '<span class="eyebrow">' + esc(t('gc.intro.eyebrow')) + '</span>' +
+        '<h1>' + esc(t('gc.intro.title')) + '</h1>' +
+        '<p class="sub">' + esc(t('gc.intro.sub')) + '</p>' +
+        '<p class="desc">' + esc(t('gc.intro.desc')) + '</p>' +
       '</section>' +
-      (linked ? '<p class="notice info">이전 검증에 이어 ' + (lp ? '<b>' + esc(lp.label) + '</b>를 ' : '다른 Part를 ') +
-        '검증합니다. 선생님 정보와 동의는 처음 응답을 그대로 사용합니다.' +
-        (missingNames().length ? ' 새로 추가된 <b>' + esc(missingNames().join(', ')) + '</b> 문항만 답해 주세요.' : '') + '</p>' : '') +
+      (linked ? '<p class="notice info">' + (lp ? t('gc.intro.linkedPartHtml', { part: esc(partLabel(lp)) }) : esc(t('gc.intro.linkedAny'))) +
+        esc(t('gc.intro.linkedReuse')) +
+        (names.length ? t('gc.intro.linkedMissingHtml', { names: esc(names.join(', ')) }) : '') + '</p>' : '') +
       '<section class="card">' +
-        '<h2 class="section-title">어떻게 진행되나요</h2>' +
+        '<h2 class="section-title">' + esc(t('gc.intro.howTitle')) + '</h2>' +
         // 번호 배지는 판정 화면의 ①–④ 에만 쓴다 (진행 과정은 번호 없는 목록)
         '<ul class="clean gc-proc">' +
-          '<li><b>AI 채점</b> — CDSS 답변을 채점표 항목마다 <b>충족</b>(감점 기준에 해당하지 않음) 또는 <b>감점</b>으로 판정했습니다.</li>' +
-          '<li><b>AI 감사</b> — 모든 판정을 다시 확인해, 문제가 있는 판정에 △ 또는 ✗를 표시했습니다. 이 판정만 보여 드립니다.</li>' +
+          '<li>' + t('gc.intro.proc1Html', {
+            met: esc(vm ? tr(vm, 'label') : 'met'), metHint: esc(lcFirst(vm ? tr(vm, 'hint') : '')), ded: esc(vd ? tr(vd, 'label') : 'deducted')
+          }) + '</li>' +
+          '<li>' + t('gc.intro.proc2Html') + '</li>' +
         '</ul>' +
-        '<p class="gc-howto-k gc-todo"><b>선생님께서 하실 일</b> — 판정마다 아래 순서로 읽고 <b>' + nbHTML(4) + '최종 판정</b>에 동의·비동의를 골라 주세요. 비동의하시면 올바른 판정을 고릅니다.</p>' +
+        '<p class="gc-howto-k gc-todo">' + t('gc.intro.todoHtml', { nb: nbHTML(4) }) + '</p>' +
         readOrderHTML() +
         '<div class="gc-legend">' +
-          '<div>' + mkHTML('minor') + '<span>' + esc(MARK.minor.meaning) + '</span></div>' +
-          '<div>' + mkHTML('major') + '<span>' + esc(MARK.major.meaning) + ' 최종 판정이 바뀝니다.</span></div>' +
+          '<div>' + mkHTML('minor') + '<span>' + esc(markMeaning('minor')) + '</span></div>' +
+          '<div>' + mkHTML('major') + '<span>' + esc(markMeaning('major') + t('gc.instrument.mark.majorChanges')) + '</span></div>' +
         '</div>' +
         '<ul class="clean small muted" style="margin-top:14px">' +
-          '<li>채점 항목 제목은 대개 “… 누락”처럼 감점 사유를 적은 것입니다.</li>' +
-          '<li>답변을 만든 AI 시스템의 이름은 공개하지 않으며 “답변 1·답변 2”로 표시합니다.</li>' +
-          '<li>판정 화면 위쪽 <b>[환자 정보]</b> 버튼으로 환자 기록을 언제든 볼 수 있습니다.</li>' +
-          '<li>창을 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.</li>' +
+          '<li>' + esc(t('gc.intro.note1')) + '</li>' +
+          '<li>' + esc(t('gc.intro.note2')) + '</li>' +
+          '<li>' + t('gc.intro.note3Html') + '</li>' +
+          '<li>' + esc(t('gc.intro.note4')) + '</li>' +
         '</ul>' +
       '</section>' +
       (linked ? continuationCardHTML()
@@ -1365,31 +1524,31 @@
   function renderBlocked() {
     elMain.innerHTML =
       '<section class="card gc-blocked" id="blocked">' +
-        '<span class="eyebrow">참여 대상 안내</span>' +
-        '<h1>참여해 주셔서 감사합니다</h1>' +
-        '<p class="lead" style="margin-top:8px">' + esc(ELIG.blocked) + '</p>' +
-        '<p class="small muted" style="margin-top:10px">AI 답변의 임상 수용성 평가는 다른 진료과 의사 선생님도 참여하실 수 있습니다.</p>' +
+        '<span class="eyebrow">' + esc(t('gc.blocked.eyebrow')) + '</span>' +
+        '<h1>' + esc(t('gc.blocked.title')) + '</h1>' +
+        '<p class="lead" style="margin-top:8px">' + esc(tr(ELIG, 'blocked')) + '</p>' +
+        '<p class="small muted" style="margin-top:10px">' + esc(t('gc.blocked.ca')) + '</p>' +
         '<div class="btn-row" style="margin-top:16px">' +
-          '<a class="btn btn-primary" href="../ca/' + SITE_QS + '" id="toCaLink">임상 수용성 평가로 이동</a>' +
-          '<button type="button" class="btn btn-ghost" data-act="elig-back">← 답을 잘못 고르셨다면</button>' +
+          '<a class="btn btn-primary" href="../ca/' + SITE_QS + '" id="toCaLink">' + esc(t('gc.blocked.toCa')) + '</a>' +
+          '<button type="button" class="btn btn-ghost" data-act="elig-back">' + esc(t('gc.blocked.back')) + '</button>' +
         '</div>' +
-        '<nav class="site-links" aria-label="사이트 메뉴" style="margin-top:10px"><a href="../' + SITE_QS + '" id="toHomeLink">' +
-          '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>처음 화면으로</a></nav>' +
+        '<nav class="site-links" aria-label="' + esc(t('gc.nav.aria')) + '" style="margin-top:10px"><a href="../' + SITE_QS + '" id="toHomeLink">' +
+          BACK_SVG + esc(t('gc.nav.homeBack')) + '</a></nav>' +
       '</section>';
     elDock.innerHTML = '';
   }
 
   function renderStarting() {
-    elMain.innerHTML = '<section class="card"><p class="status-line pending"><span class="dot"></span>검증을 준비하고 있습니다…</p></section>';
+    elMain.innerHTML = '<section class="card"><p class="status-line pending"><span class="dot"></span>' + esc(t('gc.startingMsg')) + '</p></section>';
     elDock.innerHTML = '';
   }
 
   function seenNote(patient, u) {
     for (var i = 0; i < u; i++) if (G.units[S.order[i]].patient === patient) {
-      return '<p class="notice info">이 환자는 <b>답변 ' + (i + 1) + '</b>에서 이미 보셨습니다. 이번에는 <b>다른 CDSS 답변</b>입니다.</p>';
+      return '<p class="notice info">' + t('gc.seen.unitHtml', { n: i + 1 }) + '</p>';
     }
     if ((S.prev_patients || []).indexOf(patient) >= 0) {
-      return '<p class="notice info">이 환자는 <b>이전 Part</b>에서 이미 보셨습니다. 이번에는 <b>다른 CDSS 답변</b>입니다.</p>';
+      return '<p class="notice info">' + t('gc.seen.prevHtml') + '</p>';
     }
     return '';
   }
@@ -1402,25 +1561,26 @@
     items.forEach(function (it) { byCombo[it.combo] = (byCombo[it.combo] || 0) + 1; });
     var nBefore = itemOrder(st.u, 0) - 1;
     elMain.innerHTML =
-      '<div class="case-head"><span class="pill navy">답변 ' + (st.u + 1) + ' / ' + nUnits() + '</span>' +
-        '<span class="pill">판정 ' + (nBefore + 1) + '–' + (nBefore + items.length) + ' / ' + totalItems() + '</span></div>' +
-      '<h1 class="gc-h1">답변 ' + (st.u + 1) + ' — 확인할 판정 ' + items.length + '건</h1>' +
-      '<p class="lead">가상 환자 <b>' + esc(out.patient) + '</b>에 대한 CDSS 답변입니다. AI 감사가 표시한 판정 <b>' + items.length + '건</b>을 차례로 확인합니다.</p>' +
+      '<div class="case-head"><span class="pill navy">' + esc(t('gc.unit.pill', { n: st.u + 1, total: nUnits() })) + '</span>' +
+        '<span class="pill">' + esc(t('gc.unit.range', { a: nBefore + 1, b: nBefore + items.length, total: totalItems() })) + '</span></div>' +
+      '<h1 class="gc-h1">' + esc(t('gc.unit.h1', { n: st.u + 1, k: items.length })) + '</h1>' +
+      '<p class="lead">' + t('gc.unit.leadHtml', { p: esc(out.patient), k: items.length }) + '</p>' +
       seenNote(out.patient, st.u) +
-      '<section class="card tight gc-howto"><p class="gc-howto-k">판정마다 이 순서로 읽고 <b>' + nbHTML(4) + '최종 판정</b>에 동의하시는지 골라 주세요.</p>' + readOrderHTML() + '</section>' +
+      '<section class="card tight gc-howto"><p class="gc-howto-k">' + t('gc.unit.howtoHtml', { nb: nbHTML(4) }) + '</p>' + readOrderHTML() + '</section>' +
+      srcNoteHTML() +
       '<section class="card gc-pt">' +
         '<div class="pt-head"><span class="pt-id">' + esc(p.id) + '</span><span class="gc-pt-line">' + patientLine(p) + '</span></div>' +
-        '<p class="small" style="margin-top:6px"><span class="muted">내원 이유</span> ' + esc(p.visit_reason) + '</p>' +
-        '<button type="button" class="btn btn-ghost gc-pt-btn" data-act="patient">환자 정보 전체 보기</button>' +
+        '<p class="small" style="margin-top:6px"><span class="muted">' + esc(t('ca.pt.visitReason')) + '</span> <span lang="ko">' + esc(p.visit_reason) + '</span></p>' +
+        '<button type="button" class="btn btn-ghost gc-pt-btn" data-act="patient">' + esc(t('gc.unit.ptAll')) + '</button>' +
       '</section>' +
-      (byCombo[0] ? '<section class="card tight gc-p1"><b>Phase 1 · 환자 분류 및 의뢰</b><span class="gc-cnt">판정 ' + byCombo[0] + '건</span></section>' : '') +
-      '<h2 class="section-title" style="margin-top:20px">CDSS가 제시한 약물 조합 3개</h2>' +
-      '<p class="small muted" style="margin-top:-4px">각 판정은 해당 조합의 답변을 기준으로 합니다. 처방 내용은 판정 화면에서 펼쳐 볼 수 있습니다.</p>' +
+      (byCombo[0] ? '<section class="card tight gc-p1"><b>' + esc(phaseName(1)) + '</b><span class="gc-cnt">' + esc(nVerdicts(byCombo[0])) + '</span></section>' : '') +
+      '<h2 class="section-title" style="margin-top:20px">' + esc(t('gc.unit.combos', { n: out.combinations.length })) + '</h2>' +
+      '<p class="small muted" style="margin-top:-4px">' + esc(t('gc.unit.combosHelp')) + '</p>' +
       '<div class="gc-combos">' + out.combinations.map(function (cb, i) {
         var n = byCombo[i + 1] || 0;
         return '<article class="gc-combo' + (n ? '' : ' none') + '">' +
-          '<header class="cc-head"><span class="cc-no">조합 ' + (i + 1) + '</span>' +
-            '<span class="gc-cnt' + (n ? '' : ' zero') + '">' + (n ? '판정 ' + n + '건' : '확인할 판정 없음') + '</span></header>' +
+          '<header class="cc-head"><span class="cc-no">' + esc(comboName(i + 1)) + '</span>' +
+            '<span class="gc-cnt' + (n ? '' : ' zero') + '">' + esc(n ? nVerdicts(n) : t('gc.unit.none')) + '</span></header>' +
           drugChipsHTML(cb) + '</article>';
       }).join('') + '</div>';
   }
@@ -1432,11 +1592,11 @@
     // 위에서 아래로: 채점 항목(맥락) → ① CDSS 답변 → ② AI 채점 사유 → ③ AI 감사 의견 → ④ 최종 판정 → (참고) 채점표 적용 근거
     elMain.innerHTML =
       '<div class="case-head">' +
-        '<span class="pill">답변 ' + (st.u + 1) + ' · 환자 ' + esc(item.patient) + '</span>' +
-        '<span class="pill teal">' + (item.combo ? '조합 ' + item.combo : 'Phase 1') + ' · 답 ' + esc(item.question) + '</span>' +
+        '<span class="pill">' + esc(t('gc.item.pillUnit', { u: st.u + 1, p: item.patient })) + '</span>' +
+        '<span class="pill teal">' + esc(t('gc.item.pillWhere', { loc: comboName(item.combo), q: item.question })) + '</span>' +
       '</div>' +
       elementCardHTML(item) +
-      '<ol class="gc-steps" aria-label="판정 근거 (읽는 순서)">' +
+      '<ol class="gc-steps" aria-label="' + esc(t('gc.item.stepsAria')) + '">' +
         answerStepHTML(item, out, cb) + raterStepHTML(item, out) + auditStepHTML(item, out) + finalStepHTML(item) +
       '</ol>' +
       basisHTML(item);
@@ -1453,42 +1613,45 @@
   function renderDock() {
     if (!S || S.screen !== 'eval' || staleTab || !S.order) { elDock.innerHTML = ''; return; }
     var st = curStep();
-    var back = (S.stepIdx > 0 && !S.review) ? '<button type="button" class="btn btn-ghost" data-act="back">이전</button>' : '';
+    var back = (S.stepIdx > 0 && !S.review) ? '<button type="button" class="btn btn-ghost" data-act="back">' + esc(t('gc.dock.back')) + '</button>' : '';
     var nav = function (label, enabled) {
       return '<div class="dock-nav' + (back ? '' : ' single') + '">' + back +
-        '<button type="button" class="btn btn-primary" data-act="next"' + (enabled ? '' : ' aria-disabled="true"') + '>' + label + '</button></div>';
+        '<button type="button" class="btn btn-primary" data-act="next"' + (enabled ? '' : ' aria-disabled="true"') + '>' + esc(label) + '</button></div>';
     };
     var html = '<div class="dock-inner">';
     if (st.i < 0) {
       var n = unitItems(S.order[st.u]).length;
-      html += '<div class="dock-kicker"><span>답변 ' + (st.u + 1) + ' / ' + nUnits() + '</span></div>' +
-        '<p class="dock-msg">이 답변에서 확인할 판정은 <b>' + n + '건</b>입니다. 환자 기록은 언제든 위쪽 [환자 정보]로 볼 수 있습니다.</p>' +
-        nav('판정 시작 →', true);
+      html += '<div class="dock-kicker"><span>' + esc(t('gc.unit.pill', { n: st.u + 1, total: nUnits() })) + '</span></div>' +
+        '<p class="dock-msg">' + t('gc.dock.unitMsgHtml', { k: n }) + '</p>' +
+        nav(t('gc.dock.start'), true);
     } else {
       var item = curItem(), j = jm(item), ord = itemOrder(st.u, st.i), tot = totalItems();
-      var hint = j.agree === null ? '동의 여부를 골라 주세요' : (j.agree === false && !j.alt_verdict ? '올바른 판정을 골라 주세요' : '');
-      html += '<div class="dock-kicker"><span>판정 ' + ord + ' / ' + tot + '</span><span class="req-hint">' + hint + '</span></div>' +
-        '<p class="dock-statement gc-ask" id="gcAsk"><button type="button" class="gc-ask-step" data-act="to-final" title="4단계 최종 판정으로 이동">' +
-          nbHTML(4) + '최종 판정</button> ' + vdHTML(item.final) + '에 동의하십니까?</p>' +
+      var hint = j.agree === null ? t('gc.dock.hintAgree') : (j.agree === false && !j.alt_verdict ? t('gc.dock.hintAlt') : '');
+      html += '<div class="dock-kicker"><span>' + esc(t('gc.dock.kicker', { n: ord, total: tot })) + '</span><span class="req-hint">' + esc(hint) + '</span></div>' +
+        '<p class="dock-statement gc-ask" id="gcAsk">' + t('gc.instrument.askHtml', {
+          step: '<button type="button" class="gc-ask-step" data-act="to-final" title="' + esc(t('gc.dock.toFinal')) + '">' + nbHTML(4) + esc(t('gc.instrument.askStep')) + '</button>',
+          vd: vdHTML(item.final)
+        }) + '</p>' +
         '<div class="gc-choice" role="group" aria-labelledby="gcAsk">' +
-          '<button type="button" class="ch agree" data-agree="1" aria-pressed="' + (j.agree === true) + '">동의</button>' +
-          '<button type="button" class="ch disagree" data-agree="0" aria-pressed="' + (j.agree === false) + '">비동의</button>' +
+          '<button type="button" class="ch agree" data-agree="1" aria-pressed="' + (j.agree === true) + '">' + esc(t('gc.instrument.agree')) + '</button>' +
+          '<button type="button" class="ch disagree" data-agree="0" aria-pressed="' + (j.agree === false) + '">' + esc(t('gc.instrument.disagree')) + '</button>' +
         '</div>';
       if (j.agree === false) {
         var alts = VERDICTS.filter(function (v) { return v.id !== item.final; });
         html += '<div class="gc-alt">' +
-          '<p class="gc-alt-k" id="gcAltK">올바른 판정<span class="req">*</span></p>' +
+          '<p class="gc-alt-k" id="gcAltK">' + esc(t('gc.instrument.alt')) + '<span class="req">*</span></p>' +
           '<div class="gc-choice alt" role="group" aria-labelledby="gcAltK">' + alts.map(function (v) {
+            var hint2 = tr(v, 'hint');
             return '<button type="button" class="ch alt v-' + esc(v.id) + '" data-alt="' + esc(v.id) + '" aria-pressed="' + (j.alt_verdict === v.id) + '">' +
-              '<b>' + esc(v.label) + '</b>' + (v.hint ? '<small>' + esc(v.hint) + '</small>' : '') + '</button>';
+              '<b>' + esc(tr(v, 'label')) + '</b>' + (hint2 ? '<small>' + esc(hint2) + '</small>' : '') + '</button>';
           }).join('') + '</div>' +
-          '<label class="gc-alt-k" for="gcComment">의견 <span class="muted">(선택)</span></label>' +
+          '<label class="gc-alt-k" for="gcComment">' + esc(t('gc.dock.comment')) + ' <span class="muted">' + esc(t('gc.dock.optional')) + '</span></label>' +
           '<textarea class="input gc-comment" id="gcComment" rows="2" maxlength="2000" placeholder="' +
-            (shortDock() ? '다르게 보신 이유 한 줄 (선택)' : '왜 다르게 보시는지 한 줄만 남겨 주시면 판정을 확정하는 데 큰 도움이 됩니다.') + '">' +
+            esc(t(shortDock() ? 'gc.dock.phShort' : 'gc.dock.phLong')) + '">' +
             esc(j.comment || '') + '</textarea>' +
         '</div>';
       }
-      html += nav(S.review ? '저장하고 요약으로 →' : (ord === tot ? '다음: 마무리 →' : '다음 →'), jComplete(j));
+      html += nav(S.review ? t('gc.dock.saveBack') : t(ord === tot ? 'gc.dock.nextFinal' : 'gc.dock.next'), jComplete(j));
     }
     html += '</div>';
     elDock.innerHTML = html;
@@ -1516,17 +1679,17 @@
     var rows = [];
     STEPS.forEach(function (st, idx) {
       if (st.i < 0) {
-        rows.push('<li class="gc-recap-unit">답변 ' + (st.u + 1) + ' · 환자 ' + esc(G.units[S.order[st.u]].patient) + '</li>');
+        rows.push('<li class="gc-recap-unit">' + esc(t('gc.recap.unit', { n: st.u + 1, p: G.units[S.order[st.u]].patient })) + '</li>');
         return;
       }
       var it = unitItems(S.order[st.u])[st.i], j = S.judgments[it.id];
-      var res = !jComplete(j) ? '<span class="muted">미확인</span>'
-        : j.agree ? '<span class="gc-res agree">동의</span>' + vdHTML(it.final)
-          : '<span class="gc-res disagree">비동의</span>' + vdHTML(j.alt_verdict);
+      var res = !jComplete(j) ? '<span class="muted">' + esc(t('gc.recap.pending')) + '</span>'
+        : j.agree ? '<span class="gc-res agree">' + esc(t('gc.instrument.agree')) + '</span>' + vdHTML(it.final)
+          : '<span class="gc-res disagree">' + esc(t('gc.instrument.disagree')) + '</span>' + vdHTML(j.alt_verdict);
       rows.push('<li class="gc-recap-row"><span class="gc-r-no">' + itemOrder(st.u, st.i) + '</span>' +
-        '<span class="gc-r-t"><b>' + esc(it.element) + '</b> ' + (it.combo ? '조합 ' + it.combo : 'Phase 1') + ' · ' + esc(it.title) + '</span>' +
+        '<span class="gc-r-t"><b>' + esc(it.element) + '</b> ' + esc(comboName(it.combo)) + ' · <span lang="ko">' + esc(it.title) + '</span></span>' +
         '<span class="gc-r-res">' + res + '</span>' +
-        '<button type="button" class="link-btn" data-edit="' + idx + '" aria-label="판정 ' + itemOrder(st.u, st.i) + ' 수정">수정</button></li>');
+        '<button type="button" class="link-btn" data-edit="' + idx + '" aria-label="' + esc(t('gc.recap.editAria', { n: itemOrder(st.u, st.i) })) + '">' + esc(t('gc.recap.edit')) + '</button></li>');
     });
     return '<ul class="gc-recap">' + rows.join('') + '</ul>';
   }
@@ -1534,22 +1697,22 @@
   function renderFinal() {
     var c = counts();
     elMain.innerHTML =
-      '<section class="card"><span class="eyebrow">마지막 단계</span>' +
-        '<h1 class="gc-h1" style="margin-top:6px">판정 ' + c.total + '건을 모두 확인하셨습니다</h1>' +
-        '<p class="lead" style="margin-top:6px">아래 문항에 답하신 뒤 <b>검증 제출</b>을 눌러 주세요.</p>' +
+      '<section class="card"><span class="eyebrow">' + esc(t('gc.fin.eyebrow')) + '</span>' +
+        '<h1 class="gc-h1" style="margin-top:6px">' + esc(t('gc.fin.title', { n: c.total })) + '</h1>' +
+        '<p class="lead" style="margin-top:6px">' + t('gc.fin.leadHtml') + '</p>' +
         '<div class="stat-row" style="margin-top:14px">' +
-          '<div class="stat"><b>' + c.agree + '</b><span>동의</span></div>' +
-          '<div class="stat"><b>' + c.disagree + '</b><span>비동의</span></div>' +
+          '<div class="stat"><b>' + c.agree + '</b><span>' + esc(t('gc.instrument.agree')) + '</span></div>' +
+          '<div class="stat"><b>' + c.disagree + '</b><span>' + esc(t('gc.instrument.disagree')) + '</span></div>' +
         '</div></section>' +
-      (END_ITEMS.length ? '<section class="card sub-items"><span class="sub-tag">마무리 문항</span><div id="endItems" style="margin-top:6px">' +
+      (END_ITEMS.length ? '<section class="card sub-items"><span class="sub-tag">' + esc(t('gc.fin.endTag')) + '</span><div id="endItems" style="margin-top:6px">' +
         END_ITEMS.map(function (f) { return fieldHTML(f, (S.end_items[f.id] || {}).value || '', 'ei_'); }).join('') + '</div></section>' : '') +
-      '<section class="card"><div class="field"><label for="overallComment">전반적인 의견 (선택)</label>' +
-        '<p class="small muted">AI 채점·AI 감사 방식, 채점표, 이번 검증 방식에 대해 하실 말씀이 있으면 적어 주세요.</p>' +
+      '<section class="card"><div class="field"><label for="overallComment">' + esc(t('gc.fin.comment')) + '</label>' +
+        '<p class="small muted">' + esc(t('gc.fin.commentHelp')) + '</p>' +
         '<textarea class="input" id="overallComment" maxlength="5000">' + esc(S.overall_comment) + '</textarea>' +
         '<div class="char-count" id="ocCount">' + S.overall_comment.length + ' / 5000</div></div>' +
-        '<button type="button" class="btn btn-accent btn-block" id="submitBtn" data-act="submit" style="margin-top:14px">검증 제출</button></section>' +
-      '<section class="card"><h2 class="section-title">판정 요약</h2>' +
-        '<p class="small muted">고치실 판정이 있으면 [수정]을 눌러 주세요. 고친 뒤 이 화면으로 돌아옵니다.</p>' + recapHTML() + '</section>';
+        '<button type="button" class="btn btn-accent btn-block" id="submitBtn" data-act="submit" style="margin-top:14px">' + esc(t('gc.fin.submit')) + '</button></section>' +
+      '<section class="card"><h2 class="section-title">' + esc(t('gc.fin.recap')) + '</h2>' +
+        '<p class="small muted">' + esc(t('gc.fin.recapHelp')) + '</p>' + srcNoteHTML() + recapHTML() + '</section>';
     elDock.innerHTML = '';
   }
 
@@ -1562,6 +1725,7 @@
       session_ordinal: S.session_ordinal, linked_session_id: S.linked_session_id,
       entry: S.entry, consent: S.consent, device: S.device,
       session: sessionSummary(), end_items: S.end_items || {}, overall_comment: S.overall_comment,
+      ui_lang: uiLang(), set_id: S.set_id || 'v1',
       judgments: allJudgments()
     };
     payload.units_blinded = true;   // 답변 식별자는 '환자_답변N'(N = 이 Part 의 제시 순서). 원래 답변은 Part·환자 번호로 연결됨
@@ -1582,44 +1746,45 @@
     var sum = sessionSummary(), c = counts();
     var status;
     if (!CFG.ENDPOINT) {
-      status = '<p class="status-line pending"><span class="dot"></span>테스트 모드: 서버 주소(ENDPOINT)가 설정되지 않아 응답이 전송되지 않았습니다.</p>' +
-        '<p class="small muted" style="margin-top:6px">아래 버튼으로 응답 파일(JSON)을 내려받을 수 있습니다.</p>';
+      status = '<p class="status-line pending"><span class="dot"></span>' + esc(t('gc.done.testMode')) + '</p>' +
+        '<p class="small muted" style="margin-top:6px">' + esc(t('gc.done.testModeDl')) + '</p>';
     } else if (!S.outbox.length && S.net.status !== 'sending') {
-      status = '<p class="status-line ok"><span class="dot"></span>응답이 안전하게 저장되었습니다.</p>';
+      status = '<p class="status-line ok"><span class="dot"></span>' + esc(t('gc.done.ok')) + '</p>';
     } else if (S.net.status === 'fail' || !flushing) {
-      status = '<p class="status-line fail"><span class="dot"></span>전송하지 못한 응답이 있습니다 (' + S.outbox.length + '건).</p>' +
-        '<p class="small muted" style="margin-top:6px">네트워크 연결을 확인한 뒤 [다시 전송]을 눌러 주세요. 응답은 이 기기에 보관되어 있으며, 응답 파일을 내려받아 연구진에게 보내 주셔도 됩니다.' +
+      status = '<p class="status-line fail"><span class="dot"></span>' + esc(t('gc.done.fail', { n: S.outbox.length })) + '</p>' +
+        '<p class="small muted" style="margin-top:6px">' + esc(t('gc.done.failHelp')) +
         (S.net.last_error ? ' (' + esc(S.net.last_error) + ')' : '') + '</p>';
     } else {
-      status = '<p class="status-line pending"><span class="dot"></span>응답을 전송하고 있습니다…</p>';
+      status = '<p class="status-line pending"><span class="dot"></span>' + esc(t('gc.done.sending')) + '</p>';
     }
     var showRetry = !!(CFG.ENDPOINT && S.outbox.length && (S.net.status === 'fail' || !flushing));
     var showDl = !CFG.ENDPOINT || showRetry || S.is_test;
     var done = (S.done_parts || []).concat([S.part]);
     var others = PARTS.filter(function (p) { return done.indexOf(p.id) < 0; });
-    var part = partById(S.part) || {};
+    var part = partById(S.part);
     elMain.innerHTML =
-      '<section class="card hero"><span class="eyebrow">완료</span><h1>검증해 주셔서 감사합니다</h1>' +
-        '<p class="desc">' + esc(S.evaluator.name) + ' 선생님 · ' + esc(part.label || '') + ' 판정 ' + c.done + '건이 기록되었습니다.</p></section>' +
+      '<section class="card hero"><span class="eyebrow">' + esc(t('gc.done.eyebrow')) + '</span><h1>' + esc(t('gc.done.title')) + '</h1>' +
+        '<p class="desc">' + t('gc.done.descHtml', { name: '<span data-ugc>' + esc(S.evaluator.name) + '</span>', part: esc(partLabel(part) || S.part || ''), n: c.done }) + '</p></section>' +
       '<section class="card">' + status +
         '<div class="stat-row" style="margin-top:14px">' +
-          '<div class="stat"><b>' + c.done + ' / ' + c.total + '</b><span>확인한 판정</span></div>' +
-          '<div class="stat"><b>' + c.agree + ' · ' + c.disagree + '</b><span>동의 · 비동의</span></div>' +
-          '<div class="stat"><b>' + fmtMin(sum.total_active_ms + sum.total_idle_ms) + '</b><span>총 소요 시간</span></div>' +
+          '<div class="stat"><b>' + c.done + ' / ' + c.total + '</b><span>' + esc(t('gc.done.statItems')) + '</span></div>' +
+          '<div class="stat"><b>' + c.agree + ' · ' + c.disagree + '</b><span>' + esc(t('gc.done.statAD')) + '</span></div>' +
+          '<div class="stat"><b>' + esc(fmtMin(sum.total_active_ms + sum.total_idle_ms)) + '</b><span>' + esc(t('gc.done.statTime')) + '</span></div>' +
         '</div>' +
         ((showRetry || showDl) ? '<div class="btn-row" style="margin-top:16px">' +
-          (showRetry ? '<button type="button" class="btn btn-primary" id="retryBtn" data-act="retry">다시 전송</button>' : '') +
-          (showDl ? '<button type="button" class="btn btn-ghost" id="dlBtn" data-act="download">응답 파일(JSON) 내려받기</button>' : '') +
+          (showRetry ? '<button type="button" class="btn btn-primary" id="retryBtn" data-act="retry">' + esc(t('gc.done.retry')) + '</button>' : '') +
+          (showDl ? '<button type="button" class="btn btn-ghost" id="dlBtn" data-act="download">' + esc(t('gc.done.download')) + '</button>' : '') +
         '</div>' : '') +
       '</section>' +
-      (others.length ? '<section class="card gc-next"><h2 class="section-title">다른 Part 이어서 검증하기</h2>' +
-        '<p class="small muted">같은 검증자 정보와 동의로 바로 이어서 하실 수 있습니다. 같은 환자에 대한 <b>다른 CDSS 답변</b>입니다.</p>' +
+      (others.length ? '<section class="card gc-next"><h2 class="section-title">' + esc(t('gc.done.nextTitle')) + '</h2>' +
+        '<p class="small muted">' + t('gc.done.nextHelpHtml') + '</p>' +
         '<div class="btn-row" style="margin-top:10px">' + others.map(function (p) {
           var n = partItemCount(p);
-          return '<button type="button" class="btn btn-accent" data-next-part="' + esc(p.id) + '">' + esc(p.label) + ' 이어서 검증하기 <span class="gc-btn-sub">판정 ' + n + '건 · ' + esc(minutesRange(n)) + '</span></button>';
+          return '<button type="button" class="btn btn-accent" data-next-part="' + esc(p.id) + '">' + esc(t('gc.done.nextBtn', { part: partLabel(p) })) +
+            ' <span class="gc-btn-sub">' + esc(t('gc.done.nextSub', { n: n, min: minutesRange(n, p) })) + '</span></button>';
         }).join('') + '</div></section>' : '') +
-      '<section class="card"><p class="small muted">이 기기에서 다른 선생님이 검증하시려면 아래 버튼을 눌러 새로 시작해 주세요.</p>' +
-        '<button type="button" class="btn btn-ghost" id="newBtn" data-act="new" style="margin-top:10px">새 검증 시작</button></section>';
+      '<section class="card"><p class="small muted">' + esc(t('gc.done.newHelp')) + '</p>' +
+        '<button type="button" class="btn btn-ghost" id="newBtn" data-act="new" style="margin-top:10px">' + esc(t('gc.done.newBtn')) + '</button></section>';
     elDock.innerHTML = '';
   }
 
@@ -1628,11 +1793,13 @@
     var unsent = (S.outbox || []).slice();
     if (!nextPart) {
       if (unsent.length && CFG.ENDPOINT) {
-        if (!window.confirm('아직 전송되지 않은 응답이 있습니다. 새로 시작하면 이 기기에 보관된 응답이 삭제됩니다. 계속하시겠습니까?')) return;
-      } else if (!window.confirm('새 검증을 시작하시겠습니까?')) return;
+        if (!window.confirm(t('gc.confirm.unsent'))) return;
+      } else if (!window.confirm(t('gc.confirm.new'))) return;
     }
     var prev = S;
     try { localStorage.removeItem(STORE_KEY); } catch (_) {}
+    // 보관된(이전) 세트로 진행하던 세션이 끝난 뒤 새 검증자는 활성 세트로: 새로 불러온다
+    if (!nextPart && setOf(G, DATA) !== ACTIVE_SET) { S = null; location.reload(); return; }
     S = null;
     STEPS = [];
     flushing = false;
@@ -1661,17 +1828,19 @@
   }
 
   function updateTopbar() {
-    var label = '', pct = 0, showPatient = false;
+    var label = '', pct = 0, showPatient = false, html = '';
     if (staleTab) { label = ''; }
     else if (S && S.screen === 'eval' && S.order) {
       var st = curStep();
-      label = '답변 ' + (st.u + 1) + '/' + nUnits() + ' · ' + (st.i >= 0 ? '판정 ' + itemOrder(st.u, st.i) + '/' + totalItems() : '시작');
+      // '답변 1/2 · 판정 3/18' — 아주 좁은 화면(영어)에서는 앞의 '답변 1/2 · ' 를 숨긴다 (styles.css .tp-unit)
+      html = '<span class="tp-unit">' + esc(t('gc.top.unit', { u: st.u + 1, n: nUnits() })) + ' · </span>' +
+        esc(st.i >= 0 ? t('gc.top.item', { k: itemOrder(st.u, st.i), total: totalItems() }) : t('gc.top.start'));
       pct = S.stepIdx / STEPS.length * 100;
       showPatient = true;
-    } else if (S && S.screen === 'final') { label = '제출 전'; pct = 100; }
-    else if (S && S.screen === 'done') { label = '완료'; pct = 100; }
+    } else if (S && S.screen === 'final') { label = t('gc.top.final'); pct = 100; }
+    else if (S && S.screen === 'done') { label = t('gc.top.done'); pct = 100; }
     $('topbar').classList.toggle('in-case', !!(S && S.screen === 'eval'));
-    elTopProg.textContent = label;
+    if (html) elTopProg.innerHTML = html; else elTopProg.textContent = label;
     elFill.style.width = pct + '%';
     elPatientBtn.hidden = !showPatient;
   }
@@ -1690,20 +1859,17 @@
 
   function renderStale() {
     elMain.innerHTML =
-      '<section class="card"><span class="eyebrow">다른 탭에서 진행 중</span>' +
-        '<h1 class="gc-h1" style="margin-top:6px">이 검증은 다른 탭(창)에서 이어서 진행되고 있습니다</h1>' +
-        '<p class="lead" style="margin-top:8px">응답이 섞이지 않도록 이 탭은 멈췄습니다. 이 탭을 닫거나, 이 탭에서 계속하려면 아래 버튼을 눌러 주세요. ' +
-        '(다른 탭은 자동으로 멈춥니다.)</p>' +
-        '<button type="button" class="btn btn-primary" data-act="takeover" style="margin-top:14px">이 탭에서 이어서 하기</button></section>';
+      '<section class="card"><span class="eyebrow">' + esc(t('gc.stale.eyebrow')) + '</span>' +
+        '<h1 class="gc-h1" style="margin-top:6px">' + esc(t('gc.stale.title')) + '</h1>' +
+        '<p class="lead" style="margin-top:8px">' + esc(t('gc.stale.lead')) + '</p>' +
+        '<button type="button" class="btn btn-primary" data-act="takeover" style="margin-top:14px">' + esc(t('gc.stale.btn')) + '</button></section>';
     elDock.innerHTML = '';
   }
 
   function render() {
     var testMode = (S ? S.is_test : (URL_TEST || !CFG.ENDPOINT));
     elTestBanner.hidden = !testMode;
-    elTestBanner.textContent = !CFG.ENDPOINT
-      ? '테스트 모드 — 서버 주소가 설정되지 않아 응답이 서버로 전송되지 않습니다.'
-      : '테스트 응답 — 이 응답은 분석에서 제외되도록 표시됩니다.';
+    elTestBanner.textContent = t(!CFG.ENDPOINT ? 'gc.banner.noEndpoint' : 'gc.banner.test');
 
     if (staleTab) renderStale();
     else if (!S) { if (draft.eligible === 'no') renderBlocked(); else renderIntro(); }
@@ -1785,7 +1951,7 @@
       ui.critOpen = !ui.critOpen;
       $('gcCrit').classList.toggle('open', ui.critOpen);
       b.setAttribute('aria-expanded', String(ui.critOpen));
-      b.textContent = ui.critOpen ? '접기' : '전체 보기';
+      b.textContent = t(ui.critOpen ? 'gc.elem.less' : 'gc.elem.more');
       if (ui.critOpen) trackOpen('criterion');
     }
     else if (act === 'submit') goNext();
@@ -1829,24 +1995,170 @@
   }, true);
 
   // ---------------------------------------------------------------------------
-  // Boot
+  // Header: language / theme controls (assets/i18n.js) and the static page text
   // ---------------------------------------------------------------------------
-  if (S && S.screen === 'starting') {
-    // 순서 배정 도중 창이 닫힌 경우: 처음부터
-    try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-    S = null; STEPS = [];
+  function mountPrefs() {
+    if (!I18N.controlsHTML || document.querySelector('#topbar .prefs')) return;
+    var slot = $('prefsSlot');
+    if (!slot) {   // 이전 HTML(캐시)에는 자리가 없음
+      slot = document.createElement('div'); slot.id = 'prefsSlot'; slot.className = 'prefs-slot';
+      document.querySelector('#topbar .topbar-right').appendChild(slot);
+    }
+    slot.innerHTML = I18N.controlsHTML();
+    I18N.bindControls(slot);
   }
-  if (!S) draft = loadDraft() || emptyDraft();
-  if (S && (S.screen === 'eval' || S.screen === 'final')) {
-    S.metrics.resumes += 1;
-    S.device.last_resume = deviceInfo();
-    save();
-    setTimeout(function () { toast('이전에 진행하던 검증을 불러왔습니다.', 3200); }, 300);
+  // HTML 의 고정 문구 (data-i18n 이 없는 이전 HTML 에서도 맞게)
+  function paintChrome() {
+    document.title = t('gc.meta.title');
+    var bs = document.querySelector('#topbar .brand-text strong'), bm = document.querySelector('#topbar .brand-text small');
+    if (bs) bs.textContent = t('gc.brand.title');
+    if (bm) bm.textContent = t('gc.brand.sub');
+    var last = elPatientBtn.lastChild;   // 아이콘(svg) 다음의 글자
+    if (last && last.nodeType === 3) last.nodeValue = ' ' + t('gc.patientBtn');
+    else if (last && last.nodeType === 1 && last.tagName.toLowerCase() !== 'svg') last.textContent = t('gc.patientBtn');
+    elDock.setAttribute('aria-label', t('gc.dock.aria'));
+    $('drawerClose').setAttribute('aria-label', t('gc.close'));
+    if (elDrawer.hidden) $('drawerTitle').textContent = t('gc.drawer.title');
   }
-  render();
-  if (S && S.screen === 'eval' && curItem()) { jm(curItem()).visits += 1; save(); }
-  if (S) flush();
+  // 언어를 바꾸면 지금 화면을 그 언어로 다시 그린다 (응답·시간 측정·스크롤·펼침 상태는 그대로)
+  var booted = false, shownLang = null;
+  function onLang() {
+    if (!booted) return;
+    if (uiLang() === shownLang) return;   // 이미 보이는 언어를 다시 누른 경우: 아무것도 바뀌지 않음
+    shownLang = uiLang();
+    tick();
+    elToast.hidden = true;   // 이전 언어로 뜬 안내는 닫는다
+    var y = window.scrollY;
+    var open = [];
+    Array.prototype.forEach.call(elMain.querySelectorAll('details'), function (d, i) { if (d.open) open.push(i); });
+    var focusSel = null, ae = document.activeElement;
+    if (ae && elDock.contains(ae)) {
+      focusSel = ae.id ? '#' + ae.id : ae.hasAttribute('data-agree') ? '[data-agree="' + ae.getAttribute('data-agree') + '"]' :
+        ae.hasAttribute('data-alt') ? '[data-alt="' + ae.getAttribute('data-alt') + '"]' : null;
+    }
+    render();
+    var ds = elMain.querySelectorAll('details');
+    // 펼침 상태를 되살린다 (toggle 기록은 이미 열어 본 것이므로 그대로)
+    open.forEach(function (i) { var d = ds[i]; if (d && !d.open) d.open = true; });
+    if (!elDrawer.hidden && S && S.screen === 'eval') fillDrawer();
+    paintChrome();
+    window.scrollTo(0, y);
+    if (focusSel) { var f = elDock.querySelector(focusSel); if (f) try { f.focus({ preventScroll: true }); } catch (_) {} }
+    if (S) {
+      S.ui_lang_switches = (S.ui_lang_switches || 0) + 1;
+      noteLang(S);
+      if (S.screen === 'eval' && curItem()) noteLang(jm(curItem()));
+      save();
+    }
+  }
+  window.addEventListener('t2d:lang', onLang);
 
   // expose minimal hooks for QA (no PII beyond what the page shows)
-  window.__GC_APP__ = { version: CFG.APP_VERSION, state: function () { return S; }, steps: function () { return STEPS; } };
+  window.__GC_APP__ = { version: CFG.APP_VERSION, state: function () { return S; }, steps: function () { return STEPS; }, lang: uiLang };
+
+  // ---------------------------------------------------------------------------
+  // Boot
+  //  1) 언어 런타임·사전이 없으면(이전 HTML 이 캐시된 경우 등) 먼저 불러온다.
+  //  2) 저장된 진행 상태(없으면 이어서 하기 초안)의 케이스 세트(set_id, 없으면 v1)가 활성 세트와 다르면
+  //     data/sets/<id>/gc_items.js · ../data/sets/<id>/cases.js · design.js 를 불러와 그 세트로 이어서 진행한다
+  //     (보관본이 없으면 활성 세트 그대로). 보통은 둘 다 필요 없어 바로(동기) 시작한다.
+  // ---------------------------------------------------------------------------
+  function loadScript(src, cb) {
+    var el = document.createElement('script');
+    el.src = src; el.async = false;
+    el.onload = function () { cb(true); };
+    el.onerror = function () { if (el.parentNode) el.parentNode.removeChild(el); cb(false); };
+    (document.head || document.documentElement).appendChild(el);
+  }
+  function loadSeq(list, cb) {
+    var i = 0;
+    (function next() { if (i >= list.length) { cb(); return; } loadScript(list[i++], next); })();
+  }
+  function ensureI18n(cb) {
+    var T2 = window.T2D, need = [];
+    if (!T2 || !T2.t) need.push('../assets/i18n.js');
+    var dk = T2 && T2.i18n && T2.i18n.dict && T2.i18n.dict.ko;
+    if (!dk || !dk['ca.pt.history']) need.push('../i18n/ca.js');
+    if (!dk || !dk['gc.intro.title']) need.push('../i18n/gc.js');
+    if (!need.length) { cb(); return; }
+    loadSeq(need.map(function (u) { return u + '?v=' + encodeURIComponent(CFG.APP_VERSION); }), cb);
+  }
+  function savedSetId() {
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      if (s && s.v === 1) return String(s.set_id || 'v1');
+      var d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+      if (d && d.linked) return String(d.set_id || 'v1');
+    } catch (_) {}
+    return null;
+  }
+  function ensureSet(cb) {
+    var want = savedSetId();
+    if (!want || want === setOf(G, DATA) || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(want)) { cb(); return; }
+    var active = { g: window.GC_DATA, data: window.T2D_DATA, design: window.T2D_DESIGN };
+    var restore = function () { window.GC_DATA = active.g; window.T2D_DATA = active.data; window.T2D_DESIGN = active.design; cb(); };
+    loadScript('data/sets/' + want + '/gc_items.js', function (ok) {
+      var g = window.GC_DATA;
+      if (!ok || !g || g === active.g || (g.set_id && g.set_id !== want)) { restore(); return; }
+      loadScript('../data/sets/' + want + '/cases.js', function (ok2) {
+        var d = window.T2D_DATA;
+        if (!ok2 || !d || d === active.data || (d.set_id && d.set_id !== want)) { restore(); return; }
+        if (!g.set_id) g.set_id = want;
+        if (!d.set_id) d.set_id = want;
+        window.T2D_DESIGN = undefined;
+        loadScript('../data/sets/' + want + '/design.js', function (ok3) {
+          var ds = window.T2D_DESIGN;
+          if (!ok3 || !ds || (ds.set_id && ds.set_id !== want)) window.T2D_DESIGN = null;   // → gc-config.js 기본 Part (세트 v1)
+          cb();
+        });
+      });
+    });
+  }
+  // 이어서 하는 세션: 방문자가 언어를 직접 고른 적이 없으면(?lang= 없음, 't2d:lang' 없음) 세션을 시작한 언어로 보여 준다
+  // (ui_lang_start 가 없는 이전 버전 세션 = 한국어). 직접 고른 것이 아니므로 't2d:lang' 에 저장하지 않는다. (app.js 와 같음)
+  function explicitLang() {
+    try { var q = new URLSearchParams(location.search).get('lang'); if (q === 'ko' || q === 'en') return true; } catch (_) {}
+    try { var s = localStorage.getItem('t2d:lang'); return s === 'ko' || s === 'en'; } catch (_) { return false; }
+  }
+  function pinSessionLang(st) {
+    if (!st || st.screen === 'starting' || !I18N.i18n || explicitLang()) return;
+    var want = st.ui_lang_start === 'en' ? 'en' : 'ko';
+    if (I18N.lang === want) return;
+    I18N.lang = want;
+    document.documentElement.setAttribute('lang', want);
+    I18N.i18n.apply(document);
+  }
+  function boot() {
+    I18N = window.T2D || {};
+    G = window.GC_DATA;
+    DATA = window.T2D_DATA;
+    PARTS = resolveParts();
+    URL_PART = urlPart();
+    ENTRY.part_preselected = !!URL_PART;
+    S = load();
+    if (S) { lastRev = S.rev || 0; buildSteps(); }
+    if (S && !S.ui_langs) S.ui_langs = [S.ui_lang_start || 'ko'];   // 언어 기록이 없는 이전 상태 = 한국어로 진행
+    pinSessionLang(S);
+    shownLang = uiLang();
+    mountPrefs();
+    paintChrome();
+    if (S && S.screen === 'starting') {
+      // 순서 배정 도중 창이 닫힌 경우: 처음부터
+      try { localStorage.removeItem(STORE_KEY); } catch (_) {}
+      S = null; STEPS = [];
+    }
+    draft = S ? emptyDraft() : (loadDraft() || emptyDraft());
+    if (S && (S.screen === 'eval' || S.screen === 'final')) {
+      S.metrics.resumes += 1;
+      S.device.last_resume = deviceInfo();
+      save();
+      setTimeout(function () { toast(t('gc.toast.resumed'), 3200); }, 300);
+    }
+    render();
+    if (S && S.screen === 'eval' && curItem()) { var jc = jm(curItem()); jc.visits += 1; noteLang(jc); save(); }
+    if (S && S.screen !== 'done') { noteLang(S); save(); }
+    if (S) flush();
+    booted = true;
+  }
+  ensureI18n(function () { ensureSet(boot); });
 })();
