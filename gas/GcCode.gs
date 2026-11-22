@@ -33,7 +33,8 @@
  *  · v3 → v4 로 바꿀 때 (한 번만): 붙여넣기 → 저장 → setup 실행 → 새 권한 「외부 서비스에 연결」 허용 → [배포 관리] → 새 버전.
  *    setup 실행 로그에 '✅ 사이트 케이스 세트 자료 읽기 확인' 이 보이면 됩니다. 그 뒤로는 케이스·모델·세트를 바꿔도(사이트에 올리기만 하면)
  *    다시 붙여넣을 필요가 없습니다. 사이트를 읽지 못할 때는 이 파일 끝에 내장된 세트(GC_ITEMS)로 동작합니다.
- *  · 이미 만들어 둔 GC 전용 빈 스프레드시트를 쓰려면 아래 GC_SPREADSHEET_ID 에 시트 주소의 /d/ 와 /edit 사이 ID 를 넣고 저장하세요.
+ *  · 이미 만들어 둔 GC 전용 빈 스프레드시트를 쓰려면 아래 GC_SPREADSHEET_ID 에 시트 주소의 /d/ 와 /edit 사이 ID 를 넣고 저장하세요
+ *    (주소 전체를 붙여넣어도 ID 만 골라 씁니다).
  *    임상 수용성 평가(CA) 응답 스프레드시트의 ID 는 절대 넣지 마세요 (두 평가의 Visits 가 섞입니다). 넣으면 오류로 멈춥니다.
  *  · 요약은 10분마다 자동 갱신됩니다. 바로 보려면 함수 buildGcSummary (테스트 응답 포함: buildGcSummaryIncludingTests) 실행.
  *
@@ -158,9 +159,22 @@ function gcAssertNotCa_(ss, bound) {
  * 그 시트, 아니면 새로 만든다. setup 전에 요청이 오면 setup 을 실행하라는 오류를 낸다.
  * CA 응답 스프레드시트면 쓰지 않고 오류를 낸다 (ID 마다 처음 한 번 확인: 스크립트 속성 GC_SS_CHECKED).
  */
+/**
+ * 스프레드시트 ID 만 꺼내기: 주소 전체(https://docs.google.com/spreadsheets/d/<ID>/edit?gid=0#gid=0)나
+ * 그 일부("d/<ID>/edit…")를 붙여넣어도 /d/ 와 /edit 사이의 ID 로 바꾼다.
+ */
+function gcSheetId_(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  var m = /(?:^|\/)d\/([A-Za-z0-9_-]{20,})/.exec(s);
+  if (m) return m[1];
+  m = /^([A-Za-z0-9_-]{20,})(?:[/?#].*)?$/.exec(s);
+  return m ? m[1] : s;
+}
+
 function gcSs_(createIfMissing) {
   var props = PropertiesService.getScriptProperties();
-  var id = String(GC_SPREADSHEET_ID || '').trim() || props.getProperty('GC_SPREADSHEET_ID') || '';
+  var id = gcSheetId_(GC_SPREADSHEET_ID) || gcSheetId_(props.getProperty('GC_SPREADSHEET_ID'));
   if (id) {
     var ssId = SpreadsheetApp.openById(id);
     if (props.getProperty('GC_SS_CHECKED') !== id) {
