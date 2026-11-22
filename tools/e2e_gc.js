@@ -174,9 +174,10 @@ function makeRunner(page, kind) {
     const st = steps[s.stepIdx] || {};
     const it = (s.screen === 'eval' && st.i >= 0) ? window.GC_DATA.units[s.order[st.u]].items[st.i] : null;
     const k = steps.slice(0, s.stepIdx + 1).filter(x => x.i >= 0).length;
+    const nItems = steps.filter(x => x.i >= 0).length;
     return {
       screen: s.screen, stepIdx: s.stepIdx, review: s.review, u: st.u, i: st.i, nSteps: steps.length, itemId: it ? it.id : null,
-      k, session_id: s.session_id, evaluator_id: s.evaluator_id, part: s.part, order: s.order, seq_source: s.seq_source,
+      k, nItems, session_id: s.session_id, evaluator_id: s.evaluator_id, part: s.part, order: s.order, seq_source: s.seq_source,
       seq_index: s.seq_index, session_ordinal: s.session_ordinal, linked: s.linked_session_id, consent: s.consent,
       is_test: s.is_test, resumes: s.metrics.resumes, outbox: s.outbox.length, net: s.net, judgments: s.judgments, entry: s.entry
     };
@@ -519,7 +520,7 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
       await checkItemScreen(page, kind, it);
       ok(`language switch ${LANG} → ${other} → ${LANG} keeps the item and the decision`);
     }
-    if (extras && k === 5) {
+    if (extras && k === Math.min(5, s.nItems)) {   // 5th item, or the last one in a small Part
       // reload mid-item → resume with the decision kept
       await takeBeacons(page);
       await page.reload();

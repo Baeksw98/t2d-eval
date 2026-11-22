@@ -31,7 +31,10 @@ function blindingTerms() {
   models.forEach(m => {
     codes.add(m.code);
     [m.name].concat(m.aliases || []).filter(a => a && norm(a) && norm(a) !== m.code).forEach(a => parts.push(B0 + flex(a) + B1));
-    parts.push('(?<![A-Za-z]-)' + B0 + esc(m.code) + B1 + '(?!-[A-Za-z])');
+    // generic codes ('alpha') may start an ordinary compound ('alpha-glucosidase'); vendor/model words never get that exception
+    parts.push(VENDOR_WORDS.indexOf(String(m.code).toLowerCase()) >= 0
+      ? B0 + esc(m.code) + B1
+      : '(?<![A-Za-z]-)' + B0 + esc(m.code) + B1 + '(?!-[A-Za-z])');
   });
   VENDOR_WORDS.filter(w => !codes.has(w)).forEach(w => parts.push(B0 + esc(w) + B1));
   // GC run ids of the active set and their fragments that belong to one model only (letters + digits, 5+ chars)

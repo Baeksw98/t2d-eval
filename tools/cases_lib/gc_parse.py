@@ -61,6 +61,7 @@ def humanize_evidence(e):
 
 
 _ELEM = re.compile(r'^\*\*(Q\d\.\d-\d\d) (.+?)\*\* — 감점 기준: (.+)$')
+MAX_COMBOS = 3          # candidate regimens per CDSS answer (Phase 2 summary always lists 3)
 _ROW = re.compile(r'^\| (조합 (\d)|Phase 1) \|')
 _TABLE_HEAD = '| 단위 | 판정 |'
 _AUDIT_FIX = re.compile(r'^[✗✘]\s*(?:→|->)\s*(충족|감점)')
@@ -91,6 +92,7 @@ def parse(path, models, problems):
     """
     lines = path.read_text(encoding='utf-8').split('\n')
     units, cur, elem, question = [], None, None, None
+    qseen = {}
     in_table = False
     where = lambda n: '%s:%d' % (rel(path), n)
     for ln_no, ln in enumerate(lines, 1):
@@ -109,6 +111,7 @@ def parse(path, models, problems):
             units.append(cur)
             elem = None
             question = None
+            qseen = {}
             continue
         if not cur:
             continue
@@ -122,16 +125,28 @@ def parse(path, models, problems):
         m = re.match(r'^### (\d\.\d) (.+)$', ln)
         if m:
             question = {'id': m.group(1), 'text': m.group(2).strip(), 'line': ln_no}
+            qseen[question['id']] = question
             elem = None
             continue
         m = re.match(r'^\*\*(1\.\d) (.+)\*\*$', ln)
         if m:
             question = {'id': m.group(1), 'text': m.group(2).strip(), 'line': ln_no}
+            qseen[question['id']] = question
             elem = None
             continue
         m = _ELEM.match(ln)
         if m:
-            elem = {'id': m.group(1), 'title': m.group(2).strip(), 'criterion': m.group(3).strip(), 'line': ln_no, 'tables': 0}
+            elem = {'id': m.group(1), 'title': m.group(2).strip(), 'criterion': m.group(3).strip(), 'line': ln_no, 'tables': 0,
+                    'seen': set()}
+            qid = elem['id'][1:4]
+            # Phase 2–5: the element sits under its own "### x.y" header. Phase 1: both "**1.1 …**" and "**1.2 …**"
+            # come first and their elements follow, so it is enough that the matching question appeared in this report.
+            if (qid not in qseen) if qid.startswith('1.') else (not question or question['id'] != qid):
+                problems.error(where(ln_no), '채점 항목 %s 위에 같은 번호의 질문 머리 줄이 없습니다%s [no-question]'
+                               % (elem['id'], (' (지금 질문은 %s)' % question['id']) if question else ''),
+                               'Phase 2–5 항목은 "### %s 질문 제목", Phase 1 항목은 "**%s 질문 제목**" 줄 아래에 두세요 — 항목 번호(Q%s-…)와 질문 번호가 같아야 합니다'
+                               % (qid, qid, qid))
+                elem = None
             continue
         if ln.startswith('**Q'):
             elem = None
@@ -171,6 +186,14 @@ def parse(path, models, problems):
             problems.error(where(ln_no), '%s 행이 %s 항목 아래에 있습니다 — Phase 1 항목(Q1.x)에는 "Phase 1" 행만, Phase 2–5 항목에는 "조합 N" 행만 [phase-mismatch]'
                            % (unit_label, elem['id']))
             continue
+        if combo > MAX_COMBOS:
+            problems.error(where(ln_no), '"%s" 행이 있습니다 — 답변마다 후보 조합은 %d개(조합 1–%d)입니다 [bad-combo]' % (unit_label, MAX_COMBOS, MAX_COMBOS))
+            continue
+        if combo in elem['seen']:
+            problems.error(where(ln_no), '%s 의 판정 표에 "%s" 행이 두 번 있습니다 [dup-row]' % (elem['id'], unit_label),
+                           '한 항목의 표에는 조합마다(또는 Phase 1) 한 행만 둡니다 — 조합 번호를 확인하세요')
+            continue
+        elem['seen'].add(combo)
         v = _verdict(verdict)
         if v == '':
             problems.error(where(ln_no), '판정 "%s" 을 읽을 수 없습니다 — "○ 충족", "−1 감점", "채점하지 않음" 중 하나 [bad-verdict]' % verdict[:20])
@@ -202,23 +225,26 @@ def parse(path, models, problems):
         body = re.sub(r'^(△|[✗✘]\s*(?:→|->)\s*(충족|감점))\s*', '', a)
         cm = re.match(r'^\[([^\]]+)\]\s*', body)
         category = cm.group(1) if cm else ''
-        if cm:
-            body = body[cm.end():]
+        if not category:
+            problems.error(where(ln_no), '감사 표시(%s) 뒤에 오류 유형 "[…]" 이 없습니다 [no-category]' % a[:1],
+                           '형식: "△ [근거 불충분] 설명 〔근거〕" 또는 "✗ → 충족 [답변 내용 오독] 설명 〔근거〕"')
+            continue
+        body = body[cm.end():]
         # split audit explanation and its 〔evidence〕 quotes
         ev = re.findall(r'〔([^〕]+)〕', body)
         expl = humanize(re.sub(r'\s*〔[^〕]+〕', '', body).strip())
         ev = [humanize_evidence(e) for e in ev]
         qid = elem['id'][1:4]  # Q2.1-02 -> 2.1
         item_id = '%s|%s|%s' % (cur['key'], ('C%d' % combo) if combo else 'P1', elem['id'])
-        cur['lines'][item_id] = {'row': ln_no, 'element': elem['line'],
-                                 'question': question['line'] if question and question['id'] == qid else elem['line']}
+        qrec = qseen.get(qid)
+        cur['lines'][item_id] = {'row': ln_no, 'element': elem['line'], 'question': qrec['line'] if qrec else elem['line']}
         cur['items'].append({
             'id': item_id,
             'unit': cur['key'],
             'patient': cur['patient'],
             'combo': combo,
             'question': qid,
-            'question_text': question['text'] if question and question['id'] == qid else '',
+            'question_text': qrec['text'] if qrec else '',
             'element': elem['id'],
             'title': elem['title'],
             'criterion': elem['criterion'],

@@ -10,7 +10,9 @@ reason, the AI audit's category, explanation and evidence, and the rubric basis.
                                                                             → error  [model-name-in-text]
   - GC run ids ('20261118_ko_profile12_final_gpt61sol') and their model-specific fragments ('gpt61sol')
                                                                             → error  [run-id-in-text]
-  - a code used as the first part of a compound word ('alpha-glucosidase', 'beta-cell')   → check [model-code-compound]
+  - a generic code (not a vendor/model word) used as the first part of a compound word ('alpha-glucosidase', 'beta-cell')
+                                                                            → check [model-code-compound]
+    (a vendor/model code stays an error when hyphenated: 'DeepSeek-R1', 'GPT-based')
   - common vendor / product words (OpenAI, Claude, Gemini, …) not covered above           → check [vendor-name-in-text]
 
 Each hit is reported with file:line (the source line that holds the text) and the field it is in.
@@ -87,7 +89,9 @@ class Matcher:
                 if any(m.start() < b and a < m.end() for a, b in spans):
                     continue      # already reported as part of a longer name / run id
                 k = kind
-                if kind == 'code':
+                if kind == 'code' and code.lower() not in VENDOR_WORDS:
+                    # only a generic code ('alpha', 'beta') can be the first part of an ordinary compound word;
+                    # a vendor/model word stays an error even when hyphenated ('DeepSeek-R1', 'GPT-based')
                     after, before = s[m.end():m.end() + 2], s[max(0, m.start() - 2):m.start()]
                     if re.match(r'-[A-Za-z]', after) or re.match(r'[A-Za-z]-', before):
                         k = 'compound'

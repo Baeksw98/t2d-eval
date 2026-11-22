@@ -291,6 +291,13 @@ def codes(P):
     return ' '.join(P.errors)
 
 
+def dup_line(path, prefix):
+    """Duplicate the first line that starts with prefix (e.g. a judgment row typed twice)."""
+    ls = path.read_text(encoding='utf-8').split('\n')
+    i = next(k for k, l in enumerate(ls) if l.startswith(prefix))
+    path.write_text('\n'.join(ls[:i + 1] + [ls[i]] + ls[i + 1:]), encoding='utf-8')
+
+
 def edit(path, old, new):
     t = path.read_text(encoding='utf-8')
     assert old in t, (path, old)
@@ -392,6 +399,11 @@ gc_cases = [
     ('row label "조합1" (no space)', lambda d: edit(d / GCF, '| 조합 2 | ○ 충족 |  | “조합 2 답 2.1”', '| 조합2 | ○ 충족 |  | “조합 2 답 2.1”'), '[bad-row]'),
     ('Phase 1 row under a Phase 2 element', lambda d: edit(d / GCF, Q21_C1, Q21_C1.replace('| 조합 1 |', '| Phase 1 |')), '[phase-mismatch]'),
     ('table split by a blank line', lambda d: edit(d / GCF, '\n| 조합 2 | ○ 충족 |  | “조합 2 답 2.1”', '\n\n| 조합 2 | ○ 충족 |  | “조합 2 답 2.1”'), '[bad-table]'),
+    ('row "조합 1" twice in one table (same item id)', lambda d: dup_line(d / GCF, Q21_C1), '[dup-row]'),
+    ('row "조합 4" (only 3 candidate regimens)', lambda d: edit(d / GCF, Q21_C1, Q21_C1.replace('| 조합 1 |', '| 조합 4 |')), '[bad-combo]'),
+    ('question header "### 2.1" missing', lambda d: edit(d / GCF, '### 2.1 약물 계열별 추천 요약이 타당합니까?\n', ''), '[no-question]'),
+    ('question header number differs from the element', lambda d: edit(d / GCF, '### 2.1 약물', '### 2.2 약물'), '[no-question]'),
+    ('flagged audit without an error type "[…]"', lambda d: edit(d / GCF, '✗ → 충족 [충족 여부] reason', '✗ → 충족 reason'), '[no-category]'),
 ]
 for i_case, (label, mut, code) in enumerate(gc_cases):
     d = variant('gcfmt-%d-%s' % (i_case, code.strip('[]')), mut)
@@ -456,6 +468,9 @@ mt = blinding.Matcher(common.load_models(Pv))
 eq('blinding matcher: v1 names / codes / vendor words found, ordinary words not',
    [bool(mt.hits(x)) for x in ('GPT-6.1 Sol 은', 'gpt 6.1 sol', 'deepseek-v4.1-flash', '(gpt)', 'OpenAI', 'GLP-1 RA', 'egpt', 'claudication')],
    [True, True, True, True, True, False, False, False])
+eq('blinding matcher: a hyphenated vendor/model code is an error, a generic code in a compound term is only a check',
+   [[h[0] for h in mt.hits(x)] for x in ('DeepSeek-R1 기반', 'GPT-based 답변', 'gpt-4o', 'alpha-glucosidase')],
+   [['code'], ['code'], ['code'], []])
 
 # manifest lists a model by its name → the hint names the code (adding the model again would be a duplicate alias)
 bn, Pn = build_in(variant('manname', lambda d: edit(d / 'sets/syn3.json', '"alpha"', '"Alpha One"')), 'syn3')
@@ -470,6 +485,21 @@ r = subprocess.run([sys.executable, str(HERE / 'build_cases.py'), '--cases', str
 ok('frozen v1 + renamed model → [frozen-changed], exit 1, names the changed field', r.returncode == 1 and '[frozen-changed]' in r.stdout and 'model_name' in r.stdout, r.stdout[-700:])
 r = subprocess.run([sys.executable, str(HERE / 'build_cases.py'), '--cases', str(frz), '--set', 'v1', '--check', '--allow-frozen-change'], capture_output=True, text=True)
 ok('--allow-frozen-change → warning only, exit 0', r.returncode == 0 and '[frozen-changed]' in r.stdout, r.stdout[-500:])
+
+# freezing a set for the first time (draft → frozen) is not a content change; a later content change still is
+fz = SCRATCH / 'freeze-first'
+shutil.copytree(FIX, fz / 'cases')
+r = subprocess.run([sys.executable, str(HERE / 'build_cases.py'), '--cases', str(fz / 'cases'), '--out', str(fz / 'out'), '--set', 'syn3', '--no-gas', '--quiet'],
+                   capture_output=True, text=True)
+ok('fixture set builds into a scratch output root', r.returncode == 0, r.stdout[-400:] + r.stderr[-400:])
+edit(fz / 'cases/sets/syn3.json', '"status": "draft"', '"status": "frozen"')
+r = subprocess.run([sys.executable, str(HERE / 'build_cases.py'), '--cases', str(fz / 'cases'), '--out', str(fz / 'out'), '--set', 'syn3', '--no-gas', '--check'],
+                   capture_output=True, text=True)
+ok('freezing a set (status draft → frozen) does not trip [frozen-changed]', r.returncode == 0 and '[frozen-changed]' not in r.stdout, r.stdout[-600:])
+edit(fz / 'cases/sources/ca/P101.md', '"1.2": "P101 답안가 환자 평가"', '"1.2": "P101 답안가 환자 평가 (수정)"')
+r = subprocess.run([sys.executable, str(HERE / 'build_cases.py'), '--cases', str(fz / 'cases'), '--out', str(fz / 'out'), '--set', 'syn3', '--no-gas', '--check'],
+                   capture_output=True, text=True)
+ok('…but a content change of the now-frozen set is refused', r.returncode == 1 and '[frozen-changed]' in r.stdout, r.stdout[-600:])
 
 # GC backend JSON too large for the Apps Script cache → warning (still builds)
 ok('v1 GC backend JSON is far below the cache limit', len((ROOT / 'gc/data/sets/v1.json').read_text(encoding='utf-8')) < build.GC_CACHE_MAX_CHARS / 2)

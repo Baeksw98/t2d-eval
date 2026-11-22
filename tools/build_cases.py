@@ -82,6 +82,15 @@ def parse_text(rel_path, text):
     return json.loads(body)
 
 
+def _sans_status(o):
+    """The set's own lifecycle field ("status": draft → active → frozen) is bookkeeping, not archived content."""
+    if isinstance(o, dict):
+        return {k: _sans_status(v) for k, v in o.items() if k != 'status'}
+    if isinstance(o, list):
+        return [_sans_status(v) for v in o]
+    return o
+
+
 def frozen_check(b, out_root, P, allow):
     """A frozen set's existing archive files must not change in content (the header comment is ignored)."""
     changed = []
@@ -93,8 +102,9 @@ def frozen_check(b, out_root, P, allow):
         if old == text:
             continue
         try:
-            same = parse_text(relp, old) == parse_text(relp, text)
-            diff = [] if same else structural_diff(parse_text(relp, old), parse_text(relp, text), limit=4)
+            a, z = _sans_status(parse_text(relp, old)), _sans_status(parse_text(relp, text))
+            same = a == z            # freezing a set only adds/changes its own "status": not a content change
+            diff = [] if same else structural_diff(a, z, limit=4)
         except Exception:   # noqa: BLE001 — unreadable old file counts as a change
             same, diff = False, ['(내용 비교 불가)']
         if not same:
