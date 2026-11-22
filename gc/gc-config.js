@@ -9,9 +9,9 @@
  *   · en: { label, options, … } = 영어 화면에서만 보이는 번역 (같은 순서). 응답에는 항상 한국어 값 + code 가 저장됩니다.
  */
 window.GC_CONFIG = {
-  // GC 웹 앱 URL (…/exec). 아직 비어 있음 → 테스트 모드(응답은 이 기기에만 저장되고 서버로 보내지 않음).
-  // gas/GcCode.gs 를 새 Apps Script 프로젝트로 배포한 뒤 받은 웹 앱 URL 을 여기에 넣으면 실제 수집이 시작됩니다.
-  ENDPOINT: '',
+  // GC 웹 앱 URL (…/exec, gas/GcCode.gs 를 배포한 별도 Apps Script 프로젝트, 2026-11-22 연결).
+  // 비우면 테스트 모드(응답은 이 기기에만 저장되고 서버로 보내지 않음).
+  ENDPOINT: 'https://script.google.com/macros/s/AKfycbwTGhPC3QqvnxX0ylB90hFbyMtMtRRKf_HHRflEAWCMLbq5Ztic1gbdC_M0YbHPfE4V/exec',
 
   STUDY_ID: 'T2D-GC-2026',
   APP_VERSION: '2026-11-21.gc-v2.2',
