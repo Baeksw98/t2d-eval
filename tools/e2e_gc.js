@@ -13,7 +13,8 @@
  *                       gc-config.js `en`; every screen also checks <html lang> and that no Hangul shows outside case content
  *                       ([lang="ko"] = CDSS answers, AI rater/audit texts, patient record; [data-ugc] = the physician's name).
  *                       Default (ko) runs the Korean screens exactly as before.
- * Payloads (both languages): every POST to /gc-exec and every beacon carries ui_lang = the UI language and set_id = 'v1';
+ * Payloads (both languages): every POST to /gc-exec and every beacon carries ui_lang = the UI language and set_id = the active
+ * case set (gc/data/gc_items.js set_id; Parts from data/design.js like the page, else the gc-config.js literals);
  * the backend checks below compare the stored values with the canonical Korean labels + codes, so an English run proves the
  * payload stays language-independent.
  *
@@ -35,7 +36,8 @@
  * v1 draft probe: a continuation draft saved by the v1 page (no `missing`, has t2d_volume) asks ai_freq and can start.
  * Layout probes (unless --no-layout): Galaxy S8, iPhone SE (320 px), iPad portrait + landscape, iPhone 13 landscape, and a
  * Phase 1 item (combo 0, injected into the data in the browser only; nothing is sent).
- * Every screen: no horizontal scroll, no model names on the page. Whole run: no console errors.
+ * Every screen: no horizontal scroll, no model names on the page (pattern built from cases/models.json + the set's run ids,
+ * tools/blinding_regex.js). Whole run: no console errors.
  * Backend (GC spreadsheet via /__sheets?app=gc): GC_Sessions / GC_Judgments rows are checked field by field against
  * what was entered (verdicts, agreement flags, timing, Opened*, Eval_*, End_*), then /__gcsummary builds the GC summary
  * and GC_Adjudication / GC_Concordance are re-derived independently from GC_Judgments + gc_items.js (contract rules)
@@ -82,6 +84,11 @@ const T = (key, vars) => String(DICT[LANG][key] !== undefined ? DICT[LANG][key] 
 // config text as the page shows it (o.en[k] in English when present)
 const CT = (o, k) => (LANG === 'en' && o.en && o.en[k] != null ? o.en[k] : o[k]);
 const GC_DATA = loadWindowScript('gc/data/gc_items.js').GC_DATA;
+const ACTIVE_SET = GC_DATA.set_id || 'v1';
+// Parts as the page reads them: window.T2D_DESIGN (data/design.js, the active set) when present, else the gc-config.js literals
+const DESIGN = loadWindowScript('data/design.js').T2D_DESIGN;
+const PARTS = (DESIGN && DESIGN.gc && DESIGN.gc.parts && DESIGN.gc.parts.length) ? DESIGN.gc.parts : GC_CONFIG.PARTS;
+const BLIND = require('./blinding_regex').blindingRegex();
 const T2D_DATA = loadWindowScript('data/cases.js').T2D_DATA;
 const ITEM = {};
 Object.values(GC_DATA.units).forEach(u => u.items.forEach(it => { ITEM[it.id] = it; }));
@@ -106,7 +113,7 @@ function expectedCited(it) {
   });
   return qs.filter(x => hit.has(x));
 }
-const partItems = (pid) => GC_CONFIG.PARTS.find(p => p.id === pid).sequences[0].reduce((a, k) => a + GC_DATA.units[k].items.length, 0);
+const partItems = (pid) => PARTS.find(p => p.id === pid).sequences[0].reduce((a, k) => a + GC_DATA.units[k].items.length, 0);
 const altsFor = (it) => GC_CONFIG.VERDICTS.map(v => v.id).filter(v => v !== it.final);
 const VLABEL = Object.fromEntries(GC_CONFIG.VERDICTS.map(v => [v.id, CT(v, 'label')]));
 const PF = Object.fromEntries(GC_CONFIG.PROFILE_FIELDS.map(f => [f.id, f]));
@@ -199,7 +206,7 @@ function makeRunner(page, kind) {
       return { sw: document.documentElement.scrollWidth, w: window.innerWidth, text: document.body.innerText, lang: document.documentElement.lang, bad: bad.slice(0, 8) };
     });
     if (r.sw > r.w + 1) fail(`[${kind}] horizontal scroll on ${label}: scrollWidth ${r.sw} > ${r.w}`);
-    const m = r.text.match(/gpt|deepseek|openai|gemini|claude|anthropic|20261118_ko/i);
+    const m = r.text.match(BLIND);
     if (m) fail(`[${kind}] blinding: "${m[0]}" visible on ${label}`);
     if (r.lang !== LANG) fail(`[${kind}] <html lang> = ${r.lang} on ${label}`);
     if (LANG === 'en' && r.bad.length) fail(`[${kind}] Hangul in the UI chrome on ${label}: ${JSON.stringify(r.bad)}`);
@@ -474,7 +481,9 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
     if (extras && k === 3) {
       // go back one item, change that judgment, come forward again (re-sent as an upsert)
       await R.clickBack();
-      const prev = await R.S();
+      let prev = await R.S(), hops = 1;
+      // a unit with fewer than 3 items (other case sets): one step back is the next unit's intro → one more step to its last item
+      if (!prev.itemId) { await R.clickBack(); prev = await R.S(); hops = 2; }
       const pit = ITEM[prev.itemId];
       const was = expected[pit.id];
       const pressed = await page.$eval(was.agree ? '[data-agree="1"]' : '[data-agree="0"]', b => b.getAttribute('aria-pressed'));
@@ -488,8 +497,9 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
         await page.click('[data-agree="1"]');
         expected[pit.id] = { agree: true, phys: pit.final, comment: '' };
       }
-      await R.clickNext();
-      ok('edited a previous judgment via [이전]');
+      for (let h = 0; h < hops; h++) await R.clickNext();
+      if ((await R.S()).itemId !== it.id) fail(`[${kind}] did not come back to the item after editing the previous one`);
+      ok('edited a previous judgment via [이전]' + (hops > 1 ? ' (across a unit intro)' : ''));
     }
     if (extras && k === 4) {
       // mid-item language switch (and back): same item, same decision, dock re-rendered in the other language
@@ -520,7 +530,7 @@ async function runItems(page, R, kind, sessionNo, expected, extras) {
     }
     await R.clickNext();
   }
-  if (unitsSeen !== 2) fail(`[${kind}] saw ${unitsSeen} unit intros`);
+  if (unitsSeen !== (s0.order || []).length) fail(`[${kind}] saw ${unitsSeen} unit intros for ${(s0.order || []).length} answers`);
   return s0;
 }
 
@@ -591,7 +601,7 @@ async function runFlow(browser, kind, firstPart, urlPart) {
   }
 
   // continuation into the other Part
-  const other = GC_CONFIG.PARTS.map(p => p.id).find(p => p !== firstPart);
+  const other = PARTS.map(p => p.id).find(p => p !== firstPart);
   await page.click(`[data-next-part="${other}"]`);
   await page.waitForSelector('#evaluatorCard');
   if (await page.$('#evConsent')) fail(`[${kind}] continuation asks for consent again`);
@@ -613,8 +623,10 @@ async function runFlow(browser, kind, firstPart, urlPart) {
   await runItems(page, R, kind, 2, expected2, false);
   const d2 = await finalAndSubmit(page, R, kind, 2, expected2, false);
   sessions.push({ ...d2.st, expected: expected2, status: d2.status, part: other });
-  // finished both Parts → no further continuation offered
-  if (await page.$('[data-next-part]')) fail(`[${kind}] continuation offered after both Parts`);
+  // finished two Parts → continuation offered only for the Parts still left (none in a 2-Part set such as v1)
+  const left = PARTS.map(p => p.id).filter(p => p !== firstPart && p !== other);
+  const offered = await page.$$eval('[data-next-part]', bs => bs.map(b => b.getAttribute('data-next-part')));
+  if (offered.sort().join(',') !== left.sort().join(',')) fail(`[${kind}] continuation offered [${offered}] after Parts ${firstPart}+${other} (expected [${left}])`);
   for (const s of sessions) {
     const n = Object.keys(s.expected).length, want = partItems(s.part);
     if (n !== want) fail(`[${kind}] Part ${s.part}: ${n} judgments entered, expected ${want}`);
@@ -635,6 +647,15 @@ async function v1DraftProbe(browser) {
   console.log('\n=== v1 continuation draft ===');
   const kind = 'iPhone 13';
   const { ctx, page } = await newPage(browser, kind);
+  // that draft belongs to set v1, and the continuation must run on v1 (its archive) whatever set is active. When another set is
+  // active, nothing is sent from this probe (ENDPOINT emptied), so the backend / summary checks below stay about the active set.
+  if (ACTIVE_SET !== 'v1') {
+    await ctx.route('**/gc/gc-config.js*', async (route) => {
+      const res = await route.fetch();
+      const body = (await res.text()).replace(/ENDPOINT:\s*'[^']*'/, "ENDPOINT: ''");
+      await route.fulfill({ response: res, body, headers: { ...res.headers(), 'content-type': 'text/javascript; charset=utf-8' } });
+    });
+  }
   const q = new URLSearchParams({ src: 'e2e-layout', test: '1', lang: LANG });
   await page.goto(`${BASE}/gc/?reset=1&${q}`);
   await page.waitForSelector('#eligCard');
@@ -658,7 +679,8 @@ async function v1DraftProbe(browser) {
   const started = await page.waitForFunction(() => window.__GC_APP__.state() && window.__GC_APP__.state().screen === 'eval', null, { timeout: 20000 }).then(() => true, () => false);
   if (!started) fail('[v1 draft] session did not start after answering ai_freq');
   else {
-    const st = await page.evaluate(() => { const s = window.__GC_APP__.state(); return { f: s.evaluator.fields, c: s.evaluator.codes, l: s.linked_session_id, p: s.part }; });
+    const st = await page.evaluate(() => { const s = window.__GC_APP__.state(); return { f: s.evaluator.fields, c: s.evaluator.codes, l: s.linked_session_id, p: s.part, set: s.set_id, data: (window.GC_DATA || {}).set_id }; });
+    if (st.set !== 'v1' || st.data !== 'v1') fail(`[v1 draft] continuation not on set v1: state ${st.set}, data ${st.data} (active ${ACTIVE_SET})`);
     if (st.f.ai_freq !== PF_AI_LAST || st.c.ai_freq !== 5 || 't2d_volume' in st.f || st.l !== v1draft.linked || st.p !== 'B') fail(`[v1 draft] session evaluator ${JSON.stringify(st)}`);
     else ok(`v1 draft: ai_freq asked, session B starts linked with {${Object.keys(st.f).join(', ')}}`);
   }
@@ -723,7 +745,7 @@ async function phase1Probe(browser, kind) {
   const ctx = await browser.newContext({ ...devices[kind], locale: 'ko-KR' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('t2d:lang', l); } catch (_) {} }, LANG);
   const CASES = loadWindowScript('data/cases.js').T2D_DATA;
-  const unit = GC_CONFIG.PARTS.find(p => p.id === 'A').sequences[0][0];
+  const unit = PARTS.find(p => p.id === 'A').sequences[0][0];
   const p1 = (CASES.outputs[unit].phase_1 || {})['1.1'] || {};
   const tpl = GC_DATA.units[unit].items.find(it => it.audit.mark === 'major') || GC_DATA.units[unit].items[0];
   const quote = String(p1.answer || '').slice(0, 24);
@@ -789,7 +811,7 @@ async function phase1Probe(browser, kind) {
   await ctx.close();
 }
 
-// every message sent to the GC web app: ui_lang = the UI language, set_id = 'v1'; values canonical (Korean labels + codes, verdict ids)
+// every message sent to the GC web app: ui_lang = the UI language, set_id = the active set; values canonical (Korean labels + codes, verdict ids)
 function checkPayloads(allSessions) {
   console.log('\n=== payloads (' + SENT.length + ' captured) ===');
   if (NO_ENDPOINT) { console.log('  (skipped: --noendpoint)'); return; }
@@ -800,8 +822,8 @@ function checkPayloads(allSessions) {
   // a judgment re-rendered after a language switch keeps ui_lang of the moment it was sent; only switches inside runItems k=4
   const badLang = mine.filter(p => p.ui_lang !== LANG);
   if (badLang.length) fail(`${badLang.length} payload(s) with ui_lang ≠ ${LANG}: ${badLang.slice(0, 3).map(p => p.action + ':' + p.ui_lang).join(', ')}`);
-  const badSet = mine.filter(p => p.set_id !== 'v1');
-  if (badSet.length) fail(`${badSet.length} payload(s) with set_id ≠ v1`);
+  const badSet = mine.filter(p => p.set_id !== ACTIVE_SET);
+  if (badSet.length) fail(`${badSet.length} payload(s) with set_id ≠ ${ACTIVE_SET}`);
   const opts = (f) => GC_CONFIG.PROFILE_FIELDS.find(x => x.id === f).options;
   mine.filter(p => p.action === 'gc_finish').forEach(p => {
     const f = p.evaluator.fields || {};
@@ -812,7 +834,7 @@ function checkPayloads(allSessions) {
     });
     (p.judgments || []).forEach(j => { if (['met', 'deducted', 'not_applicable'].indexOf(j.phys_verdict) < 0) fail(`judgment ${j.item_id} phys_verdict ${j.phys_verdict}`); });
   });
-  if (!errors.some(e => /payload|canonical|phys_verdict/.test(e))) ok(`${mine.length} payloads (${[...acts].sort().join(', ')}): ui_lang = ${LANG}, set_id = v1, canonical values`);
+  if (!errors.some(e => /payload|canonical|phys_verdict/.test(e))) ok(`${mine.length} payloads (${[...acts].sort().join(', ')}): ui_lang = ${LANG}, set_id = ${ACTIVE_SET}, canonical values`);
 }
 
 async function checkBackend(allSessions) {
@@ -981,9 +1003,9 @@ async function checkSummary(J, S, V) {
   if (!all43) fail('GC_Summary [4-3] (AI 사용 빈도별 AI 최종 동의율) missing');
   else if (all43[3] !== nVotes || all43[4] !== nAgreeFinal) fail(`GC_Summary [4-3] 전체 ${all43[3]}/${all43[4]} ≠ ${nVotes}/${nAgreeFinal}`);
   const s5 = section(5);
-  ['Part A', 'Part B'].forEach(p => {
+  PARTS.map(q => 'Part ' + q.id).forEach(p => {
     const r = s5.find(x => x[0] === p) || [];
-    const items = allItems.filter(it => GC_CONFIG.PARTS.find(q => q.id === p.slice(-1)).sequences[0].indexOf(it.unit) >= 0);
+    const items = allItems.filter(it => PARTS.find(q => 'Part ' + q.id === p).sequences[0].indexOf(it.unit) >= 0);
     const ns = items.map(it => adjExp[it.id].n);
     const sameN = ns.every(n => n === ns[0]) && ns[0] >= 2;
     if (sameN && typeof r[6] !== 'number') fail(`GC_Summary [5] ${p}: Fleiss κ missing although every item has n = ${ns[0]}`);

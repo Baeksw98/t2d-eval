@@ -16,6 +16,10 @@
  *   RawJSON    — 수신한 모든 요청 원문 (감사 추적용)
  *   Summary    — 메뉴 [요약 통계 갱신] 실행 시 생성 (모델 × Phase 평균, I-CVI, 선호 조합 분포, 소요 시간)
  *
+ * 케이스 세트·화면 언어 (v6): 모든 응답에 SetId(케이스 세트, 빈칸 = v1)와 UiLang(화면 언어 ko/en, 빈칸 = ko) 컬럼.
+ *   모델은 자료(Model 컬럼)에서 읽으므로 케이스·모델·세트를 바꿔도 이 스크립트를 다시 붙여넣을 필요가 없습니다.
+ *   선택지 값은 화면 언어와 관계없이 항상 한국어 원문 + code 로 저장됩니다.
+ *
  * 모든 쓰기는 (SessionId[, CaseKey]) 기준 upsert 이므로 같은 요청이 재전송되어도 중복 행이 생기지 않습니다.
  */
 
@@ -23,7 +27,7 @@
 // CONFIG
 // ============================================================
 var SPREADSHEET_ID = '1-R-BZKkhyaTSHvHssM5sazwjq-KKQqfjzIqAhFMbS10';            // 시트에서 [확장 프로그램 → Apps Script]로 만든 경우 비워 둠. script.google.com 에서 따로 만든 경우 시트 ID 입력
-var BACKEND_VERSION = '2026-11-20.ca-backend-v5';
+var BACKEND_VERSION = '2026-11-21.ca-backend-v6';
 var EXPECTED_STUDY_ID = 'T2D-CA-2026';
 
 var SHEET = {
@@ -70,7 +74,7 @@ function respHeaders_() {
   ['vignette', 'p1', 'combo', 'p2', 'p3', 'p4', 'p5'].forEach(function (s) { h.push('Chars_' + STEP_COL[s]); });
   h = h.concat(['ComboSeen_1', 'ComboSeen_2', 'ComboSeen_3', 'ComboDwellSec_1', 'ComboDwellSec_2', 'ComboDwellSec_3',
     'RxDetailsOpens', 'Interruptions', 'ComboResets', 'PatientDrawerOpens', 'PatientDrawerSec',
-    'AppVersion', 'DataVersion', 'BackendVersion', 'MetricsJson']);
+    'AppVersion', 'DataVersion', 'BackendVersion', 'MetricsJson', 'UiLang', 'UiLangs', 'SetId']);
   return h;
 }
 
@@ -80,7 +84,7 @@ function longHeaders_() {
     'CaseKey', 'PatientId', 'PatientSeenPrior', 'Model', 'ModelName', 'ComboChoice', 'ComboKey', 'RankCueVisible',
     'Phase', 'PhaseLabel', 'TargetKey', 'Score', 'Acceptable_4plus', 'FirstScore', 'Changed',
     'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Changes', 'ScrollPct', 'ScrollAtFirstRating', 'Chars', 'CharsPerSec',
-    'Visits', 'HarmInPhase'];
+    'Visits', 'HarmInPhase', 'UiLang', 'SetId'];
 }
 
 function sessHeaders_() {
@@ -94,13 +98,14 @@ function sessHeaders_() {
     'IntroSec', 'FinalSec', 'Resumes', 'Interruptions', 'SendFailures',
     'FurthestCase', 'FurthestStep', 'LastActivityAt', 'PartialRatingsN', 'OverallComment',
     'FormFactor', 'ViewportW', 'ViewportH', 'ScreenW', 'ScreenH', 'DPR', 'TouchPoints', 'CoarsePointer',
-    'Language', 'TimeZone', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion'
+    'Language', 'TimeZone', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion',
+    'UiLang', 'UiLangStart', 'UiLangs', 'UiLangSwitches', 'SetId'
   ];
 }
 
 function visitsHeaders_() {
   return ['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser',
-    'ReferrerOrigin', 'IsTest', 'AppVersion'];
+    'ReferrerOrigin', 'IsTest', 'AppVersion', 'UiLang', 'SetId'];
 }
 
 function rawHeaders_() {
@@ -194,7 +199,7 @@ function handleView_(body) {
     var sh = sheet_(ss_(), SHEET.VISITS, visitsHeaders_());
     sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
       short_(en.type_param || ''), short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
-      !!p.is_test, short_(p.app_version)].map(cell_));
+      !!p.is_test, short_(p.app_version), uiLang_(p.ui_lang), setId_(p.set_id)].map(cell_));
     sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
     return json_({ ok: true });
   } catch (err) {
@@ -205,6 +210,23 @@ function handleView_(body) {
 }
 
 function short_(v, n) { return String(v == null ? '' : v).slice(0, n || 64); }
+
+/** 화면 언어 ko / en (그 밖의 값은 짧게 잘라 그대로, 없으면 빈칸 = ko 로 해석) */
+function uiLang_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  return s === 'ko' || s === 'en' ? s : s.replace(/[^a-z\-]/g, '').slice(0, 8);
+}
+/** 언어 목록 ['ko','en'] → 'ko;en' */
+function uiLangs_(a) { return Array.isArray(a) ? a.map(uiLang_).filter(function (x) { return x; }).join(';') : ''; }
+/** 케이스 세트 ID (사이트 data/cases.js 의 set_id). 형식이 아니면 빈칸 = v1 로 해석 */
+function setId_(v) {
+  var s = String(v == null ? '' : v).trim();
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(s) ? s : '';
+}
+/** 세트가 같은지: 빈칸 = v1 */
+function sameSet_(a, b) { return (setId_(a) || 'v1') === (setId_(b) || 'v1'); }
+/** 모든 응답 행 공통: 보낼 때의 화면 언어 · 케이스 세트 */
+function langSetCols_(p) { return { UiLang: uiLang_(p.ui_lang), SetId: setId_(p.set_id) }; }
 
 /** 이탈 지점 기록: 완료된 세션은 건드리지 않음 */
 function updateProgress_(ss, db, p) {
@@ -218,7 +240,7 @@ function updateProgress_(ss, db, p) {
     LastActivityAt: short_(g.last_activity_at, 40), PartialRatingsN: nz_(g.partial_ratings_n)
   };
   if (idx < 0) { row.FirstSeenAt = new Date(); row.Status = 'started'; }
-  Object.assign(row, evalCols_(p));
+  Object.assign(row, evalCols_(p), langSetCols_(p));
   tWrite_(t, idx, row);
 }
 
@@ -255,7 +277,7 @@ function handleStart_(ss, db, p) {
     if (cur !== '' && cur !== null) seq = Number(cur);
   }
   if (seq === undefined || isNaN(seq)) {
-    seq = p.is_test ? Math.floor(Math.random() * n) : nextBalancedSeq_(t, n, p.study_type || '');
+    seq = p.is_test ? Math.floor(Math.random() * n) : nextBalancedSeq_(t, n, p.study_type || '', p.set_id);
   }
   p.sequence_index = seq;
   upsertSession_(ss, db, p, 'started');
@@ -266,10 +288,12 @@ function handleStart_(ss, db, p) {
  * 균형 배정: 실제(비테스트) 세션 중 응답이 1건 이상 들어온 세션(in_progress/completed)과
  * 최근 2시간 이내 시작한 세션(started, 진행 중일 가능성)을 순서별로 세어 가장 적은 순서를 배정.
  * 동률이면 순환 카운터 순서를 따른다. → 중도 이탈자가 Latin square 균형을 깨지 않음.
+ * 같은 케이스 세트(SetId, 빈칸 = v1) · 같은 Type 안에서만 센다 (세트마다 Type 구성이 다름). v1 의 카운터 이름은 이전과 같다.
  */
-function nextBalancedSeq_(t, n, studyType) {
+function nextBalancedSeq_(t, n, studyType, setId) {
   var props = PropertiesService.getScriptProperties();
-  var key = 'SEQ_COUNTER' + (studyType ? '_' + studyType : '');
+  var sid = setId_(setId) || 'v1';
+  var key = 'SEQ_COUNTER' + (studyType ? '_' + studyType : '') + (sid !== 'v1' ? '_' + sid : '');
   var counter = Number(props.getProperty(key) || '0');
   props.setProperty(key, String(counter + 1));
   var counts = [];
@@ -279,6 +303,7 @@ function nextBalancedSeq_(t, n, studyType) {
     var test = isTrue_(r[t.map.IsTest - 1]);
     if (test) return;
     if (t.map.StudyType && String(r[t.map.StudyType - 1]) !== String(studyType)) return;   // 같은 Type 안에서만 균형
+    if (t.map.SetId && !sameSet_(r[t.map.SetId - 1], sid)) return;                           // 같은 케이스 세트 안에서만
     var raw = r[t.map.SequenceIndex - 1];
     var seq = Number(raw);
     if (raw === '' || isNaN(seq) || seq < 0 || seq >= n) return;
@@ -345,6 +370,9 @@ function upsertSession_(ss, db, p, status) {
     row.Resumes = s.resumes;
     row.Interruptions = nz_(s.interruptions);
     row.SendFailures = nz_(s.send_failures);
+    if (s.ui_lang_start !== undefined) row.UiLangStart = uiLang_(s.ui_lang_start);
+    if (s.ui_langs) row.UiLangs = uiLangs_(s.ui_langs);
+    if (s.ui_lang_switches !== undefined) row.UiLangSwitches = nz_(s.ui_lang_switches);
   }
   if (p.action === 'finish') {
     row.OverallComment = p.overall_comment || '';
@@ -356,7 +384,7 @@ function upsertSession_(ss, db, p, status) {
     row.ScreenW = d.sw; row.ScreenH = d.sh; row.DPR = d.dpr; row.TouchPoints = d.touch;
     row.CoarsePointer = d.coarse; row.Language = d.lang; row.TimeZone = d.tz; row.UserAgent = d.ua;
   }
-  Object.assign(row, evalCols_(p));
+  Object.assign(row, evalCols_(p), langSetCols_(p));
   tWrite_(t, idx, row);
 }
 
@@ -433,7 +461,8 @@ function writeCase_(ss, db, p, c, fromFinish) {
     row['ComboDwellSec_' + (i + 1)] = ex.dwell_ms ? sec_(ex.dwell_ms[i]) : '';
   });
   Object.assign(row, itemCols_(c.items, 'Case_'));
-  Object.assign(row, evalCols_(p));
+  Object.assign(row, evalCols_(p), langSetCols_(p));
+  if (c.ui_langs) row.UiLangs = uiLangs_(c.ui_langs);   // 이 케이스 화면이 보인 언어들 (2개 = 언어를 바꿔 가며 평가)
   tWrite_(t, idx, row);
 
   // Long format (Phase 단위)
@@ -467,7 +496,8 @@ function writeCase_(ss, db, p, c, fromFinish) {
       TTFRSec: (st.ttfr_ms === null || st.ttfr_ms === undefined) ? '' : sec_(st.ttfr_ms),
       Changes: st.changes || 0, ScrollPct: st.scroll_max === undefined ? '' : st.scroll_max, Visits: st.visits || 0
     };
-    Object.assign(lrow, evalCols_(p));
+    Object.assign(lrow, evalCols_(p), langSetCols_(p));
+    if (st.ui_lang) lrow.UiLang = uiLang_(st.ui_lang);   // 이 Phase 를 평정한 때의 화면 언어 (없으면 보낼 때의 언어)
     tWrite_(lt, tFind_(lt, { SessionId: p.session_id, CaseKey: c.case_key, Phase: k.toUpperCase() }), lrow);
   });
 }

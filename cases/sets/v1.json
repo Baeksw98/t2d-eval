@@ -1,0 +1,35 @@
+{
+  "_comment": "Set v1 = the live study of Nov 2026 (2 virtual patients × 2 CDSS). FROZEN: sources, data versions and the Type/Part assignment are written out so that adding new source files or changing the generator never changes v1. The 'auto' generator reproduces these Types/Parts exactly (tools/test_cases.py checks it).",
+  "id": "v1",
+  "status": "frozen",
+  "title": {
+    "ko": "제2형 당뇨병 가상 환자 2명 × CDSS 2종 (2026년 11월)",
+    "en": "2 virtual type 2 diabetes patients × 2 CDSS (November 2026)"
+  },
+  "patients": ["P051", "P011"],
+  "models": ["deepseek", "gpt"],
+  "sources": {
+    "ca": ["ca/2026-11-18_CDSS_P051_P011.md"],
+    "gc": ["gc/E11_P051_gpt.md", "gc/E11_P051_deepseek.md", "gc/E11_P011_gpt.md", "gc/E11_P011_deepseek.md"]
+  },
+  "data_version": {
+    "ca": "2026-11-18.v1",
+    "gc": "2026-11-19.gc2"
+  },
+  "ca": {
+    "per_session": 2,
+    "minutes_per_unit": [10, 15],
+    "types": [
+      { "id": "A", "sequences": [["P051_deepseek", "P011_gpt"], ["P011_gpt", "P051_deepseek"]] },
+      { "id": "B", "sequences": [["P011_deepseek", "P051_gpt"], ["P051_gpt", "P011_deepseek"]] }
+    ]
+  },
+  "gc": {
+    "per_session": 2,
+    "minutes_per_item": 1.2,
+    "parts": [
+      { "id": "A", "sequences": [["P051_deepseek", "P011_gpt"], ["P011_gpt", "P051_deepseek"]] },
+      { "id": "B", "sequences": [["P011_deepseek", "P051_gpt"], ["P051_gpt", "P011_deepseek"]] }
+    ]
+  }
+}

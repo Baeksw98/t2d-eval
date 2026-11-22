@@ -1,106 +1,29 @@
-"""Build data/cases.js (window.T2D_DATA) from data/parsed_raw.json.
-Patient vignettes are parsed into structured sections; AI outputs are copied verbatim (only '**' artifacts removed upstream)."""
-import json, re, sys
+#!/usr/bin/env python3
+"""(Legacy wrapper) Build a window.T2D_DATA file from the intermediate JSON written by tools/parse_md.py.
 
-src, out = sys.argv[1], sys.argv[2]
-d = json.load(open(src, encoding="utf-8"))
+    python3 tools/build_data.py <parsed_raw.json> <out.js>
 
-TIMEPOINTS = ["12개월 전", "9개월 전", "6개월 전", "3개월 전", "현재"]
+Use tools/build_cases.py for the site: it writes data/cases.js (active set, with set_id) and data/sets/<id>/cases.js
+from cases/. This wrapper keeps the old command working (same patient parser, model names from cases/models.json).
+"""
+import json
+import pathlib
+import sys
 
-def parse_patient(pid, raw):
-    secs, cur = {}, None
-    for line in raw.split("\n"):
-        s = line.rstrip()
-        if not s.strip():
-            continue
-        m = re.match(r"^###\s*(.+?)\s*$", s.strip())
-        if m:
-            title = m.group(1)
-            if ":" in title:
-                k, v = title.split(":", 1)
-                secs[k.strip()] = [v.strip()]
-                cur = None
-            else:
-                cur = title
-                secs[cur] = []
-            continue
-        if cur:
-            secs[cur].append(s.strip())
-    p = {"id": pid}
-    p["demographics"] = secs["인구통계"][0]
-    p["visit_type"] = secs["내원 유형"][0]
-    # reason / symptoms
-    for l in secs["내원 이유/현재 증상"]:
-        if l.startswith("내원 이유:"):
-            parts = [x.strip() for x in l[len("내원 이유:"):].split("|")]
-            p["visit_reason"] = parts[0]
-            for x in parts[1:]:
-                if x.startswith("진단 경위:"):
-                    p["diagnosis_history"] = x[len("진단 경위:"):].strip()
-        elif l.startswith("현재 증상:"):
-            p["symptoms"] = [x.strip() for x in l[len("현재 증상:"):].split(";") if x.strip()]
-    hist = {}
-    for l in secs["병력"]:
-        m = re.match(r"^-\s*(.+?):\s*(.+)$", l)
-        if m:
-            hist[m.group(1).strip()] = m.group(2).strip()
-    p["history"] = {
-        "other_conditions": [x.strip() for x in hist.get("기타 질환", "").split(";") if x.strip()],
-        "dm_comorbidities": [x.strip() for x in hist.get("당뇨 관련 동반질환", "").split(";") if x.strip()],
-        "family": hist.get("가족력", ""),
-        "social": [x.strip() for x in hist.get("사회력", "").split(";") if x.strip()],
-    }
-    meds = []
-    for l in secs["약물 정보"]:
-        m = re.match(r"^-\s*현재 복용약:\s*(.+)$", l)
-        if m:
-            meds = [x.strip() for x in m.group(1).split(";") if x.strip()]
-    p["medications"] = meds
-    p["exam"] = [x.strip() for x in secs["신체검사(현재)"][0].split(";") if x.strip()]
-    labs, extra = [], []
-    for l in secs["검사 수치(검사일/상대시점 포함)"]:
-        m = re.match(r"^-\s*(.+?):\s*(.+)$", l)
-        if not m:
-            continue
-        group, body = m.group(1).strip(), m.group(2).strip()
-        if group == "추가 검사":
-            extra = [x.strip() for x in body.split(";") if x.strip()]
-            continue
-        for im in re.finditer(r"([^,;()]+?)\s*\(([^()]*)\)", body):
-            name = im.group(1).strip().lstrip(",;").strip()
-            vals = {}
-            for part in im.group(2).split(";"):
-                part = part.strip()
-                for tp in TIMEPOINTS:
-                    if part.startswith(tp + " "):
-                        vals[tp] = part[len(tp) + 1:].strip()
-            if len(vals) != 5:
-                raise SystemExit(f"{pid}: lab parse failed for {name}: {vals}")
-            labs.append({"group": group, "name": name, "values": [vals[tp] for tp in TIMEPOINTS]})
-    p["labs"] = labs
-    p["labs_timepoints"] = TIMEPOINTS
-    p["extra_tests"] = extra
-    for l in secs["개별 치료 결정 요소"]:
-        if l.startswith("현재까지의 치료 순응도:"):
-            body = l.split(":", 1)[1].strip()
-            p["adherence"] = [x.strip() + ("" if x.strip().endswith(".") else ".") for x in re.split(r"(?<=[.])\s+", body) if x.strip()]
-        elif l.startswith("환자의 경제적 여건:"):
-            p["economics"] = l.split(":", 1)[1].strip()
-    return p
+sys.dont_write_bytecode = True   # no __pycache__ in the repository
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from cases_lib import ca_parse, common  # noqa: E402
 
-patients = {pid: parse_patient(pid, raw) for pid, raw in d["patients_raw"].items()}
-
-MODEL_NAMES = {"deepseek": "DeepSeek-V4.1-Flash", "gpt": "GPT-6.1 Sol"}
-outputs = {}
-for key, o in d["outputs"].items():
-    pid, model = key.split("_")
-    outputs[key] = {"key": key, "patient": pid, "model": model, "model_name": MODEL_NAMES[model],
-                    "phase_1": o["phase_1"], "combinations": o["combinations"]}
-
+if len(sys.argv) != 3:
+    sys.exit(__doc__)
+P = common.Problems()
+models = common.load_models(P)
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+patients = ca_parse.build_patients(d["patients_raw"], {}, P)
+outputs = {k: ca_parse.build_output(k, o, models) for k, o in d["outputs"].items()}
+print(P.report('build_data:'))
+if not P.ok():
+    sys.exit(1)
 data = {"data_version": "2026-11-18.v1", "patients": patients, "outputs": outputs}
-js = "/* AUTO-GENERATED by tools/build_data.py — do not edit by hand. */\nwindow.T2D_DATA = " + json.dumps(data, ensure_ascii=False, indent=1) + ";\n"
-open(out, "w", encoding="utf-8").write(js)
-for pid, p in patients.items():
-    print(pid, p["demographics"], "| labs:", len(p["labs"]), [l["name"] for l in p["labs"]])
-    print("   meds:", p["medications"]); print("   extra:", p["extra_tests"]); print("   adherence n:", len(p["adherence"]), "| econ:", p["economics"][:40])
-    print("   hist:", p["history"])
+open(sys.argv[2], "w", encoding="utf-8").write(common.window_js('T2D_DATA', data, 'tools/build_data.py'))
+print('wrote', sys.argv[2], '-', len(patients), 'patients,', len(outputs), 'outputs')

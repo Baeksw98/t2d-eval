@@ -1,10 +1,21 @@
 // Site page tests — landing (/), About (/about/), QR hub (/qr/, /qr/main|ca|gc/):
 //   legacy root redirects, '이어서 하기' banner (reads CA/GC localStorage), src·site·wave carried into links,
 //   About is standalone (no links into /ca/ or /gc/), KO/EN (switch persists across pages, ?lang=, no Hangul visible in English,
-//   KO dictionary = the Korean written in the HTML, EN/KO key coverage), theme (persists across pages), no console errors.
+//   KO dictionary = the Korean written in the HTML, EN/KO key coverage), theme (persists across pages), no console errors,
+//   active case set (data/design.js: landing times, About set line, QR times/Types follow it; without it the v1 HTML text).
 // Evaluation pages are stubbed (no app code, no backend traffic). Browser locale defaults to ko-KR.
 // Usage: node tools/mock_gas_server.js 8787   then   node tools/test_site.js http://localhost:8787 [shotsDir]
 const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+// the active case set of this checkout (data/design.js, written by tools/build_cases.py): expected times / set line follow it
+const ACT = (() => { const w = {}; vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'data', 'design.js'), 'utf8'), { window: w }); return w.T2D_DESIGN; })();
+const ACT_MIN = {
+  ca: ACT.ca.minutes,
+  gc: ACT.gc.minutes || [Math.min(...ACT.gc.parts.map(p => p.minutes[0])), Math.max(...ACT.gc.parts.map(p => p.minutes[1]))]
+};
+const ACT_NP = new Set(ACT.units.map(u => u.patient)).size, ACT_NM = new Set(ACT.units.map(u => u.model)).size;
 const base = (process.argv[2] || 'http://127.0.0.1:8931').replace(/\/$/, '');
 const shots = process.argv[3];
 let fail = 0;
@@ -101,7 +112,7 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     ok(ca === '/ca/?src=qr&site=h1&wave=2', 'CA button carries src/site/wave: ' + ca);
     ok(hrefs.some(h => h === '/about/?src=qr&site=h1&wave=2'), 'About link carries params');
     ok(!(await p.isVisible('#resume')), 'no resume banner without saved state');
-    ok((await p.innerText('.pick-card.ca .pc-meta')).trim() === '약 20–30분' && (await p.innerText('.pick-card.gc .pc-meta')).trim() === '약 10–25분', 'landing card times (set v1 fallback)');
+    ok((await p.innerText('.pick-card.ca .pc-meta')).trim() === `약 ${ACT_MIN.ca[0]}–${ACT_MIN.ca[1]}분` && (await p.innerText('.pick-card.gc .pc-meta')).trim() === `약 ${ACT_MIN.gc[0]}–${ACT_MIN.gc[1]}분`, 'landing card times (active set ' + ACT.set_id + ')');
     await p.click('.pick-card.gc');
     await p.waitForTimeout(100);
     ok(new URL(p.url()).pathname === '/gc/' && new URL(p.url()).searchParams.get('src') === 'qr', 'clicking GC goes to /gc/?src=qr…');
@@ -224,7 +235,7 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     ok(await p.getAttribute('.prefs [data-lang="ko"]', 'aria-pressed') === 'true', 'KO button pressed');
     await p.click('.prefs [data-lang="en"]');
     ok((await p.innerText('h1')) === 'Choose an evaluation' && (await p.title()).startsWith('Type 2 Diabetes'), 'landing switches to English in place (heading + <title>)');
-    ok((await p.innerText('.pick-card.ca .pc-meta')).trim() === 'About 20–30 min', 'landing card time in English');
+    ok((await p.innerText('.pick-card.ca .pc-meta')).trim() === `About ${ACT_MIN.ca[0]}–${ACT_MIN.ca[1]} min`, 'landing card time in English');
     // theme: system → light → dark
     ok(await p.evaluate(() => T2D.theme) === 'system' && await p.evaluate(() => document.documentElement.dataset.theme) === 'light', 'theme starts as system (light scheme)');
     await p.click('.prefs [data-theme-cycle]');
@@ -275,6 +286,52 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     const a4 = await p.$$eval('.qr-card a.btn[target]', as => as.map(a => a.getAttribute('href')));
     ok(a4.length === 3 && a4.every(h => /\/\?mode=poster&lang=en$/.test(h)), 'English hub: A4 buttons open the English print view ' + a4.join(', '));
     ok(!errs.length, 'print checks: no console errors ' + errs.join(' | '));
+    await c.close();
+  }
+  // --- active case set (data/design.js → window.T2D_DESIGN): landing times, About set line, QR times and Types ---
+  {
+    const c = await mk();
+    const p = await c.newPage();
+    const errs = watch(p);
+    await p.goto(base + '/', { waitUntil: 'networkidle' });
+    const d = await p.evaluate(() => window.T2D_DESIGN && { id: T2D_DESIGN.set_id, ca: T2D_DESIGN.ca.minutes, gc: T2D_DESIGN.gc.minutes, n: T2D_DESIGN.units.length });
+    ok(!!d && d.id === ACT.set_id, 'landing loads data/design.js (set ' + (d && d.id) + ', active ' + ACT.set_id + ')');
+    const mins = await p.$$eval('[data-minutes]', els => els.map(e => e.getAttribute('data-minutes') + '=' + e.textContent));
+    ok(d && mins.join('|') === `ca=약 ${d.ca[0]}–${d.ca[1]}분|gc=약 ${d.gc[0]}–${d.gc[1]}분`, 'landing times = the active set ' + mins.join('|'));
+    await p.goto(base + '/about/', { waitUntil: 'networkidle' });
+    ok(await p.isVisible('#setNow') && (await p.innerText('#setNow')) === `지금 쓰는 케이스 세트 ${ACT.set_id} · 환자 ${ACT_NP}명 × 모델 ${ACT_NM}종`, 'About shows the current case set: ' + (await p.innerText('#setNow')));
+    ok(!errs.length, 'case-set pages: no console errors ' + errs.join(' | '));
+    // a different active set (served in place of data/design.js) changes the times, the set line and the QR Types without HTML edits
+    const alt = await p.evaluate(() => {
+      const x = JSON.parse(JSON.stringify(window.T2D_DESIGN || {}));
+      const m0 = (x.units[0] || {}).model || 'gpt';   // one more patient, no new model
+      x.set_id = 'v9'; x.units = (x.units || []).concat([{ key: 'P099_' + m0, patient: 'P099', model: m0 }]);
+      x.ca.minutes = [35, 45]; x.ca.types = x.ca.types.concat([{ id: 'Z', label: { ko: 'Type Z', en: 'Type Z' }, sequences: x.ca.types[0].sequences }]);
+      x.gc.minutes = null; x.gc.parts.forEach((pt, i) => { pt.minutes = i ? [5, 10] : [15, 20]; });
+      return 'window.T2D_DESIGN = ' + JSON.stringify(x) + ';';
+    });
+    await c.route(/\/data\/design\.js(\?|$)/, r => r.fulfill({ status: 200, contentType: 'application/javascript', body: alt }));
+    await p.goto(base + '/', { waitUntil: 'networkidle' });
+    const mins2 = await p.$$eval('[data-minutes]', els => els.map(e => e.textContent));
+    ok(mins2.join('|') === '약 35–45분|약 5–20분', 'landing times follow another set (gc = range of its Parts): ' + mins2.join('|'));
+    await p.goto(base + '/about/', { waitUntil: 'networkidle' });
+    ok((await p.innerText('#setNow')) === `지금 쓰는 케이스 세트 v9 · 환자 ${ACT_NP + 1}명 × 모델 ${ACT_NM}종`, 'About set line follows another set: ' + (await p.innerText('#setNow')));
+    await p.goto(base + '/about/?lang=en', { waitUntil: 'networkidle' });
+    ok((await p.innerText('#setNow')) === `Current case set v9 · ${ACT_NP + 1} patients × ${ACT_NM} models`, 'About set line in English: ' + (await p.innerText('#setNow')));
+    await p.evaluate(() => localStorage.removeItem('t2d:lang'));
+    await p.goto(base + '/qr/ca/', { waitUntil: 'networkidle' });
+    const vs = await p.$$eval('[data-variant]', els => els.map(e => e.getAttribute('data-variant')).filter(Boolean));
+    ok(vs.includes('Z') && (await p.inputValue('#msg')).includes('35–45'), 'QR CA page: Types and time from the set (' + vs.join(',') + ')');
+    await c.unroute(/\/data\/design\.js(\?|$)/);
+    // no data/design.js (an old cached page or a failed request): the HTML's v1 times, no set line, nothing breaks
+    await c.route(/\/data\/design\.js(\?|$)/, r => r.fulfill({ status: 404, body: '' }));
+    const errs2 = [];
+    p.on('pageerror', e => errs2.push(e.message));
+    await p.goto(base + '/', { waitUntil: 'networkidle' });
+    ok((await p.$$eval('[data-minutes]', els => els.map(e => e.textContent))).join('|') === '약 20–30분|약 10–25분', 'without data/design.js: landing keeps the v1 times');
+    await p.goto(base + '/about/', { waitUntil: 'networkidle' });
+    ok(await p.isHidden('#setNow'), 'without data/design.js: no set line on About');
+    ok(!errs2.length, 'without data/design.js: no script errors ' + errs2.join(' | '));
     await c.close();
   }
   await browser.close();

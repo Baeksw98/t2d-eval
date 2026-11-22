@@ -23,6 +23,13 @@
  *  · AI 친숙도 변수 = ai_freq (사용한 적 없음 / 주 1회 미만 / 주 1–2회 / 주 3–6회 / 거의 매일, 코드 1–5). 전 직군 공통.
  *  · v3.3 까지의 문항 major · t2d_volume · ai_use · ai_trust 는 응답한 평가자가 있을 때만 '(v3.3 이전 문항)'으로 표시.
  *    ai_use(월 단위 5단계)와 ai_freq(주 단위 5단계)는 척도가 달라 코드를 합치지 않는다.
+ *
+ * 케이스 세트 · 모델 · 화면 언어 (백엔드 v6)
+ *  · 모델은 자료(Responses.Model, 없으면 CaseKey 의 '_' 뒤)에서 읽는다. 모델별 표는 모델 수와 관계없이 만들고,
+ *    모델 간 짝 비교([5])는 분석 자료에 모델이 정확히 2개일 때만 만든다.
+ *  · 세트(SetId, 빈칸 = v1): 기본은 분석 가능한 완료 케이스가 가장 많은 세트 하나만 분석(다른 세트 = other_set 제외).
+ *    스크립트 속성 SUMMARY_SET = <세트 ID> 이면 그 세트, all 이면 모든 세트. 이 스크립트를 다시 붙여넣을 필요 없음.
+ *  · 화면 언어(UiLang, 빈칸 = ko): 참여 흐름 [1] 에 언어별 행, 영어 응답이 있으면 하위군 [7] 에 언어별 행.
  */
 
 var SM_ALONG = 'AnalysisLong';
@@ -59,7 +66,7 @@ var SM_AL_COLS = ['EvaluatorCode', 'EvaluatorId', 'SessionId', 'SessionOrdinal',
   'Specialty', 'BoardYears', 'AIFreq_code', 'T2DVolume_code', 'AIUse_code', 'AITrust_code', 'Src', 'Site', 'Wave', 'FormFactor',
   'InAppBrowser', 'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Chars', 'CharsPerSec', 'ScrollAtFirstRating', 'HarmCode',
   'HarmInPhase', 'WouldPrescribeCode', 'IntentUseCode', 'SpeederFlag', 'CaseSpeeder', 'StraightlineFlag',
-  'HiddenHeavyFlag', 'RatedBeforeReadFlag', 'IncludedInAnalysis', 'ExclusionReason', 'IsTest'];
+  'HiddenHeavyFlag', 'RatedBeforeReadFlag', 'IncludedInAnalysis', 'ExclusionReason', 'IsTest', 'SetId', 'UiLang'];
 
 // ============================================================
 // PUBLIC ENTRY POINTS
@@ -189,7 +196,7 @@ function sm_load_(ss, includeTests) {
     V: sm_read_(ss, SHEET.VISITS || 'Visits'), C: sm_readConc_(ss),
     sessions: [], byId: {}, pool: [], cases: [], phases: [], evals: [], evByKey: {}, modelName: {},
     inc: { sessions: [], cases: [], phases: [], evals: [] },
-    excl: { test: sm_zero_(), pilot: sm_zero_(), duplicate: sm_zero_() },
+    excl: { test: sm_zero_(), pilot: sm_zero_(), other_set: sm_zero_(), duplicate: sm_zero_() }, set: { id: 'v1', how: 'default' }, setCounts: {},
     incompleteRows: 0, visits: [], caseVisMedian: NaN, raw: sm_readHeader_(ss, SHEET.RAW)
   };
   D.S.rows.forEach(function (o) {
@@ -242,6 +249,8 @@ function sm_load_(ss, includeTests) {
     var ordv = sm_num_(sm_sf_(s, 'SessionOrdinal'));
     s.ordinal = sm_fin_(ordv) ? ordv : (sm_str_(sm_sf_(s, 'LinkedSessionId')) ? 2 : NaN);
     s.intent = sm_item_(sm_sf_(s, 'End_intent_use'), sm_sf_(s, 'End_intent_use_code'), null).code;
+    s.setId = setId_(sm_sf_(s, 'SetId')) || 'v1';
+    s.uiLang = uiLang_(sm_sf_(s, 'UiLangStart')) || uiLang_(sm_sf_(s, 'UiLang')) || 'ko';
     s.reason = '';
   });
 
@@ -252,12 +261,16 @@ function sm_load_(ss, includeTests) {
     D.incompleteRows += s.caseList.length - s.cases.length;
   });
 
-  // ---- 파일럿 · 같은 Type 중복 ----
+  // ---- 파일럿 · 다른 케이스 세트 · 같은 세트·같은 Type 중복 ----
+  D.set = sm_pickSet_(D);
+  D.sets = sm_uniq_(D.pool.map(function (s) { return s.setId; })).sort();
+  D.multiSet = D.sets.length > 1;
   var groups = {};
   D.pool.forEach(function (s) {
     if (/^pilot/i.test(s.wave)) { s.reason = 'pilot'; return; }
+    if (D.set.id !== '*' && s.setId !== D.set.id) { s.reason = 'other_set'; return; }
     if (!s.cases.length) return;
-    var g = s.ident + '\u0001' + s.type;
+    var g = s.ident + '\u0001' + s.setId + '\u0001' + s.type;
     (groups[g] = groups[g] || []).push(s);
   });
   Object.keys(groups).forEach(function (g) {
@@ -330,6 +343,30 @@ function sm_load_(ss, includeTests) {
 }
 
 function sm_zero_() { return { sessions: 0, cases: 0, phases: 0 }; }
+
+/**
+ * 분석할 케이스 세트: 스크립트 속성 SUMMARY_SET (세트 ID, 또는 all = 모든 세트) → 없으면 분석 가능한 완료 케이스
+ * (테스트·파일럿 제외)가 가장 많은 세트, 같으면 가장 최근에 시작된 세트 → 자료가 없으면 v1.
+ */
+function sm_pickSet_(D) {
+  var cnt = {}, last = {};
+  D.pool.forEach(function (s) {
+    if (/^pilot/i.test(s.wave) || !s.cases.length) return;
+    cnt[s.setId] = (cnt[s.setId] || 0) + s.cases.length;
+    var f = sm_fin_(s.firstSeen) ? s.firstSeen : 0;
+    if (!sm_has_(last, s.setId) || f > last[s.setId]) last[s.setId] = f;
+  });
+  D.setCounts = cnt;
+  var want = '';
+  try { want = sm_str_(PropertiesService.getScriptProperties().getProperty('SUMMARY_SET')); } catch (eP) { want = ''; }
+  if (want.toLowerCase() === 'all') return { id: '*', how: '스크립트 속성 SUMMARY_SET = all (모든 세트)' };
+  if (setId_(want)) return { id: setId_(want), how: '스크립트 속성 SUMMARY_SET = ' + setId_(want) };
+  var best = '';
+  Object.keys(cnt).sort().forEach(function (k) {
+    if (!best || cnt[k] > cnt[best] || (cnt[k] === cnt[best] && last[k] > last[best])) best = k;
+  });
+  return best ? { id: best, how: '완료 케이스가 가장 많은 세트 (' + cnt[best] + '건)' } : { id: 'v1', how: '자료 없음 — 기본값 v1' };
+}
 function sm_addExcl_(x, s) { x.sessions++; x.cases += s.cases.length; x.phases += s.cases.length * PHASE_KEYS.length; }
 
 function sm_addSess_(D, id) {
@@ -385,7 +422,7 @@ function sm_caseDerive_(s, c) {
   var o = c.row;
   c.included = !s.reason;
   c.reason = s.reason;
-  c.model = sm_modelKey_(o.Model, o.ModelName);
+  c.model = sm_modelCode_(o.Model, c.key, o.ModelName);
   c.modelRaw = sm_str_(o.Model);
   c.modelNameRaw = sm_str_(o.ModelName);
   c.patient = sm_str_(o.PatientId) || c.key.split('_')[0];
@@ -438,11 +475,13 @@ function sm_phaseDerive_(s, c, k, lo) {
   return p;
 }
 
-function sm_modelKey_(model, name) {
-  var m = sm_str_(model).toLowerCase(), n = sm_str_(name).toLowerCase(), s = m + ' ' + n;
-  if (/gpt/.test(s)) return 'gpt';
-  if (/deepseek/.test(s)) return 'deepseek';
-  return m || n || '(미상)';
+/** 모델 코드: Responses.Model (사이트 data/cases.js 의 model = cases/models.json 의 code) → CaseKey 의 '_' 뒤 → 모델 이름 */
+function sm_modelCode_(model, key, name) {
+  var m = sm_str_(model).toLowerCase();
+  if (m) return m;
+  var k = sm_str_(key), i = k.indexOf('_');
+  if (i > 0 && i < k.length - 1) return k.slice(i + 1).toLowerCase();
+  return sm_str_(name).toLowerCase() || '(미상)';
 }
 
 function sm_rules_() {
@@ -463,7 +502,13 @@ function sm_rules_() {
     '평가자 특성(직군·연차·경력·AI 사용 빈도 등)은 평가자의 첫 포함 세션 값이며, 비어 있으면 같은 평가자의 다른 세션 값을 씁니다.',
     '배경 문항은 사이트 v3.4(2026-11-19)부터 직군별 항목(레지던트 연차 / 전문의 주 분야·경력) + AI 사용 빈도(ai_freq) 1문항입니다. ' +
       'v3.3 까지의 문항(레지던트 전공 major, 진료량 t2d_volume, AI 도구 사용 빈도 ai_use, AI 신뢰 ai_trust)은 응답한 평가자가 있을 때만 "(v3.3 이전 문항)"으로 표시하며, ' +
-      '척도가 다른 ai_use 코드는 ai_freq 에 합치지 않습니다. 버전 때문에 묻지 않은 문항은 "' + SM_NOT_ASKED + '" 행으로 인원만 표시하고 % 분모에서 뺍니다.'
+      '척도가 다른 ai_use 코드는 ai_freq 에 합치지 않습니다. 버전 때문에 묻지 않은 문항은 "' + SM_NOT_ASKED + '" 행으로 인원만 표시하고 % 분모에서 뺍니다.',
+    '케이스 세트(SetId, 빈칸 = v1): 기본은 분석 가능한 완료 케이스(테스트·파일럿 제외)가 가장 많은 세트 하나만 분석합니다(같으면 더 최근에 시작된 세트). ' +
+      '스크립트 속성 SUMMARY_SET 에 세트 ID 를 넣으면 그 세트, all 을 넣으면 모든 세트를 함께 분석합니다. 다른 세트의 세션은 ExclusionReason=other_set 으로 ' +
+      '주 분석에서 빼되 참여 흐름 [1] 에는 셉니다. 중복 판정은 같은 세트·같은 StudyType 안에서만 합니다(세트마다 Type 구성이 다름).',
+    '모델은 자료에서 읽습니다(Model 컬럼 = cases/models.json 의 code, 없으면 CaseKey 의 "_" 뒤). 모델별 표는 모델 수와 관계없이, 모델 간 짝 비교 [5] 는 분석 자료에 모델이 정확히 2개일 때만 만듭니다.',
+    '화면 언어(UiLang, 빈칸 = ko): 선택지 값은 언어와 관계없이 한국어 원문 + code 로 저장됩니다. 세션 언어 = 시작 언어(UiLangStart, 없으면 UiLang). ' +
+      '영어 화면의 문항 번역은 연구책임자 확인 전이므로, 영어 응답이 있으면 [7] 의 언어별 행으로 확인합니다.'
   ];
 }
 
@@ -501,6 +546,7 @@ function sm_s0_(o, D) {
   o.add(['분석 포함 세션 수', D.inc.sessions.length]);
   o.add(['분석 포함 완료 케이스 수', D.inc.cases.length]);
   o.add(['분석 포함 Phase 평정 수', sm_scored_(D.inc.phases).length]);
+  o.add(['분석 케이스 세트 (SetId, 빈칸 = v1)', D.set.id === '*' ? '모든 세트' : D.set.id, D.set.how]);
   o.add(['AnalysisLong 행 수 (테스트 외 완료 케이스 × Phase)', D.phases.length]);
   var fs = D.pool.map(function (s) { return s.firstSeen; }).filter(sm_fin_);
   o.add(['데이터 기간 (Sessions.FirstSeenAt, 테스트 제외)', fs.length ? new Date(Math.min.apply(null, fs)) : '', '~',
@@ -510,9 +556,18 @@ function sm_s0_(o, D) {
   o.add(['test', D.excl.test.sessions, D.excl.test.cases, D.excl.test.phases,
     D.includeTests ? '테스트 포함 모드 — 제외하지 않음' : 'IsTest=TRUE — Summary·AnalysisLong 모두에서 제외']);
   o.add(['pilot', D.excl.pilot.sessions, D.excl.pilot.cases, D.excl.pilot.phases, 'Wave=pilot — 주 분석 제외(IncludedInAnalysis=0), 참여 흐름에는 포함']);
-  o.add(['duplicate', D.excl.duplicate.sessions, D.excl.duplicate.cases, D.excl.duplicate.phases, '같은 평가자의 같은 Type 반복 — 첫 완료 세션만 포함']);
+  o.add(['other_set', D.excl.other_set.sessions, D.excl.other_set.cases, D.excl.other_set.phases, '분석 세트(' + (D.set.id === '*' ? '모든 세트' : D.set.id) + ')가 아닌 케이스 세트 — 주 분석 제외, 참여 흐름에는 포함']);
+  o.add(['duplicate', D.excl.duplicate.sessions, D.excl.duplicate.cases, D.excl.duplicate.phases, '같은 평가자의 같은 세트·같은 Type 반복 — 첫 완료 세션만 포함']);
   o.add(['미완료 케이스 행', '', D.incompleteRows, '', 'CaseCompletedAt 없음 — 집계하지 않음']);
   o.add(['완료 케이스가 없는 세션', D.pool.filter(function (s) { return !s.cases.length; }).length, 0, 0, '시작 후 이탈 — [1] 참여 흐름 참고']);
+  o.gap();
+  o.head(['케이스 세트 (SetId)', '세션 수', '완료 케이스가 있는 세션', '완료 케이스 (파일럿 제외)', '분석 포함']);
+  if (!D.sets.length) o.add(['(세션 없음)']);
+  D.sets.forEach(function (id) {
+    var arr = D.pool.filter(function (s) { return s.setId === id; });
+    o.add([id, arr.length, arr.filter(function (s) { return s.cases.length > 0; }).length, D.setCounts[id] || 0,
+      (D.set.id === '*' || D.set.id === id) ? '예' : '아니오 (other_set)']);
+  });
   o.gap();
   o.head(['버전', '값', '세션 수']);
   [['AppVersion', 'AppVersion'], ['InstrumentVersion', 'InstrumentVersion']].forEach(function (x) {
@@ -540,6 +595,18 @@ function sm_s1_(o, D) {
     var vs = (hasV && typeAttributable) ? D.visits.filter(function (v) { return sm_str_(v.TypeParam).toUpperCase() === t.toUpperCase(); }) : null;
     o.add(sm_flowRow_('StudyType', t || '(미기록)', vs, D.pool.filter(function (s) { return s.type === t; })));
   });
+  if (D.multiSet || D.sets.some(function (x) { return x !== 'v1'; })) {
+    var vSet = D.V.cols.indexOf('SetId') >= 0;
+    D.sets.forEach(function (id) {
+      o.add(sm_flowRow_('SetId', id, (hasV && vSet) ? D.visits.filter(function (v) { return (setId_(v.SetId) || 'v1') === id; }) : null,
+        D.pool.filter(function (s) { return s.setId === id; })));
+    });
+  }
+  var vLang = D.V.cols.indexOf('UiLang') >= 0;
+  sm_orderKeys_(sm_uniq_(['ko'].concat(D.pool.map(function (s) { return s.uiLang; }))), ['ko', 'en']).forEach(function (l) {
+    o.add(sm_flowRow_('UiLang (시작 언어)', l, (hasV && vLang) ? D.visits.filter(function (v) { return (uiLang_(v.UiLang) || 'ko') === l; }) : null,
+      D.pool.filter(function (s) { return s.uiLang === l; })));
+  });
   ['Src', 'Site'].forEach(function (col) {
     var vals = sm_uniq_(D.pool.map(function (s) { return sm_str_(sm_sf_(s, col)); })
       .concat(D.visits.map(function (v) { return sm_str_(v[col]); })));
@@ -553,6 +620,8 @@ function sm_s1_(o, D) {
   o.note(typeAttributable ? 'StudyType 행의 방문 수는 링크에 Type 이 지정된(TypeParam) 방문만 셉니다.'
     : 'Visits 에는 Type 정보(TypeParam=A/B)가 없어 StudyType 행의 방문 지표는 비워 두었습니다.');
   if (!hasV) o.note('Visits 시트가 없어 방문 지표를 계산하지 못했습니다.');
+  o.note('UiLang 행 = 세션을 시작한 화면 언어(UiLangStart, 없으면 UiLang, 둘 다 없으면 ko). 방문 수는 Visits 에 UiLang 컬럼이 있을 때만(백엔드 v6 부터) 셉니다. ' +
+    '언어를 바꿔 가며 응답한 세션: ' + D.pool.filter(function (s) { return sm_str_(sm_sf_(s, 'UiLangs')).indexOf(';') >= 0; }).length + '개.');
   o.gap();
 
   var nc = D.pool.filter(function (s) { return !s.complete; });
@@ -666,7 +735,7 @@ function sm_s3_(o, D) {
   o.head(['StudyType', 'SequenceIndex', '제시 순서 (Order)', '시작 세션', '완료 세션 (전체)', '완료 세션 (분석 포함)']);
   var g = {}, keys = [];
   D.pool.forEach(function (s) {
-    var k = s.type + '\u0001' + s.seq;
+    var k = (D.multiSet ? s.setId + ' · ' : '') + s.type + '\u0001' + s.seq;
     if (!sm_has_(g, k)) { g[k] = []; keys.push(k); }
     g[k].push(s);
   });
@@ -681,16 +750,18 @@ function sm_s3_(o, D) {
   });
   o.gap();
   o.head(['CaseKey', '환자', '모델', '완료 케이스 (분석 포함)', '세션 내 1번째', '세션 내 2번째', '이어서 평가 세션 (GlobalCaseOrder ≥ 3)', '완료 케이스 (전체: 파일럿·중복 포함)']);
-  var ck = sm_caseKeys_(D.cases);
+  var setCases = D.cases.filter(function (c) { return D.set.id === '*' || c.sess.setId === D.set.id; });
+  var ck = sm_caseKeys_(setCases);
   if (!ck.length) o.add(['(완료 케이스 없음)']);
   ck.forEach(function (k) {
-    var all = D.cases.filter(function (c) { return c.key === k; });
+    var all = setCases.filter(function (c) { return c.key === k; });
     var inc = all.filter(function (c) { return c.included; });
     o.add([k, all[0].patient, D.modelName[all[0].model] || all[0].model, inc.length,
       inc.filter(function (c) { return c.caseOrder === 1; }).length,
       inc.filter(function (c) { return c.caseOrder === 2; }).length,
       inc.filter(function (c) { return sm_num_(c.row.GlobalCaseOrder) >= 3; }).length, all.length]);
   });
+  if (D.multiSet) o.note('StudyType 앞의 이름 = 케이스 세트(SetId). CaseKey 표는 분석 세트(' + (D.set.id === '*' ? '모든 세트' : D.set.id) + ')의 케이스만 셉니다.');
   o.gap();
 }
 
@@ -753,8 +824,13 @@ function sm_statCells_(st) {
 // [5] 모델 비교 (평가자 내) -------------------------------------------
 function sm_s5_(o, D) {
   var pr = sm_modelPair_(D);
-  o.title('[5] 모델 비교 (평가자 내) — ' + (pr ? pr.a.name + ' − ' + pr.b.name : '두 모델 자료 필요'));
-  if (!pr) { o.note('두 모델을 모두 평가한 자료가 없습니다.'); o.gap(); return; }
+  var nModels = sm_models_(D).length;
+  o.title('[5] 모델 비교 (평가자 내) — ' + (pr ? pr.a.name + ' − ' + pr.b.name : '모델이 정확히 2개일 때만 계산'));
+  if (!pr) {
+    o.note(nModels < 2 ? '두 모델을 모두 평가한 자료가 없습니다.' : '분석 자료의 모델이 ' + nModels + '개라 짝 비교를 하지 않습니다(정확히 2개일 때만). 모델별 결과는 [4]·[8]·[9]·[11] 을, 추론은 AnalysisLong 의 혼합모형을 쓰세요.');
+    o.gap();
+    return;
+  }
   var units = sm_pairUnits_(D, pr);
   o.head(['Phase', '쌍 n', '평균 차이', 'SD', '중앙값 차이', pr.a.name + ' 높음 비율', '같음 비율', pr.a.name + ' 낮음 비율']);
   var all = [];
@@ -765,22 +841,23 @@ function sm_s5_(o, D) {
   });
   o.add(['전체 (모든 Phase 쌍)'].concat(sm_diffCells_(all)));
   o.add(['평가자 × Type 단위 수', units.length]);
-  o.note('평가자 × StudyType 안에서 두 모델(GPT 1건, DeepSeek 1건)을 모두 평가한 경우만 짝지었습니다(차이 = ' + pr.a.name + ' − ' + pr.b.name +
-    '). 기술 통계이며, 추론은 AnalysisLong 으로 R 의 누적 링크 혼합모형(CLMM: Score ~ Model + Phase + CaseOrder + (1|EvaluatorCode) + (1|PatientId))에서 수행합니다.');
+  o.note('평가자 × 세트 × StudyType 안에서 두 모델(' + pr.a.name + ' 1건, ' + pr.b.name + ' 1건)을 모두 평가한 경우만 짝지었습니다(차이 = ' + pr.a.name + ' − ' + pr.b.name +
+    '; 모델 코드 알파벳순으로 뒤 모델 − 앞 모델). 기술 통계이며, 추론은 AnalysisLong 으로 R 의 누적 링크 혼합모형(CLMM: Score ~ Model + Phase + CaseOrder + (1|EvaluatorCode) + (1|PatientId))에서 수행합니다.');
   o.gap();
 }
 
+/** 모델이 정확히 2개일 때만 짝: a = 코드 알파벳순으로 뒤 모델, b = 앞 모델 (세트 v1: gpt − deepseek, 이전 요약과 같은 방향) */
 function sm_modelPair_(D) {
   var ms = sm_models_(D);
-  var find = function (k) { for (var i = 0; i < ms.length; i++) if (ms[i].key === k) return ms[i]; return null; };
-  if (find('gpt') && find('deepseek')) return { a: find('gpt'), b: find('deepseek') };
-  return ms.length >= 2 ? { a: ms[0], b: ms[1] } : null;
+  if (ms.length !== 2) return null;
+  var x = ms.slice().sort(function (p, q) { return sm_cmpStr_(p.key, q.key); });
+  return { a: x[1], b: x[0] };
 }
 
 function sm_pairUnits_(D, pr) {
   var g = {}, keys = [];
   D.inc.cases.forEach(function (c) {
-    var k = c.sess.ident + '\u0001' + c.sess.type;
+    var k = c.sess.ident + '\u0001' + c.sess.setId + '\u0001' + c.sess.type;
     if (!sm_has_(g, k)) { g[k] = {}; keys.push(k); }
     if (!sm_has_(g[k], c.model)) g[k][c.model] = c;
   });
@@ -858,6 +935,7 @@ function sm_s7_(o, D) {
   if (anyEv(function (e) { return e.aiUse.label; })) vars.push(['AI 도구 사용 빈도 (ai_use)' + SM_LEGACY, function (p) { return p.sess.ev.aiUse.label; }, SM_OPT.ai_use.concat([SM_NOT_ASKED]), SM_NOT_ASKED]);
   if (anyEv(function (e) { return band(e.aiTrust.code); })) vars.push(['AI 신뢰 (밴드)' + SM_LEGACY, function (p) { return band(p.sess.ev.aiTrust.code); }, SM_TRUST_BANDS.concat([SM_NOT_ASKED]), SM_NOT_ASKED]);
   vars.push(['기기 (FormFactor, 세션)', function (p) { return sm_str_(sm_sf_(p.sess, 'FormFactor')); }, ['mobile', 'tablet', 'desktop']]);
+  if (P.some(function (p) { return sm_phaseLang_(p) !== 'ko'; })) vars.push(['화면 언어 (UiLang, 평정 시점)', sm_phaseLang_, ['ko', 'en']]);
   vars.forEach(function (v) {
     var g = {}, keys = [];
     P.forEach(function (p) {
@@ -1058,6 +1136,11 @@ function sm_s11_(o, D) {
   o.gap();
 }
 
+/** Phase 평정 때의 화면 언어: PhaseLong.UiLang → Responses.UiLang → 세션 시작 언어 → ko */
+function sm_phaseLang_(p) {
+  return uiLang_(p.lo ? p.lo.UiLang : '') || uiLang_(p.c.row.UiLang) || p.sess.uiLang || 'ko';
+}
+
 function sm_descRow_(label, target, v, d) {
   if (!v.length) return [label, target, 0];
   return [label, target, v.length, sm_round_(median_(v), d), sm_round_(sm_q_(v, 0.25), d), sm_round_(sm_q_(v, 0.75), d),
@@ -1129,6 +1212,9 @@ function sm_s14_(o, D) {
   D.C.rows.forEach(function (r) {
     var k = sm_str_(r.TargetKey), v = sm_num_(r.ConcordanceScore);
     if (!k || !sm_fin_(v)) return;
+    // GC 스프레드시트의 부합도 시트를 SetId 열까지 붙여 넣은 경우: SetId 가 있으면 분석 세트의 행만 (빈칸 = 모든 세트에 적용)
+    var rs = sm_str_(r.SetId);
+    if (rs && D.set.id !== '*' && (setId_(rs) || 'v1') !== D.set.id) return;
     if (!sm_has_(conc, k)) ckeys.push(k);
     conc[k] = v;
   });
@@ -1170,13 +1256,18 @@ function sm_s15_(o, D) {
   t.push('본 연구는 QR 코드와 링크로 배포한 개방형 웹 설문(open web survey)으로 수행하였다. ' +
     (D.V.exists ? '자료 수집 기간 중 고유 기기 ' + dev + '대에서 소개 화면 조회가 ' + D.visits.length + '회 있었고, ' : '') +
     '평가 세션 ' + started + '건이 시작되어 ' + done + '건이 완료되었다(완료율 ' + pct + '%).');
-  t.push('평가자는 ' + (types.length ? 'Type ' + types.join('/') + ' ' : '') + '중 하나를 선택하여 가상 환자 2명에 대한 AI 답변 2건(두 모델 각 1건, 모델명 비공개)을 평가하였고, Type 안의 제시 순서는 서버가 균형 배정하였다.');
+  var per = sm_mode_num_(D.inc.sessions.map(function (s) { return s.nExpected; })) || SM_CASES_DEFAULT;
+  var nPat = sm_uniqCount_(D.inc.cases.map(function (c) { return c.patient; })), nMod = sm_models_(D).length;
+  t.push('평가자는 ' + (types.length ? 'Type ' + types.join('/') + ' ' : '') + '중 하나를 선택하여 AI 답변 ' + per + '건(가상 환자 ' + per + '명, ' +
+    (nMod === per ? '서로 다른 모델 ' + nMod + '종 각 1건' : '모델 ' + (nMod || '?') + '종') + ', 모델명 비공개)을 평가하였고, Type 안의 제시 순서는 서버가 균형 배정하였다' +
+    (nPat ? ' (분석 자료: 가상 환자 ' + nPat + '명, 모델 ' + nMod + '종' + (D.set.id === '*' ? ', 모든 케이스 세트' : ', 케이스 세트 ' + D.set.id) + ').' : '.'));
   t.push('각 케이스는 환자 정보, Phase 1, 치료 조합 선택, Phase 2–5, 의견의 8개 화면으로 구성되었으며, 평가 화면마다 하나의 평가 문항(5점 척도)만 제시하였다.');
   t.push('Phase 2–5 는 평가자가 선택한 치료 조합에 해당하는 AI 답변을 제시하는 적응형(adaptive) 구조이다.');
   t.push('평정 문항은 응답해야 다음 화면으로 넘어갈 수 있는 강제 응답(forced response)으로 설정하였고, 자유 의견은 선택 응답이었다.');
   t.push((D.includeTests ? '시험 응답도 포함하여 집계하였다. ' : '시험 응답 ' + D.excl.test.sessions + '개 세션은 분석에서 제외하였다. ') +
     '같은 평가자가 같은 Type 을 반복 응답한 ' + D.excl.duplicate.sessions + '개 세션은 최초 완료 세션만 남기고 제외하였으며, 파일럿 세션 ' +
-    D.excl.pilot.sessions + '개는 주 분석에서 제외하였다.');
+    D.excl.pilot.sessions + '개는 주 분석에서 제외하였다.' +
+    (D.excl.other_set.sessions ? ' 다른 케이스 세트의 세션 ' + D.excl.other_set.sessions + '개는 이 분석에서 제외하였다.' : ''));
   t.push('최종 분석에는 평가자 ' + D.inc.evals.length + '명이 완료한 ' + D.inc.cases.length + '개 케이스의 Phase 평정 ' +
     sm_scored_(D.inc.phases).length + '건이 포함되었다. 응답 품질 지표(빠른 응답, 일자형 응답, 읽기 전 응답 등)는 제외 기준이 아니라 민감도 분석에 사용하였다.');
   t.forEach(function (x) { o.add([x]); });
@@ -1209,7 +1300,7 @@ function sm_analysisLong_(D) {
       ScrollAtFirstRating: p.scrollFR, HarmCode: c.harm.code, HarmInPhase: p.harmIn, WouldPrescribeCode: c.would.code,
       IntentUseCode: s.intent, SpeederFlag: p.speeder, CaseSpeeder: c.caseSpeeder, StraightlineFlag: s.straight,
       HiddenHeavyFlag: c.hiddenHeavy, RatedBeforeReadFlag: p.rbr, IncludedInAnalysis: c.included ? 1 : 0,
-      ExclusionReason: c.reason, IsTest: s.isTest ? 1 : 0
+      ExclusionReason: c.reason, IsTest: s.isTest ? 1 : 0, SetId: s.setId, UiLang: sm_phaseLang_(p)
     };
     rows.push(SM_AL_COLS.map(function (k) { return r[k]; }));
   });
@@ -1311,10 +1402,10 @@ function sm_cbLists_() {
   ['vignette'].concat(six).forEach(function (s) { resp.push('Chars_' + STEP_COL[s]); });
   resp = resp.concat(['ComboSeen_1', 'ComboSeen_2', 'ComboSeen_3', 'ComboDwellSec_1', 'ComboDwellSec_2', 'ComboDwellSec_3',
     'RxDetailsOpens', 'Interruptions', 'ComboResets', 'PatientDrawerOpens', 'PatientDrawerSec', 'AppVersion', 'DataVersion',
-    'BackendVersion', 'MetricsJson']);
+    'BackendVersion', 'MetricsJson', 'UiLang', 'UiLangs', 'SetId']);
   return {
     Visits: ['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser', 'ReferrerOrigin',
-      'IsTest', 'AppVersion'],
+      'IsTest', 'AppVersion', 'UiLang', 'SetId'],
     Sessions: ['FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail',
       'ResidentYear', 'StudyType', 'SequenceIndex', 'SeqSource', 'Order', 'Status', 'CasesCompleted', 'LinkedSessionId',
       'EvaluatorId', 'EvaluatorCode', 'DeviceId', 'VisitId', 'SessionOrdinal', 'Src', 'Site', 'Wave', 'TypePreselected',
@@ -1322,13 +1413,14 @@ function sm_cbLists_() {
       'StartedAt', 'FinishedAt', 'TotalActiveMin', 'TotalIdleMin', 'TotalHiddenMin', 'TotalWallMin', 'IntroSec', 'FinalSec',
       'Resumes', 'Interruptions', 'SendFailures', 'FurthestCase', 'FurthestStep', 'LastActivityAt', 'PartialRatingsN',
       'OverallComment', 'FormFactor', 'ViewportW', 'ViewportH', 'ScreenW', 'ScreenH', 'DPR', 'TouchPoints', 'CoarsePointer',
-      'Language', 'TimeZone', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion'],
+      'Language', 'TimeZone', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion', 'UiLang', 'UiLangStart', 'UiLangs',
+      'UiLangSwitches', 'SetId'],
     Responses: resp,
     PhaseLong: ['ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorRole', 'EvaluatorDetail', 'ResidentYear',
       'StudyType', 'SequenceIndex', 'EvaluatorId', 'EvaluatorCode', 'SessionOrdinal', 'CaseOrder', 'GlobalCaseOrder', 'CaseKey',
       'PatientId', 'PatientSeenPrior', 'Model', 'ModelName', 'ComboChoice', 'ComboKey', 'RankCueVisible', 'Phase', 'PhaseLabel',
       'TargetKey', 'Score', 'Acceptable_4plus', 'FirstScore', 'Changed', 'VisibleSec', 'ActiveOnlySec', 'TTFRSec', 'Changes',
-      'ScrollPct', 'ScrollAtFirstRating', 'Chars', 'CharsPerSec', 'Visits', 'HarmInPhase'],
+      'ScrollPct', 'ScrollAtFirstRating', 'Chars', 'CharsPerSec', 'Visits', 'HarmInPhase', 'UiLang', 'SetId'],
     RawJSON: ['ReceivedAt', 'Action', 'SessionId', 'MsgId', 'IsTest', 'Payload', 'ElapsedMs', 'Error'],
     Concordance: ['TargetKey', 'ConcordanceScore'],
     AnalysisLong: SM_AL_COLS.slice()
@@ -1346,22 +1438,22 @@ function sm_cbDefs_() {
   a('EvaluatorRole', '직군', '인턴 / 레지던트 / 전문의');
   a('EvaluatorDetail', '직군 상세 표시 (예: 레지던트 · R2)', '문자열');
   a('ResidentYear', '레지던트 연차', 'R1 / R2 / R3');
-  a('StudyType', '평가 Type (AI 답변 2건 묶음)', 'A / B');
+  a('StudyType', '평가 Type (한 세션에 보는 AI 답변 묶음, data/design.js)', 'A, B … (케이스 세트마다 구성이 다름)');
   a('SequenceIndex', 'Type 안의 제시 순서 번호', '정수 (0부터)');
   a('SeqSource', '제시 순서 배정 출처', 'server / local (서버 미응답 시 기기 임의 배정)');
   a('EvaluatorId', '평가자 ID (기기에서 생성, 이어서 평가 시 승계)', 'UUID');
   a('EvaluatorCode', '서버 가명 코드 (정규화 성명 + 직군 해시 기준, 같은 사람 = 같은 코드)', 'E001… (테스트 T001…)');
   a('SessionOrdinal', '평가자의 몇 번째 Type 인지', '1 = 첫 Type, 2 = 이어서 평가');
-  a('CaseOrder', '세션 안에서의 케이스 순서', '1–2');
-  a('GlobalCaseOrder', '이어서 평가를 포함한 전체 케이스 순서', '1–4');
+  a('CaseOrder', '세션 안에서의 케이스 순서', '정수 (1부터)');
+  a('GlobalCaseOrder', '이어서 평가를 포함한 전체 케이스 순서', '정수 (1부터)');
   a('CaseKey', 'AI 답변 식별자 (환자_모델)', '예: P051_deepseek');
-  a('PatientId', '가상 환자 ID', 'P051 / P011');
+  a('PatientId', '가상 환자 ID', '예: P051');
   a('PatientSeenPrior', '앞선 연결 세션에서 같은 환자를 이미 봤는지', 'TRUE/FALSE');
-  a('Model', '모델 코드 (평가자에게 비공개)', 'gpt / deepseek');
+  a('Model', '모델 코드 (평가자에게 비공개; cases/models.json 의 code)', '예: gpt, deepseek');
   a('ModelName', '모델 이름 (평가자에게 비공개)', '문자열');
   a('ComboChoice', '선택한 치료 조합 번호 (화면 순서 = AI 순위)', '1–3');
   a('ComboKey', '선택한 조합 키', '<CaseKey>_C<AI 순위>');
-  a('RankCueVisible', '조합 이름에 순위 단서(우선/후순위/대안/권장)가 보였는지', 'TRUE/FALSE (GPT 답변 = TRUE)');
+  a('RankCueVisible', '조합 이름에 순위 단서(우선/후순위/대안/권장)가 보였는지', 'TRUE/FALSE (현재 사이트는 AI 가 붙인 조합 이름을 표시하지 않아 FALSE)');
   a('Src', '유입 경로 (링크의 src 파라미터)', '예: qr, link');
   a('Site', '기관 (링크의 site 파라미터)', '문자열');
   a('Wave', '수집 차수 (링크의 wave 파라미터)', 'pilot = 파일럿 (주 분석 제외)');
@@ -1374,6 +1466,14 @@ function sm_cbDefs_() {
   a('DataVersion', '케이스 자료 버전', '문자열');
   a('BackendVersion', '백엔드(Apps Script) 버전', '문자열');
   a('Interruptions', '화면 이탈(중단) 횟수', '정수');
+  a('UiLang', '응답을 보낼 때의 화면 언어 (빈칸 = ko: 백엔드 v6 이전 행). 선택지 값은 언어와 관계없이 한국어 원문 + code', 'ko / en');
+  a('UiLangs', '화면이 보인 언어들 (Responses: 이 케이스, Sessions: 이 세션)', 'ko · en · ko;en (2개 = 언어를 바꿔 가며 응답)');
+  a('SetId', '케이스 세트 (cases/sets/<id>.json; 빈칸 = v1: 백엔드 v6 이전 행)', '예: v1');
+  a('Visits.UiLang', '첫 화면을 열었을 때의 화면 언어', 'ko / en');
+  a('UiLangStart', '세션을 시작한 화면 언어', 'ko / en (빈칸 = ko)');
+  a('UiLangSwitches', '세션 중 화면 언어를 바꾼 횟수', '정수');
+  a('PhaseLong.UiLang', '이 Phase 를 평정한 때의 화면 언어 (기록이 없으면 보낼 때의 언어)', 'ko / en');
+  a('Concordance.SetId', '(선택) 이 부합도 점수의 케이스 세트 — 있으면 분석 세트의 행만 씀 (GC 스프레드시트의 부합도 시트를 SetId 열까지 붙여 넣을 때)', '빈칸 = 모든 세트');
   // Visits
   a('Visits.ReceivedAt', '서버가 방문 기록을 받은 시각', '날짜시간');
   a('Visits.VisitId', '방문 ID (소개 화면 1회 조회; Sessions.VisitId 와 연결)', 'UUID');
@@ -1470,7 +1570,7 @@ function sm_cbDefs_() {
   A('EvaluatorCode', '평가자 가명 (EvaluatorCode; 없으면 이 시트에서만 쓰는 임시 가명 R001…)', '문자열');
   A('SessionOrdinal', '평가자의 몇 번째 Type 인지', '1 / 2');
   A('PatientSeenPrior', '앞선 연결 세션에서 같은 환자를 봤는지', '1/0');
-  A('Model', '모델 코드', 'gpt / deepseek');
+  A('Model', '모델 코드 (cases/models.json 의 code)', '예: gpt, deepseek');
   A('ComboRankAI', '선택한 조합의 AI 순위 (Phase 2–5 가 이 조합 기준)', '1–3');
   A('RankCueVisible', '조합 이름에 순위 단서가 보였는지', '1/0');
   A('Phase', 'Phase', 'P1–P5');
@@ -1509,8 +1609,10 @@ function sm_cbDefs_() {
   A('HiddenHeavyFlag', '케이스 시간의 절반 넘게 다른 앱·탭 (CaseHiddenSec > 0.5 × CaseWallSec)', '1 / 0 / 빈칸');
   A('RatedBeforeReadFlag', '읽기 전 응답: 첫 응답 시점 스크롤 < 60%', '1 / 0 / 빈칸');
   A('IncludedInAnalysis', '주 분석 포함 여부', '1 / 0');
-  A('ExclusionReason', '주 분석 제외 사유', '빈칸 / pilot / duplicate');
+  A('ExclusionReason', '주 분석 제외 사유', '빈칸 / pilot / other_set (분석 세트가 아닌 케이스 세트) / duplicate');
   A('IsTest', '시험 응답 (테스트 포함 모드에서만 1 이 나옴)', '1 / 0');
+  A('SetId', '케이스 세트 (세션; 빈칸이던 이전 행 = v1)', '예: v1');
+  A('UiLang', 'Phase 평정 때의 화면 언어 (PhaseLong.UiLang → Responses.UiLang → 세션 시작 언어 → ko)', 'ko / en');
   return d;
 }
 
@@ -1733,6 +1835,15 @@ function sm_counts_(list, fn) {
   var c = {}, keys = [];
   list.forEach(function (x) { var k = fn(x); if (!sm_has_(c, k)) { c[k] = 0; keys.push(k); } c[k]++; });
   return keys.map(function (k) { return [k, c[k]]; }).sort(function (a, b) { return (b[1] - a[1]) || sm_cmpStr_(a[0], b[0]); });
+}
+
+/** 가장 흔한 숫자 (같으면 작은 값) */
+function sm_mode_num_(a) {
+  var c = {};
+  a.filter(sm_fin_).forEach(function (x) { c[x] = (c[x] || 0) + 1; });
+  var best = NaN;
+  Object.keys(c).forEach(function (k) { var v = Number(k); if (!sm_fin_(best) || c[k] > c[best] || (c[k] === c[best] && v < best)) best = v; });
+  return best;
 }
 
 function sm_mode_(a) {

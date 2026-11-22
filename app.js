@@ -1746,7 +1746,8 @@
     if ($('endItems')) bindItems($('endItems'), END_ITEMS, function () { return S.end_items || (S.end_items = {}); }, 'ei_', function () { save(); });
   }
 
-  function downloadJSON() {
+  /** 평가자가 내려받는 응답 파일의 내용 (블라인딩된 JSON 문자열) */
+  function downloadText() {
     var payload = {
       study_id: S.study_id, app_version: S.app_version, data_version: S.data_version,
       session_id: S.session_id, is_test: S.is_test, evaluator: S.evaluator, study_type: S.study_type,
@@ -1754,9 +1755,26 @@
       session: sessionSummary(), overall_comment: S.overall_comment, end_items: S.end_items || {}, device: S.device,
       evaluator_id: S.evaluator_id, entry: S.entry, consent: S.consent, session_ordinal: S.session_ordinal,
       ui_lang: uiLang(), set_id: S.set_id || 'v1',
-      cases: S.cases.map(function (_, i) { return buildCaseRecord(i); })
+      cases: S.cases.map(function (_, i) {
+        var r = buildCaseRecord(i);
+        delete r.model; delete r.model_name;   // 평가자가 받는 파일: 모델 코드·이름을 싣지 않음 (서버로 보내는 응답은 그대로)
+        return r;
+      })
     };
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    // 답변 식별자 블라인딩 (GC 와 같은 방식): 'P051_gpt' → 'P051_답변1' (N = 이 Type 의 제시 순서). order·case_key·combo_key 모두 바뀜.
+    // 원래 답변은 study_type + sequence_index (+ set_id) 로 연결된다. 긴 키부터 바꿔 접두사가 겹쳐도 섞이지 않게.
+    payload.units_blinded = true;
+    var text = JSON.stringify(payload, null, 2);
+    var keys = (S.order || []).map(function (k, u) {
+      var o = DATA.outputs[k] || {};
+      return { k: String(k), to: (o.patient || String(k).split('_')[0] || 'P') + '_답변' + (u + 1) };
+    }).sort(function (a, b) { return b.k.length - a.k.length; });
+    keys.forEach(function (x) { text = text.split(x.k).join(x.to); });
+    return text;
+  }
+
+  function downloadJSON() {
+    var blob = new Blob([downloadText()], { type: 'application/json' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'clinical-acceptability_' + (S.evaluator.name || 'anon') + '_' + S.session_id.slice(0, 8) + '.json';
@@ -1948,7 +1966,7 @@
   window.addEventListener('t2d:lang', onLang);
 
   // expose minimal hooks for QA (no PII)
-  window.__T2D_APP__ = { version: CFG.APP_VERSION, state: function () { return S; }, lang: uiLang };
+  window.__T2D_APP__ = { version: CFG.APP_VERSION, state: function () { return S; }, lang: uiLang, downloadText: function () { return S ? downloadText() : ''; } };
 
   // ---------------------------------------------------------------------------
   // Boot

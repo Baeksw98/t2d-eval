@@ -13,6 +13,10 @@
  *   - summaries         /__refresh (CA refreshSummaryIfDirty) · /__summary[?tests=1] (CA buildSummary → Summary)
  *                       /__refresh?app=gc (refreshGcSummaryIfDirty) · /__gcsummary[?tests=1] (buildGcSummary → GC summary sheets)
  *   - control           /__fail?n=K (next K web-app POSTs fail with 500) · /__delay?ms=N
+ *   - UrlFetchApp       the GC backend reads its case sets from https://eval.asclep.org/gc/data/sets/<id>.json (gcSetData_):
+ *                       the mock serves the REPOSITORY file for any https://eval.asclep.org/<path> URL (404 if missing), so a
+ *                       set built with tools/build_cases.py is visible at once. /__nofetch?on=1 makes every fetch fail (fallback to
+ *                       the embedded GC_ITEMS), /__nofetch?on=0 restores it. CacheService = in-memory per project (/__cache?clear=1).
  * Usage: node tools/mock_gas_server.js [port]
  */
 const http = require('http');
@@ -106,13 +110,32 @@ class Spreadsheet {
   getUrl() { return 'mock://spreadsheet/' + this.id; }
 }
 
+let noFetch = false;   // /__nofetch: every UrlFetchApp.fetch fails (declared before the projects run setup())
+
 /** One Apps Script project: its own vm context, spreadsheet(s), script properties and triggers. */
 function makeProject(label, file, opts) {
   const books = {};
   const P = { label, props: {}, triggers: [], ss: null };
   if (opts.bound) { P.ss = new Spreadsheet(label); books[P.ss.getId()] = P.ss; }
   const props = P.props, triggers = P.triggers;
+  P.cache = {};
+  P.fetches = [];
   const ctx = {
+    UrlFetchApp: {
+      fetch: (url, o) => {
+        P.fetches.push(url);
+        if (noFetch) throw new Error('mock: fetch disabled (/__nofetch)');
+        const m = /^https:\/\/eval\.asclep\.org\/(.+)$/.exec(String(url));
+        const fp = m ? path.join(ROOT, decodeURIComponent(m[1]).split('?')[0]) : '';
+        const ok = fp && fp.startsWith(ROOT) && fs.existsSync(fp) && fs.statSync(fp).isFile();
+        if (!ok && !(o && o.muteHttpExceptions)) throw new Error('mock: 404 ' + url);
+        return { getResponseCode: () => (ok ? 200 : 404), getContentText: () => (ok ? fs.readFileSync(fp, 'utf8') : 'Not Found') };
+      }
+    },
+    CacheService: { getScriptCache: () => ({
+      get: k => (k in P.cache ? P.cache[k] : null),
+      put: (k, v) => { if (String(v).length > 100000) throw new Error('Argument too large'); P.cache[k] = String(v); },
+      remove: k => { delete P.cache[k]; } }) },
     SpreadsheetApp: {
       getActiveSpreadsheet: () => (opts.bound ? P.ss : null),
       // bound (CA): any id opens the one spreadsheet (CA's SPREADSHEET_ID is set); GC: only spreadsheets created here
@@ -192,6 +215,8 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/__fail') { failNext = Number(url.searchParams.get('n') || 1); res.end('ok'); return; }
   if (url.pathname === '/__delay') { delayMs = Number(url.searchParams.get('ms') || 0); res.end('ok'); return; }
   if (url.pathname === '/__props') { sendJson(app.props); return; }
+  if (url.pathname === '/__nofetch') { noFetch = url.searchParams.get('on') !== '0'; CA.cache = {}; GC.cache = {}; sendJson({ noFetch }); return; }
+  if (url.pathname === '/__cache') { if (url.searchParams.get('clear')) { CA.cache = {}; GC.cache = {}; } sendJson({ keys: Object.keys(app.cache), fetches: app.fetches.slice(-20) }); return; }
   if (url.pathname === '/__refresh') {
     if (app === GC) { const ran = GC.ctx.refreshGcSummaryIfDirty(); sendJson({ ran, dirty: GC.props.GC_SUMMARY_DIRTY || null, built: GC.props.GC_SUMMARY_BUILT_AT || null }); return; }
     const ran = CA.ctx.refreshSummaryIfDirty && CA.ctx.refreshSummaryIfDirty();

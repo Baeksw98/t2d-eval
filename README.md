@@ -53,10 +53,11 @@ AI 기반 제2형 당뇨병(T2D) CDSS 답변을 레지던트가 읽고, Phase별
 | `index.html`, `about/index.html`, `site.css`, `assets/` | 처음 화면(`/`)·벤치마크 소개(`/about/`). `site.css` 는 이 두 쪽 전용(styles.css 토큰 복사 + 다크 모드), `assets/site.js` 는 `src·site·wave` 전달·'이어서 하기' 안내·목차 강조, `assets/icons.svg` 아이콘, `assets/og.png` 링크 미리보기 이미지(1200×630, `node tools/render_og.js` 로 `tools/og_image.html` 에서 생성) |
 | `qr/` | 참여 안내 QR 모음(8절) |
 | `ca/index.html`, `styles.css`, `app.js` | CA 평가 화면 (`/ca/`; 빌드 불필요한 정적 파일). `styles.css` 는 GC 도 같이 씀 |
-| `config.js` | **서버 주소(ENDPOINT)**, 제시 순서, 년차 선택지 |
-| `data/cases.js` | 환자 정보 + AI 답변 4건 (원문에서 자동 생성) |
+| `config.js` | **서버 주소(ENDPOINT)**, 문항·선택지, 기본 Type(세트 v1 — `data/design.js` 가 있으면 그 Type) |
+| `cases/` | **케이스·모델·세트 원본** (CDSS 출력 문서, 채점·감사 검증 보고서, `models.json`, `sets/<id>.json`, `active.json`) — [`cases/README.md`](cases/README.md) |
+| `data/cases.js`, `data/design.js`, `data/sets/` | 활성 세트의 환자 정보 + AI 답변, Type/Part 구성, 세트별 보관본 (`tools/build_cases.py` 가 자동 생성 — 손으로 고치지 않음) |
 | `gas/Code.gs` | 응답 저장용 Google Apps Script (Google Sheets) |
-| `tools/` | 원문 → 데이터 변환, 로컬 테스트 서버, 자동 E2E 테스트 |
+| `tools/` | 케이스 파이프라인(`build_cases.py`, `cases_lib/`), 로컬 테스트 서버, 자동 E2E 테스트 |
 
 ---
 
@@ -174,16 +175,29 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
   실행하면 먼저 스프레드시트 전체를 `(백업 날짜 시각)` 사본으로 내 드라이브에 저장한 뒤, 응답 시트를 헤더만 남기고 비우고,
   평가자 가명 코드(E001…)와 순서 배정 카운터를 처음으로 되돌립니다. 백업 링크는 실행 로그에 나옵니다.
 
-## 5. AI 답변·환자 자료를 바꿀 때
+## 5. 케이스·모델·세트를 추가하거나 바꿀 때 (살아 있는 벤치마크)
 
-원문 마크다운(현재 형식: `# P051 Deepseek V4.1 Flash` / `GPT6.1 Sol P051` 블록 + `P051 Patient Input Information`)을 준비한 뒤:
+원본은 모두 `cases/` 에 있고, 사이트 자료는 `tools/build_cases.py` 가 만듭니다. 자세한 단계는 **[`cases/README.md`](cases/README.md)** 를 보세요.
 
 ```bash
-python3 tools/parse_md.py <원문.md> data/parsed_raw.json
-python3 tools/build_data.py data/parsed_raw.json data/cases.js
+# 1) cases/sources/ca/ · cases/sources/gc/ 에 원본을 넣고, 새 모델이면 cases/models.json, 새 세트면 cases/sets/v2.json 작성
+python3 tools/build_cases.py --set v2 --check   # 2) 검증 + Type/Part·예상 시간 미리 보기 (파일을 쓰지 않음)
+python3 tools/build_cases.py                    # 3) 모든 세트의 보관본 작성 (활성 세트는 그대로) + gas/*.gs 다시 생성
+# 4) 평가자에게 배정할 때: cases/active.json → {"set": "v2"} → python3 tools/build_cases.py → 테스트 → push
+python3 tools/test_cases.py                     # 파이프라인 테스트 (v1 재현, 3×3 합성 세트, 검증 오류)
 ```
 
-모델·환자가 바뀌면 `tools/build_data.py` 의 `MODEL_NAMES` 와 `config.js` 의 `SEQUENCES` 도 함께 수정합니다.
+- 세트 v1(현재 연구)은 동결되어 있습니다. 새 케이스는 새 세트로 추가합니다.
+- 케이스·모델·세트만 바꾸는 경우 **Apps Script 를 다시 붙여넣지 않습니다.** CA 백엔드는 모델을 자료에서 읽고, GC 백엔드는 세트 자료를 사이트에서 읽습니다.
+- 진행 중인 평가자는 시작한 세트로 끝까지 진행합니다(`data/sets/<id>/` 보관본). 보관본은 지우지 마세요.
+
+### 이번 단계의 백엔드 배포 (한 번만)
+- **CA** `gas/Code.gs` → `2026-11-21.ca-backend-v6`: `UiLang`·`SetId` 등 열 추가(오른쪽 끝), 모델 자동 인식, 세트별 순서 배정, 세트별 요약.
+  CA 응답 시트의 [확장 프로그램 → Apps Script]에 전체 붙여넣기 → 저장 → [배포 관리] → ✏️ → 새 버전 → 배포 (웹 앱 URL 유지).
+  배포 전에도 사이트는 그대로 동작합니다(이전 백엔드는 새 필드를 무시하고 RawJSON 에만 남김).
+- **GC** `gas/GcCode.gs` → `2026-11-21.gc-backend-v4`: 붙여넣기 → 저장 → `setup` 실행 → 새 권한 **「외부 서비스에 연결」** 허용 → 새 버전 배포.
+  실행 로그에 `✅ 사이트 케이스 세트 자료 읽기 확인` 이 보이면 됩니다.
+- 요약 분석 세트: CA 요약은 기본으로 완료 케이스가 가장 많은 세트를 분석합니다. Apps Script → 프로젝트 설정 → 스크립트 속성에서 `SUMMARY_SET` 을 세트 ID 또는 `all` 로 정할 수 있습니다.
 
 ---
 
@@ -193,7 +207,8 @@ python3 tools/build_data.py data/parsed_raw.json data/cases.js
 node tools/mock_gas_server.js 8787        # gas/Code.gs 를 그대로 실행하는 모의 서버 + 사이트 (/ca → /ca/ 처럼 GitHub Pages 와 같이 동작)
 # 브라우저: http://localhost:8787/ (처음 화면) · http://localhost:8787/ca/ (CA) · http://localhost:8787/gc/ (GC) · http://localhost:8787/qr/ (QR)
 node tools/e2e.js http://localhost:8787/ ./shots mobile 테스트평가자 all   # 사이트 루트를 주면 /ca/ 를 엽니다. 인턴·레지던트·전문의 경로를 각각 완주 + 화면 캡처 (desktop 도 가능)
-node tools/test_summary.js                                # Summary·AnalysisLong·Codebook 단위 테스트 (v3.3·v3.4 응답 혼합)
+node tools/test_summary.js                                # Summary·AnalysisLong·Codebook 단위 테스트 (v3.3·v3.4 응답 혼합, 세트·언어·이전 백엔드 호환)
+python3 tools/test_cases.py                               # 케이스 파이프라인 테스트
 node tools/test_site.js http://localhost:8787            # 처음 화면: 예전 주소 → /ca/·/gc/ 이동, '이어서 하기' 안내, src·site·wave 전달
 curl http://localhost:8787/__sheets                       # 저장된 시트 내용 확인
 ```
@@ -214,7 +229,7 @@ curl http://localhost:8787/__sheets                       # 저장된 시트 내
 **GC 응답 시트 만들기 (iPad 가능, 약 5분)** — 자세한 순서는 `gas/GcCode.gs` 맨 위 주석에도 있습니다.
 0. 붙여넣을 코드 복사: GitHub 의 [`gas/GcCode.gs`](https://github.com/Baeksw98/t2d-eval/blob/main/gas/GcCode.gs) 화면에서 코드 위 오른쪽 **복사 아이콘(「Copy raw file」)** → 파일 전체가 복사됩니다.
    컴퓨터라면 [raw 파일](https://raw.githubusercontent.com/Baeksw98/t2d-eval/main/gas/GcCode.gs)을 열고 전체 선택(⌘A / Ctrl+A) → 복사해도 됩니다.
-   (이 링크는 `gas/GcCode.gs` 가 GitHub 에 올라가 있어야 열립니다. 약 1,850줄이라 손으로 옮길 수는 없습니다.)
+   (이 링크는 `gas/GcCode.gs` 가 GitHub 에 올라가 있어야 열립니다. 약 2,200줄이라 손으로 옮길 수는 없습니다.)
 1. [script.google.com](https://script.google.com) → **새 프로젝트** → 기본 코드를 지우고 복사한 `GcCode.gs` 전체를 붙여넣고 저장
    - 임상 수용성 평가(CA) 응답 시트의 [확장 프로그램 → Apps Script]에서 만들거나, CA 시트 ID 를 `GC_SPREADSHEET_ID` 에 넣지 마세요(두 평가의 `Visits` 가 섞입니다). 그렇게 하면 setup 이 오류로 멈춥니다.
 2. 함수 선택에서 **`setup`** → **실행** → 권한 승인 (확인되지 않은 앱 경고가 나오면 고급 → 이동 → 허용. 권한 항목마다 체크박스가 보이면 **「모두 선택」** 후 **[계속]**)
@@ -223,7 +238,8 @@ curl http://localhost:8787/__sheets                       # 저장된 시트 내
 5. 그 URL 을 `gc/gc-config.js` 의 `ENDPOINT: ''` 따옴표 안에 넣고 사이트에 반영
 
 요약(`GC_Adjudication`, `GC_Concordance`, `GC_Summary`, `GC_Codebook`)은 10분마다 자동 갱신되며, 바로 보려면 함수 `buildGcSummary` 실행.
-CA Summary [14] 에 연결하려면 `GC_Concordance` 의 `TargetKey`·`ConcordanceScore` 두 열을 CA 스프레드시트의 `Concordance` 시트에 붙여 넣습니다.
+CA Summary [14] 에 연결하려면 `GC_Concordance` 의 `TargetKey`·`ConcordanceScore` 두 열을 CA 스프레드시트의 `Concordance` 시트에 붙여 넣습니다(`SetId` 열까지 붙여 넣으면 CA 요약이 분석 세트의 행만 씁니다).
+판정 문항·Part 는 케이스 세트마다 사이트의 `gc/data/sets/<세트>.json` 에서 읽으므로(10분 캐시, 실패하면 내장 사본) 케이스를 바꿔도 다시 붙여넣지 않습니다.
 
 ```bash
 python3 tools/build_gas.py                 # gas/Code.gs (CA) + gas/GcCode.gs (GC) 둘 다 생성

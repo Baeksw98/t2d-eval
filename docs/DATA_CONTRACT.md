@@ -12,6 +12,16 @@ What changed in meaning: (1) `entry.referrer_origin` (Visits/Sessions `ReferrerO
 `gas/src/core.gs` writes these sheets; `gas/src/summary.gs` reads them. `tools/build_gas.py` concatenates
 `gas/src/*.gs` into the single `gas/Code.gs` that is pasted into Apps Script.
 
+**Backend v6 (`BACKEND_VERSION 2026-11-21.ca-backend-v6`)** — case sets, generic models, UI language:
+- New columns, always appended at the right end of the sheet (existing column positions never move; `setup`/the first write adds them):
+  `UiLang`, `SetId` on Visits / Sessions / Responses / PhaseLong; `UiLangStart`, `UiLangs`, `UiLangSwitches` on Sessions; `UiLangs` on
+  Responses. **Blank in rows written before v6 = `ko` / `v1`.** A payload without `ui_lang`/`set_id` (an old cached page) also leaves them blank.
+- Models are read from the data (`Model` = the `code` in `cases/models.json`, else the part of `CaseKey` after `_`); nothing in the
+  backend names a model. New cases, models or sets therefore need **no Apps Script repaste** (`gas/Code.gs` does not embed case data).
+- Sequence balancing (`nextBalancedSeq_`) counts sessions of the same `SetId` + `StudyType` only; the counter of set v1 keeps its old
+  name (`SEQ_COUNTER_<Type>`), other sets use `SEQ_COUNTER_<Type>_<set>`.
+- The old v5 backend accepts v6-site payloads unchanged (unknown fields are ignored and kept in RawJSON) — `tools/test_summary.js` §8 checks it.
+
 Conventions
 - Every non-empty string cell is written with a leading apostrophe (text marker). Real Sheets and the mock strip
   it on read, so readers compare plain strings.
@@ -64,7 +74,7 @@ response sheets to their headers, resets EvaluatorCode/sequence counters and reb
 
 
 ### Visits (one row per intro page view, no PII) — action `view`
-`ReceivedAt, VisitId, DeviceId, Src, Site, Wave, TypeParam, FormFactor, InAppBrowser, ReferrerOrigin, IsTest, AppVersion`
+`ReceivedAt, VisitId, DeviceId, Src, Site, Wave, TypeParam, FormFactor, InAppBrowser, ReferrerOrigin, IsTest, AppVersion, UiLang, SetId`
 (`TypeParam` = the `?type=` value in the link, normally blank because evaluators choose the Type on the start screen.)
 
 ### Sessions (one row per evaluation session = one Type)
@@ -76,8 +86,11 @@ ConsentVersion, ConsentAt, ConsentInherited, InstrumentVersion, Incentive,
 StartedAt, FinishedAt, TotalActiveMin, TotalIdleMin, TotalHiddenMin, TotalWallMin, IntroSec, FinalSec,
 Resumes, Interruptions, SendFailures, FurthestCase, FurthestStep, LastActivityAt, PartialRatingsN,
 OverallComment, FormFactor, ViewportW, ViewportH, ScreenW, ScreenH, DPR, TouchPoints, CoarsePointer,
-Language, TimeZone, UserAgent, AppVersion, DataVersion, BackendVersion`
+Language, TimeZone, UserAgent, AppVersion, DataVersion, BackendVersion,
+UiLang, UiLangStart, UiLangs, UiLangSwitches, SetId`
 + `Eval_*`, `End_*`.
+- `UiLang` = language of the latest payload; `UiLangStart` = language the session started in (`session.ui_lang_start`);
+  `UiLangs` = `ko`, `en` or `ko;en` (`session.ui_langs`); `UiLangSwitches` = number of language changes. `SetId` = case set.
 - `Status`: started → in_progress → completed (never regresses).
 - `EvaluatorId`: client UUID; new for a fresh evaluator, inherited by a linked continuation session.
 - `EvaluatorCode`: server pseudonym `E001…`, one per EvaluatorKey = SHA-256(normalised name + role id).
@@ -95,8 +108,10 @@ CaseComment, CaseStartedAt, CaseCompletedAt, CaseActiveSec, CaseIdleSec, CaseHid
 Sec_{Vignette,P1,Combo,P2,P3,P4,P5,Comment}, TTFR_{P1,Combo,P2,P3,P4,P5}, Changes_{P1,Combo,P2,P3,P4,P5},
 Scroll_{…8 steps}, Visits_{…8 steps}, ScrollAtFR_{P1..P5},
 Chars_{Vignette,P1,Combo,P2,P3,P4,P5}, ComboSeen_{1,2,3}, ComboDwellSec_{1,2,3}, RxDetailsOpens, Interruptions,
-ComboResets, PatientDrawerOpens, PatientDrawerSec, AppVersion, DataVersion, BackendVersion, MetricsJson`
+ComboResets, PatientDrawerOpens, PatientDrawerSec, AppVersion, DataVersion, BackendVersion, MetricsJson,
+UiLang, UiLangs, SetId`
 + `Eval_*`, `Case_*`.
+- `UiLang` = language when the case was sent; `UiLangs` = languages the case screens were shown in (`case.ui_langs`, `ko;en` = switched).
 - `Sec_*` = visible time (active + idle) per step; hidden excluded. Active-only per step is in MetricsJson.
 - `ComboRankAI` = AI's rank of the chosen combination (display order = AI order, so = ComboChoice).
 - `ComboIsAIFirst` = (ComboRankAI = 1). `RankCueVisible` = the output's combination names contain a rank cue
@@ -110,8 +125,9 @@ ComboResets, PatientDrawerOpens, PatientDrawerSec, AppVersion, DataVersion, Back
 SequenceIndex, EvaluatorId, EvaluatorCode, SessionOrdinal, CaseOrder, GlobalCaseOrder, CaseKey, PatientId,
 PatientSeenPrior, Model, ModelName, ComboChoice, ComboKey, RankCueVisible, Phase, PhaseLabel, TargetKey,
 Score, Acceptable_4plus, FirstScore, Changed, VisibleSec, ActiveOnlySec, TTFRSec, Changes, ScrollPct,
-ScrollAtFirstRating, Chars, CharsPerSec, Visits, HarmInPhase`
+ScrollAtFirstRating, Chars, CharsPerSec, Visits, HarmInPhase, UiLang, SetId`
 + `Eval_*`.
+- `UiLang` = language when this phase's score was last chosen (`metrics.steps[pN].ui_lang`), else the language when the case was sent.
 - `TargetKey` = `P051_deepseek|P1` for Phase 1, `P051_deepseek|C2|P3` for Phases 2–5 (joins to guideline
   concordance scored per output × combination × phase).
 - `HarmInPhase` = 1 if `Case_harm_phases` lists this phase, 0 if harm was answered but not this phase, blank if
@@ -123,7 +139,15 @@ ScrollAtFirstRating, Chars, CharsPerSec, Visits, HarmInPhase`
 ### Generated by the Summary builder (every 10 min when new data arrived; or run `buildSummary`)
 - **Summary** — human-readable tables for the paper (see summary.gs header).
 - **AnalysisLong** — pseudonymised (no names), one row per EvaluatorCode × case × phase for every non-test completed
-  case, with `IncludedInAnalysis` (0/1) + `ExclusionReason`, covariates and quality flags. For R/Stata.
+  case, with `IncludedInAnalysis` (0/1) + `ExclusionReason` (`pilot` / `other_set` / `duplicate`), covariates, quality flags and
+  (v6) `SetId`, `UiLang` (phase language). For R/Stata.
+- **Which case set the Summary analyses (v6):** by default the set with the most analysable completed cases (test and pilot
+  excluded; tie → the set started most recently). Script property `SUMMARY_SET` = a set id analyses that set, `all` analyses every
+  set together. Sessions of other sets get `ExclusionReason = other_set` (still counted in the participation flow [1]); duplicates are
+  judged within the same set + Type. Per-model tables are built for any number of models; the within-evaluator model comparison [5]
+  only when the analysed data has exactly 2 models (difference = later model code − earlier, alphabetically: v1 = gpt − deepseek).
+  [1] has rows per `UiLang` (session start language) and, when there is more than one set, per `SetId`; [7] adds a language subgroup
+  when English ratings exist. The CA `Concordance` sheet may carry an optional `SetId` column (rows of other sets are ignored).
 - **Codebook** — every column of every sheet with a description.
 
 ## Payloads (client → `doPost`, body = JSON text/plain)
@@ -151,12 +175,18 @@ case_hidden_ms, case_wall_ms, drawer_opens, drawer_ms}`
 `session` summary: `started_at, finished_at, total_active_ms, total_idle_ms, total_hidden_ms, total_wall_ms,
 intro_ms, final_ms, resumes, cases_completed, interruptions, send_failures, ui_lang_start, ui_lang_switches, ui_langs[]`
 
+Evaluator's response file (「응답 파일 내려받기」 on the done screen when sending failed or ENDPOINT is empty): the finish-like
+payload, **blinded** like the GC backup: `model` / `model_name` are left out of every case record and each unit key is replaced by
+`<patient>_답변<N>` (N = position in `order`) everywhere (`order`, `case_key`, `combo_key`), with `units_blinded: true`.
+`study_type` + `sequence_index` (+ `set_id`) identify the units. The payloads sent to `doPost` are not blinded (analysis needs them).
+
 ### UI language and case set (site v3.6, `APP_VERSION 2026-11-20.ca-v3.6`)
 The site can be shown in Korean or English (header KO/EN; Korean is the default, English only by the visitor's choice or `?lang=en`).
 Answer values never depend on the UI language: `evaluator.fields`, `items`, `end_items` keep the canonical Korean label + `code`.
 - `ui_lang` (`'ko'|'en'`, top level of every payload incl. `view`): the UI language **at the moment the payload was sent**. It is not
   the language a case was rated in when the person switched mid-case — use the fields below for that.
 - `set_id` (top level of every payload): the case set of the session (`'v1'` = the current study; absent in pre-v3.6 payloads = v1).
+  It comes from `window.T2D_DATA.set_id` (`data/cases.js`, built by `tools/build_cases.py` from `cases/`, see `cases/README.md`).
 - `session.ui_lang_start` (language the session started in; `null` = a session started before v3.6, i.e. Korean),
   `session.ui_lang_switches` (number of language changes), `session.ui_langs[]` (languages the session was shown in).
 - `case.ui_langs[]` (languages the case screens were shown in; `[]` = no record, a pre-v3.6 case = Korean) and
@@ -164,6 +194,14 @@ Answer values never depend on the UI language: `evaluator.fields`, `items`, `end
   score/regimen was last chosen) and `.ui_langs[]`.
 - A resumed session keeps the language it started in unless the visitor chose a language (`?lang=` or the KO/EN button).
 - Until the PI signs off the English instrument wording, analyse responses with `ui_lang_mixed` or an English `ui_langs` separately.
-  The current backend keeps these fields only in RawJSON; the Stage 2 backend adds the `UiLang` and `SetId` columns (blank in old rows = ko / v1).
+  Backend v6 stores them as the columns above (blank in old rows = ko / v1); the v5 backend kept them only in RawJSON.
+
+### Case data (site side, `tools/build_cases.py`)
+- `data/cases.js` → `window.T2D_DATA = {data_version, set_id, patients{}, outputs{}}` (active set); archives `data/sets/<id>/cases.js`.
+- `data/design.js` → `window.T2D_DESIGN = {set_id, data_version, gc_data_version, status, title{ko,en}, units[{key, patient, model}],
+  ca{per_session, minutes[lo,hi], types[{id, label{ko,en}, sequences[[unit…]…]}]}, gc{per_session, minutes_per_item, minutes, parts[{id,
+  label, sequences, items, minutes}]}}`; archives `data/sets/<id>/design.js`. The apps take Types/Parts from it (fallback: the v1 literals in
+  `config.js` / `gc/gc-config.js`). A saved session whose `set_id` is not the active set loads `data/sets/<saved>/…` before resuming.
+- Set v1 = the live study, frozen: its `data/cases.js` content equals the pre-pipeline file apart from `set_id` (`tools/test_cases.py`).
 
 > GC (guideline-concordance physician validation, `/gc/`) is a separate evaluation procedure with its own Apps Script project and spreadsheet: see [`docs/GC_CONTRACT.md`](GC_CONTRACT.md).

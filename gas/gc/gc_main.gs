@@ -16,6 +16,8 @@
  *   3) 위쪽 함수 선택 칸에서 setup 선택 → [실행]
  *      → '권한 검토' → 본인 계정 선택 → ('Google에서 확인하지 않은 앱' 화면이 나오면) 고급 → '…(으)로 이동' → [허용]
  *        권한 항목마다 체크박스가 보이는 화면이면 「모두 선택」을 누른 뒤 [계속] (일부만 허용하면 요약 자동 갱신이 설정되지 않습니다)
+ *        권한 목록에 「외부 서비스에 연결」(외부 서비스 연결)이 있습니다 — 사이트 eval.asclep.org 에서 케이스 세트 자료
+ *        (gc/data/sets/<세트>.json)를 읽기 위한 것으로, 이 권한 덕분에 케이스·세트를 바꿔도 코드를 다시 붙여넣지 않아도 됩니다.
  *      → 실행 로그 마지막 줄이 '✅ GC 응답 시트 준비 완료' 인지 확인 ('⚠️' 로 끝나면 setup 을 한 번 더 실행)
  *   4) 아래 [실행 로그]에 나오는 시트 링크(https://docs.google.com/spreadsheets/…)를 눌러 확인
  *      → 내 드라이브에 새 스프레드시트 '가이드라인 부합도 검증 (GC) 응답' 이 만들어져 있습니다
@@ -28,6 +30,9 @@
  *    전문의 브라우저가 Google 로그인으로 막혀 응답이 저장되지 않습니다.
  *  · setup 은 다시 실행해도 안전합니다: 기존 응답은 그대로 두고 빠진 시트·컬럼만 추가하며, 요약 트리거는 1개로 유지됩니다.
  *  · 코드를 고쳐 다시 붙여넣은 뒤에는 [배포] → [배포 관리] → ✏️(수정) → 버전: '새 버전' → [배포] (웹 앱 URL 유지).
+ *  · v3 → v4 로 바꿀 때 (한 번만): 붙여넣기 → 저장 → setup 실행 → 새 권한 「외부 서비스에 연결」 허용 → [배포 관리] → 새 버전.
+ *    setup 실행 로그에 '✅ 사이트 케이스 세트 자료 읽기 확인' 이 보이면 됩니다. 그 뒤로는 케이스·모델·세트를 바꿔도(사이트에 올리기만 하면)
+ *    다시 붙여넣을 필요가 없습니다. 사이트를 읽지 못할 때는 이 파일 끝에 내장된 세트(GC_ITEMS)로 동작합니다.
  *  · 이미 만들어 둔 GC 전용 빈 스프레드시트를 쓰려면 아래 GC_SPREADSHEET_ID 에 시트 주소의 /d/ 와 /edit 사이 ID 를 넣고 저장하세요.
  *    임상 수용성 평가(CA) 응답 스프레드시트의 ID 는 절대 넣지 마세요 (두 평가의 Visits 가 섞입니다). 넣으면 오류로 멈춥니다.
  *  · 요약은 10분마다 자동 갱신됩니다. 바로 보려면 함수 buildGcSummary (테스트 응답 포함: buildGcSummaryIncludingTests) 실행.
@@ -46,7 +51,7 @@
 // GC 응답 스프레드시트 ID. 비워 두면 setup 이 새 스프레드시트를 만들고 그 ID 를 스크립트 속성(GC_SPREADSHEET_ID)에 저장합니다.
 var GC_SPREADSHEET_ID = "";
 var GC_SPREADSHEET_NAME = '가이드라인 부합도 검증 (GC) 응답';
-var GC_BACKEND_VERSION = '2026-11-20.gc-backend-v3';
+var GC_BACKEND_VERSION = '2026-11-21.gc-backend-v4';
 
 // ============================================================
 // HTTP ENTRY POINTS
@@ -59,6 +64,9 @@ function doPost(e) {
   var body0 = (e && e.postData && e.postData.contents) || '';
   // 소개 화면 방문 기록(view): 응답 저장보다 우선순위가 낮으므로 잠깐만 기다리고, 바쁘면 건너뜀
   if (body0.indexOf('"action":"view"') !== -1) return gcHandleView_(body0);
+  // 케이스 세트 자료는 잠금을 잡기 전에 읽어 둔다 (사이트 응답이 느려도 다른 요청을 막지 않도록; 대개 10분 캐시에서 바로 나옴)
+  GC_SET_MEMO_ = {};
+  try { var p0 = JSON.parse(body0); if (p0 && GC_ACTIONS.indexOf(p0.action) >= 0) gcSetData_(p0.set_id); } catch (ePre) {}
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(12000);   // 클라이언트 대기 한도보다 짧게 → 혼잡 시 빨리 'busy' 응답 후 재전송
@@ -114,7 +122,7 @@ function gcHandleView_(body) {
     var sh = sheet_(gcSs_(), GC_SHEET.VISITS, visitsHeaders_());
     sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
       short_(en.type_param || ''), short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
-      !!p.is_test, short_(p.app_version)].map(cell_));
+      !!p.is_test, short_(p.app_version), uiLang_(p.ui_lang), setId_(p.set_id)].map(cell_));
     sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
     return json_({ ok: true });
   } catch (err) {
@@ -204,6 +212,14 @@ function setup() {
   var trigOk = false;
   try { ensureGcSummaryTrigger_(); trigOk = true; Logger.log('✅ GC 요약 자동 갱신(10분 주기) 설정 완료'); }
   catch (eTrig) { Logger.log('⚠️ 자동 갱신 트리거 설정 실패: ' + eTrig); }
+  // 사이트의 케이스 세트 자료를 읽을 수 있는지 (외부 서비스에 연결 권한) — 실패해도 내장 사본으로 동작
+  try {
+    GC_SET_MEMO_ = {};
+    var idx = gcSetIndex_(), rec = gcSetData_(idx.active);
+    if (rec.source === 'embedded') Logger.log('⚠️ 사이트 케이스 세트 자료를 읽지 못했습니다(' + rec.note + ') — 내장 사본(세트 ' + gcSetId_(gcItems_().set_id) +
+      ')으로 동작합니다. 권한 화면에서 「외부 서비스에 연결」을 허용했는지 확인하세요.');
+    else Logger.log('✅ 사이트 케이스 세트 자료 읽기 확인: 활성 세트 ' + rec.id + ' (' + (rec.data.data_version || '') + ')');
+  } catch (eSet) { Logger.log('⚠️ 케이스 세트 자료 확인 실패: ' + eSet); }
   var url = ss.getUrl();
   Logger.log('다음 단계: [배포] → [새 배포] → 웹 앱 (실행 사용자: 나 / 액세스: 모든 사용자) → 웹 앱 URL 을 gc/gc-config.js ENDPOINT 에');
   // 마지막 줄 = 결과 (헤더 3) 단계에서 이 줄을 확인하도록 안내)

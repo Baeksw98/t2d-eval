@@ -13,8 +13,8 @@
  *    JS-made text (banner, times, case-set line) on 't2d:lang'.
  * 6) Active case set (window.T2D_DESIGN from data/design.js): landing card times (ca.minutes, gc.minutes or the Parts'
  *    range; the HTML keeps the v1 times as fallback) and the About 'current case set' line (#setNow, hidden without it).
- *    The pages do not load data/design.js yet: add <script src="data/design.js"> (About: ../data/design.js) before this
- *    file once the case pipeline writes it. qr/qr.js reads the same object for its times and Types/Parts. */
+ *    The pages load <script src="data/design.js"> (About: ../data/design.js) just before this file; tools/build_cases.py
+ *    writes it and keeps its ?v= stamp. qr/qr.js reads the same object for its times and Types/Parts. */
 (function () {
   'use strict';
 
@@ -85,9 +85,13 @@
   function renderSet() {
     var el = document.getElementById('setNow');
     if (!el || !I || !DESIGN || !DESIGN.set_id) return;
-    var n = DESIGN.units && DESIGN.units.length;
+    // patients × models of the set (a unit = one patient × one model)
+    var pts = {}, mds = {};
+    (DESIGN.units || []).forEach(function (u) { if (u && u.patient) pts[u.patient] = 1; if (u && u.model) mds[u.model] = 1; });
+    var np = Object.keys(pts).length, nm = Object.keys(mds).length;
+    var count = function (k, n) { return t(n === 1 ? k + '1' : k, { n: n }); };
     el.innerHTML = '<svg class="ic" aria-hidden="true"><use href="../assets/icons.svg#i-layers"/></svg><span>' +
-      t(n ? 'about.set.now' : 'about.set.now0', { id: esc(DESIGN.set_id), n: n || 0 }) + '</span>';
+      t(np && nm ? 'about.set.now' : 'about.set.now0', { id: esc(DESIGN.set_id), pt: count('about.set.pt', np), md: count('about.set.md', nm) }) + '</span>';
     el.hidden = false;
   }
 

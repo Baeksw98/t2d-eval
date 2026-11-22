@@ -12,7 +12,9 @@
  * Language (KO/EN, assets/i18n.js + i18n/ca.js): the page is opened with ?lang=<lang>; expected texts come from the
  * dictionary. Every screen: <html lang> = lang, and in English no Hangul outside case content ([lang="ko"] = patient
  * record / AI output, [data-ugc] = the evaluator's own name, inputs). Every POST to the CA web app is captured: each
- * carries ui_lang = lang and set_id = 'v1', and stored values stay the canonical Korean label + code in either language.
+ * carries ui_lang = lang and set_id = the active case set (data/cases.js), and stored values stay the canonical Korean label +
+ * code in either language. Every screen: no model name / code / run id visible (tools/blinding_regex.js, from cases/models.json);
+ * the evaluator's response file (first role, __T2D_APP__.downloadText) is blinded the same way (units_blinded, '<patient>_답변N').
  * First role also: a mid-case language switch (and back) keeps the step, the rating and the timing; the theme button
  * cycles system → light → dark → system and sets <html data-theme>. The language history is sent: session.ui_lang_start,
  * session.ui_lang_switches, case.ui_langs / ui_lang_mixed (case 1 of the first role is seen in both languages).
@@ -32,6 +34,9 @@ const DICT = (() => {
 })();
 const T = (lang, key, vars) => String(DICT[lang][key] !== undefined ? DICT[lang][key] : DICT.ko[key]).replace(/\{(\w+)\}/g, (m, n) => (vars && n in vars ? vars[n] : m));
 const HANGUL = /[\uac00-\ud7a3]/;
+// the active case set of this checkout (tools/build_cases.py): payloads carry its set_id
+const ACTIVE_SET = (() => { const w = {}; new Function('window', fs.readFileSync(path.join(__dirname, '..', 'data', 'cases.js'), 'utf8'))(w); return (w.T2D_DATA && w.T2D_DATA.set_id) || 'v1'; })();
+const BLIND = require('./blinding_regex').blindingRegex();
 // visible text with Hangul outside case content (patient record / AI output carry lang="ko"), the evaluator's name and inputs
 async function hangulInChrome(page) {
   return page.evaluate(() => {
@@ -126,6 +131,8 @@ async function runRole(browser, { base, outDir, kind, evName, role, studyType, d
   const checkLang = async (label) => {
     const hl = await page.evaluate(() => document.documentElement.lang);
     if (hl !== lang) errors.push(`${label}: <html lang> = ${hl}`);
+    const bm = (await page.evaluate(() => document.body.innerText)).match(BLIND);   // blinding: no model name / code / run id
+    if (bm) errors.push(`${label}: blinding — "${bm[0]}" visible`);
     if (lang === 'en') { const bad = await hangulInChrome(page); if (bad.length) errors.push(`${label}: Hangul in UI chrome ${JSON.stringify(bad)}`); }
   };
 
@@ -334,7 +341,7 @@ async function runRole(browser, { base, outDir, kind, evName, role, studyType, d
   ['view', 'start', 'case', 'finish'].forEach(a => { if (acts.indexOf(a) < 0) errors.push('no ' + a + ' payload captured'); });
   mine.forEach(p => {
     if (p.ui_lang !== lang) errors.push(`${p.action} payload ui_lang = ${p.ui_lang}`);
-    if (p.set_id !== 'v1') errors.push(`${p.action} payload set_id = ${p.set_id}`);
+    if (p.set_id !== ACTIVE_SET) errors.push(`${p.action} payload set_id = ${p.set_id} (active set ${ACTIVE_SET})`);
   });
   const fin = mine.filter(p => p.action === 'finish').pop();
   if (fin) {
@@ -362,6 +369,23 @@ async function runRole(browser, { base, outDir, kind, evName, role, studyType, d
       const p1 = ((c.metrics || {}).steps || {}).p1 || {};
       if (p1.ui_lang !== lang) errors.push(`case ${i + 1} p1 rated in ${p1.ui_lang}`);
     });
+  }
+  // the evaluator's response file (shown when sending fails or ENDPOINT is empty): blinded like the GC file
+  if (detail) {
+    const txt = await page.evaluate(() => window.__T2D_APP__.downloadText ? window.__T2D_APP__.downloadText() : '');
+    let dj = null;
+    try { dj = JSON.parse(txt); } catch (_) { errors.push('response file is not JSON'); }
+    if (dj) {
+      const bm = txt.match(BLIND);
+      if (bm) errors.push('response file: blinding — "' + bm[0] + '"');
+      if (dj.units_blinded !== true) errors.push('response file: units_blinded missing');
+      if (st.order.some(k => txt.includes('"' + k + '"') || txt.includes(k + '_C'))) errors.push('response file still has unit keys ' + st.order.join(','));
+      const want = st.order.map((k, i) => k.split('_')[0] + '_답변' + (i + 1));
+      if (JSON.stringify(dj.order) !== JSON.stringify(want)) errors.push('response file order ' + JSON.stringify(dj.order) + ' ≠ ' + JSON.stringify(want));
+      if (dj.cases.some(c => 'model' in c || 'model_name' in c)) errors.push('response file: model / model_name present');
+      if (dj.cases.some((c, i) => c.case_key !== want[i] || (c.combo_key && c.combo_key.indexOf(want[i] + '_C') !== 0))) errors.push('response file case_key / combo_key not blinded');
+      if (dj.cases.length !== st.order.length || dj.study_type !== st.study_type || dj.sequence_index !== st.seq_index) errors.push('response file: cases / study_type / sequence_index');
+    }
   }
   // backend rows (mock only): Sessions row carries Eval_ai_freq / Eval_ai_freq_code and no legacy values
   let sheet = 'skipped (no /__sheets)';
@@ -415,7 +439,8 @@ async function resumeLangCheck(browser, base) {
       localStorage.removeItem('t2d:lang');
     }, [KEY, fn]);
   };
-  await edit('delete s.ui_lang_start; delete s.ui_langs; delete s.set_id; (s.cases || []).forEach(function (c) { delete c.metrics.ui_langs; });');
+  // (a session of the Korean-only version is always a set v1 session: set_id is dropped only when the session is v1)
+  await edit("delete s.ui_lang_start; delete s.ui_langs; if ((s.set_id || 'v1') === 'v1') delete s.set_id; (s.cases || []).forEach(function (c) { delete c.metrics.ui_langs; });");
   // 1) old Korean session, English browser → Korean, nothing saved
   await reopen('');
   let v = await view();

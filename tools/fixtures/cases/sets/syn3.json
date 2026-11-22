@@ -1,0 +1,31 @@
+{
+  "id": "syn3",
+  "status": "draft",
+  "title": {
+    "ko": "합성 세트 3×3",
+    "en": "Synthetic set 3×3"
+  },
+  "patients": [
+    "P101",
+    "P102",
+    "P103"
+  ],
+  "models": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "ca": {
+    "per_session": 3,
+    "minutes_per_unit": [
+      10,
+      15
+    ],
+    "types": "auto"
+  },
+  "gc": {
+    "per_session": 3,
+    "minutes_per_item": 1.2,
+    "parts": "auto"
+  }
+}

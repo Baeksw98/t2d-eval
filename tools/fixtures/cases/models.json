@@ -1,0 +1,29 @@
+{
+  "_comment": "Synthetic fixture for tools/test_cases.py — fictional models, not real CDSS.",
+  "models": [
+    {
+      "code": "alpha",
+      "name": "Alpha One",
+      "aliases": [
+        "Alpha-1",
+        "Alpha One (2026)"
+      ]
+    },
+    {
+      "code": "beta",
+      "name": "Beta Two",
+      "aliases": [
+        "Beta-2",
+        "Beta Two (0917)"
+      ]
+    },
+    {
+      "code": "gamma",
+      "name": "Gamma Three",
+      "aliases": [
+        "Gamma 3",
+        "Gamma Three (1101)"
+      ]
+    }
+  ]
+}

@@ -803,5 +803,299 @@ function buildStudy(SS) {
   ok('reset: Summary rebuilt', !!env.SS.getSheetByName('Summary'));
 })();
 
+// =====================================================================
+// 6) Backend v6: UiLang / SetId through doPost, set-aware balanced sequences, Visits
+// =====================================================================
+const uuid = () => crypto.randomUUID();
+/** a CA payload as app.js basePayload() builds it (v3.6+: ui_lang, set_id) */
+function caPayload(sid, action, o) {
+  o = o || {};
+  const p = {
+    action, msg_id: uuid(), client_time: new Date().toISOString(), study_id: 'T2D-CA-2026', app_version: '2026-11-21.ca-v3.7',
+    data_version: o.dv || '2026-11-18.v1', session_id: sid, is_test: !!o.test,
+    evaluator: { name: o.name || '평가자', role: 'resident', role_label: '레지던트', detail: '레지던트 · R2', year: 'R2', fields: { year: 'R2', ai_freq: '주 1–2회' }, codes: { year: 2, ai_freq: 3 } },
+    study_type: o.type || 'A', linked_session_id: null, sequence_index: o.seq === undefined ? null : o.seq, seq_source: o.seqSource || 'server',
+    order: o.order || null, n_sequences: 2, instrument_version: 'Delphi-final', wave: 'main', evaluator_id: o.evId || 'ev-' + sid,
+    device_id: 'dev-' + sid, visit_id: uuid(), session_ordinal: 1, entry: { src: 'qr', site: '', wave: 'main', type_preselected: false, in_app: '', referrer_origin: '' },
+    consent: { version: 'c3', at: new Date().toISOString(), inherited: false }, incentive: '없음'
+  };
+  if (o.lang !== null) p.ui_lang = o.lang || 'ko';
+  if (o.set !== null) p.set_id = o.set || 'v1';
+  return Object.assign(p, o.extra || {});
+}
+function caCase(key, i, scores, lang) {
+  const steps = {};
+  ['vignette', 'p1', 'combo', 'p2', 'p3', 'p4', 'p5', 'comment'].forEach(s => { steps[s] = { active_ms: 30000, idle_ms: 0, visits: 1, ui_lang: lang === 'mix' ? 'ko' : (lang || 'ko') }; });
+  return {
+    case_index: i, case_key: key, patient_id: key.split('_')[0], model: key.split('_')[1], model_name: key.split('_')[1].toUpperCase() + ' name',
+    ratings: { p1: scores[0], p2: scores[1], p3: scores[2], p4: scores[3], p5: scores[4] }, combo_choice: 1, combo_name: 'c1', combo_rank_ai: 1,
+    combo_key: key + '_C1', rank_cue_visible: false, global_case_order: i, patient_seen_prior: false, comment: '', items: { harm: { value: '없음', code: 1 } },
+    chars: {}, combo_exposure: { seen: [true, true, true], dwell_ms: [1, 1, 1] }, ui_langs: lang === 'mix' ? ['ko', 'en'] : [lang || 'ko'],
+    ui_lang_mixed: lang === 'mix', started_at: new Date(Date.now() - 600e3).toISOString(), completed_at: new Date(Date.now() - (3 - i) * 1e3).toISOString(),
+    metrics: { steps, combo_resets: 0, case_active_ms: 240000, case_idle_ms: 0, case_hidden_ms: 0, case_wall_ms: 240000 }
+  };
+}
+const objsOf = (SS, name) => { const v = read(SS, name) || []; return v.slice(1).map(r => Object.fromEntries(v[0].map((h, i) => [h, r[i]]))); };
+function runSession(env, o, cases) {
+  const sid = o.sid || uuid();
+  const post = p => JSON.parse(env.ctx.doPost({ postData: { contents: JSON.stringify(p) } }).getContent());
+  const st = post(caPayload(sid, 'start', o));
+  const order = cases.map(c => c[0]);
+  const session = { started_at: new Date().toISOString(), finished_at: new Date().toISOString(), total_active_ms: 600000, total_idle_ms: 0,
+    total_hidden_ms: 0, total_wall_ms: 600000, resumes: 0, cases_completed: cases.length, interruptions: 0, send_failures: 0,
+    ui_lang_start: o.lang === null ? undefined : (o.langStart || o.lang || 'ko'), ui_lang_switches: o.switches || 0, ui_langs: o.langs || [o.lang || 'ko'] };
+  const cs = cases.map((c, i) => caCase(c[0], i + 1, c[1], c[2]));
+  cs.forEach(c => post(caPayload(sid, 'case', Object.assign({}, o, { seq: st.seq_index, order, extra: { case: c, session } }))));
+  const fin = post(caPayload(sid, 'finish', Object.assign({}, o, { seq: st.seq_index, order, extra: { cases: cs, session, end_items: { intent_use: { value: '4 · 그렇다', code: 4 } }, overall_comment: '' } })));
+  return { sid, start: st, fin };
+}
+
+(function v6Protocol() {
+  const env = makeEnv();
+  env.ctx.setup();
+  eq('BACKEND_VERSION v6', env.ctx.BACKEND_VERSION, '2026-11-21.ca-backend-v6');
+  ['Responses', 'PhaseLong', 'Sessions', 'Visits'].forEach(n => {
+    const h = read(env.SS, n)[0];
+    ok(n + ': has UiLang and SetId columns', h.indexOf('UiLang') >= 0 && h.indexOf('SetId') >= 0, h.slice(-6).join(','));
+  });
+  ok('Sessions: language history columns (UiLangStart, UiLangs, UiLangSwitches)', ['UiLangStart', 'UiLangs', 'UiLangSwitches'].every(c => read(env.SS, 'Sessions')[0].indexOf(c) >= 0));
+  ok('new columns are appended at the end (existing column positions unchanged)',
+    read(env.SS, 'Responses')[0].slice(-3).join(',') === 'UiLang,UiLangs,SetId' && read(env.SS, 'Visits')[0].slice(-2).join(',') === 'UiLang,SetId');
+  // an English session in set v2 with a language switch on case 2
+  const a = runSession(env, { name: '영어 평가자', type: 'A', set: 'v2', lang: 'en', langStart: 'en', langs: ['en', 'ko'], switches: 1 },
+    [['P101_alpha', [4, 4, 4, 4, 4], 'en'], ['P102_beta', [3, 3, 3, 3, 3], 'mix']]);
+  ok('v2 English session: start/finish ok', a.start.ok && a.fin.ok, JSON.stringify(a.fin));
+  const R = objsOf(env.SS, 'Responses').filter(r => r.SessionId === a.sid);
+  eq('Responses.SetId = v2', R.map(r => r.SetId).join(','), 'v2,v2');
+  eq('Responses.UiLang = en', R.map(r => r.UiLang).join(','), 'en,en');
+  eq('Responses.UiLangs (case history)', R.map(r => r.UiLangs).join('|'), 'en|ko;en');
+  eq('Responses.Model = code from the payload (no hardcoded names)', R.map(r => r.Model).join(','), 'alpha,beta');
+  const S = objsOf(env.SS, 'Sessions').find(r => r.SessionId === a.sid);
+  eq('Sessions.SetId / UiLang / UiLangStart / UiLangs / UiLangSwitches', [S.SetId, S.UiLang, S.UiLangStart, S.UiLangs, S.UiLangSwitches].join('|'), 'v2|en|en|en;ko|1');
+  const L = objsOf(env.SS, 'PhaseLong').filter(r => r.SessionId === a.sid);
+  eq('PhaseLong: 10 rows with SetId v2', L.filter(r => r.SetId === 'v2').length, 10);
+  eq('PhaseLong.UiLang from the step: case 1 rated in English (5 rows)', L.filter(r => r.UiLang === 'en').length, 5);
+  eq('PhaseLong.UiLang from the step: case 2 rated in Korean after the switch (5 rows)', L.filter(r => r.UiLang === 'ko').length, 5);
+  ok('payload values stay canonical Korean (Case_harm = 없음 in an English session)', R.every(r => r.Case_harm === '없음' && r.Case_harm_code === 1));
+  // an old-site payload without ui_lang / set_id → blank columns (= ko / v1)
+  const b = runSession(env, { name: '이전 사이트', type: 'A', set: null, lang: null }, [['P051_deepseek', [5, 5, 5, 5, 5]], ['P011_gpt', [4, 4, 4, 4, 4]]]);
+  const Rb = objsOf(env.SS, 'Responses').filter(r => r.SessionId === b.sid);
+  ok('payload without ui_lang / set_id: accepted, SetId and UiLang blank (= v1 / ko)', b.fin.ok && Rb.every(r => r.SetId === '' && r.UiLang === ''));
+  eq('bad set_id is not stored', env.ctx.setId_('../x'), '');
+  eq('uiLang_ keeps ko/en', [env.ctx.uiLang_('EN'), env.ctx.uiLang_('ko'), env.ctx.uiLang_(null)].join(','), 'en,ko,');
+  // balanced sequences: counted per set + type, the v1 counter name is unchanged
+  const s1 = runSession(env, { type: 'B', set: 'v1' }, [['P011_deepseek', [4, 4, 4, 4, 4]], ['P051_gpt', [4, 4, 4, 4, 4]]]);
+  const s2 = runSession(env, { type: 'B', set: 'v2' }, [['P103_alpha', [4, 4, 4, 4, 4]], ['P101_beta', [4, 4, 4, 4, 4]]]);
+  const s3 = runSession(env, { type: 'B', set: 'v1' }, [['P051_gpt', [4, 4, 4, 4, 4]], ['P011_deepseek', [4, 4, 4, 4, 4]]]);
+  eq('balanced sequence: first v1 Type B session gets 0', s1.start.seq_index, 0);
+  eq('balanced sequence: first v2 Type B session gets 0 (v1 sessions not counted)', s2.start.seq_index, 0);
+  eq('balanced sequence: second v1 Type B session gets 1', s3.start.seq_index, 1);
+  ok('sequence counters: v1 keeps SEQ_COUNTER_B, v2 uses SEQ_COUNTER_B_v2', env.props.SEQ_COUNTER_B === '2' && env.props.SEQ_COUNTER_B_v2 === '1', JSON.stringify(env.props));
+  // Visits (view beacon) with ui_lang / set_id
+  env.ctx.doPost({ postData: { contents: JSON.stringify({ action: 'view', study_id: 'T2D-CA-2026', visit_id: uuid(), device_id: 'dv', entry: { src: 'qr' }, form_factor: 'mobile', is_test: false, app_version: 'x', ui_lang: 'en', set_id: 'v2' }) } });
+  const V = objsOf(env.SS, 'Visits');
+  eq('Visits row: UiLang / SetId', [V[V.length - 1].UiLang, V[V.length - 1].SetId].join(','), 'en,v2');
+})();
+
+// =====================================================================
+// 7) Summary across case sets, more than two models, languages
+// =====================================================================
+(function multiSet() {
+  const env = makeEnv();
+  env.ctx.setup();
+  const v1 = [['P051_deepseek', 'P011_gpt'], ['P011_deepseek', 'P051_gpt']];
+  const v2 = [['P101_alpha', 'P102_beta', 'P103_gamma'], ['P103_alpha', 'P101_beta', 'P102_gamma'], ['P102_alpha', 'P103_beta', 'P101_gamma']];
+  // set v1: 2 sessions (2 models); set v2: 3 sessions (3 models), one English; evaluator 'Kim' does Type A in both sets
+  runSession(env, { name: 'Kim', type: 'A', set: null, lang: null, evId: 'ev-kim' }, v1[0].map((k, i) => [k, [4, 4, 4, 4, i ? 3 : 5]]));
+  runSession(env, { name: 'Lee', type: 'B', set: 'v1', evId: 'ev-lee' }, v1[1].map(k => [k, [3, 4, 4, 4, 4]]));
+  runSession(env, { name: 'Kim', type: 'A', set: 'v2', evId: 'ev-kim' }, v2[0].map(k => [k, [5, 5, 4, 4, 4]]));
+  runSession(env, { name: 'Park', type: 'B', set: 'v2', lang: 'en', evId: 'ev-park' }, v2[1].map(k => [k, [2, 3, 3, 3, 3], 'en']));
+  runSession(env, { name: 'Choi', type: 'C', set: 'v2', evId: 'ev-choi' }, v2[2].map(k => [k, [4, 4, 4, 5, 5]]));
+  const run = (prop) => {
+    if (prop === undefined) delete env.props.SUMMARY_SET; else env.props.SUMMARY_SET = prop;
+    const res = env.ctx.buildSummary(false);
+    return { res, S: read(env.SS, 'Summary'), AL: read(env.SS, 'AnalysisLong') };
+  };
+  // default: the set with the most completed cases (v2: 9 cases vs v1: 4)
+  let r = run();
+  let s0 = section(r.S, 0);
+  eq('default analysis set = v2 (most completed cases)', row(s0, x => String(x[0]).startsWith('분석 케이스 세트'))[1], 'v2');
+  eq('default: included sessions = 3 (v2)', r.res.sessions, 3);
+  eq('default: other_set excluded sessions = 2 (v1, incl. a blank-SetId session)', row(s0, x => x[0] === 'other_set')[1], 2);
+  eq('[0] set table lists v1 and v2', ['v1', 'v2'].map(id => row(s0, x => x[0] === id)[4]).join(' | '), '아니오 (other_set) | 예');
+  ok('rules state the set rule (SUMMARY_SET)', r.S.some(x => /SUMMARY_SET/.test(String(x[0])) && /^\d+\. /.test(String(x[0]))));
+  const s4 = section(r.S, 4);
+  ok('[4] per-model rows for all three models', ['ALPHA name', 'BETA name', 'GAMMA name'].every(n => s4.some(x => x[0] === n)));
+  ok('[4] no v1 model in the v2 analysis', !s4.some(x => x[0] === 'GPT name' || x[0] === 'DEEPSEEK name'));
+  const s5 = section(r.S, 5);
+  ok('[5] paired comparison skipped with 3 models (says why)', /정확히 2개/.test(String(s5[0][0])) && s5.some(x => /모델이 3개/.test(String(x[0]))));
+  const s1 = section(r.S, 1);
+  eq('[1] UiLang rows: ko sessions', row(s1, x => String(x[0]).startsWith('UiLang') && x[1] === 'ko')[4], 4);
+  eq('[1] UiLang rows: en sessions', row(s1, x => String(x[0]).startsWith('UiLang') && x[1] === 'en')[4], 1);
+  eq('[1] SetId rows: v1 sessions (blank SetId = v1)', row(s1, x => x[0] === 'SetId' && x[1] === 'v1')[4], 2);
+  const s7 = section(r.S, 7);
+  ok('[7] language subgroup rows when English ratings exist', s7.some(x => String(x[0]).startsWith('화면 언어')) && s7.some(x => x[1] === 'en' && x[3] === 15));
+  const s3 = section(r.S, 3);
+  ok('[3] StudyType qualified by set when several sets exist', s3.some(x => x[0] === 'v1 · A') && s3.some(x => x[0] === 'v2 · C'));
+  ok('[3] CaseKey table = analysis set only', s3.some(x => x[0] === 'P101_alpha') && !s3.some(x => x[0] === 'P051_deepseek'));
+  const H = r.AL[0], col = n => H.indexOf(n);
+  ok('AnalysisLong: SetId and UiLang columns', col('SetId') >= 0 && col('UiLang') >= 0);
+  eq('AnalysisLong: v1 rows excluded as other_set', r.AL.slice(1).filter(x => x[col('SetId')] === 'v1' && x[col('ExclusionReason')] === 'other_set' && x[col('IncludedInAnalysis')] === 0).length, 20);
+  eq('AnalysisLong: English ratings', r.AL.slice(1).filter(x => x[col('UiLang')] === 'en').length, 15);
+  ok('[15] methods text derives cases/models from the data', section(r.S, 15).some(x => /AI 답변 3건\(가상 환자 3명, 서로 다른 모델 3종 각 1건/.test(String(x[0])) && /케이스 세트 v2/.test(String(x[0]))));
+  // SUMMARY_SET = v1 → the live study's two-model comparison (gpt − deepseek)
+  r = run('v1');
+  s0 = section(r.S, 0);
+  eq('SUMMARY_SET=v1: analysis set', row(s0, x => String(x[0]).startsWith('분석 케이스 세트'))[1], 'v1');
+  eq('SUMMARY_SET=v1: included sessions', r.res.sessions, 2);
+  const t5 = String(section(r.S, 5)[0][0]);
+  ok('SUMMARY_SET=v1: [5] pairs exactly two models, later code − earlier code (gpt − deepseek)', /GPT name − DEEPSEEK name/.test(t5), t5);
+  eq('SUMMARY_SET=v1: P1 pairs = 2', row(section(r.S, 5), x => String(x[0]).startsWith('Phase 1'))[1], 2);
+  // SUMMARY_SET = all → every set; same evaluator + same Type letter in two sets is NOT a duplicate
+  r = run('all');
+  eq('SUMMARY_SET=all: all 5 sessions included', r.res.sessions, 5);
+  eq('SUMMARY_SET=all: Kim\'s Type A in v1 and v2 are not duplicates', row(section(r.S, 0), x => x[0] === 'duplicate')[1], 0);
+  ok('SUMMARY_SET=all: [5] skipped (5 models)', /정확히 2개/.test(String(section(r.S, 5)[0][0])));
+  delete env.props.SUMMARY_SET;
+  // CA Concordance pasted with a SetId column: only the analysis set's rows are used
+  const conc = env.SS.getSheetByName('Concordance');
+  conc.cells = [['TargetKey', 'ConcordanceScore', 'SetId'], ["'P101_alpha|P1", 0.7, "'v2"], ["'P101_alpha|P1", 0.1, "'v9"], ["'P102_beta|P1", 0.6, '']];
+  r = run();
+  const s14 = section(r.S, 14);
+  eq('[14] Concordance SetId filter: v2 row kept, other set dropped', row(s14, x => x[0] === 'P101_alpha|P1')[1], 0.7);
+  ok('[14] Concordance rows with blank SetId apply to any set', s14.some(x => x[0] === 'P102_beta|P1'));
+  // model code fallback: Model column blank → CaseKey suffix
+  eq('sm_modelCode_: Model column wins', env.ctx.sm_modelCode_('Beta', 'P1_alpha', 'x'), 'beta');
+  eq('sm_modelCode_: blank Model → CaseKey suffix', env.ctx.sm_modelCode_('', 'P101_gamma', 'Gamma Three'), 'gamma');
+  eq('sm_modelCode_: no key → model name', env.ctx.sm_modelCode_('', '', 'Some Name'), 'some name');
+  ok('no hardcoded model names in the CA backend logic', !/\/gpt\/|\/deepseek\/|'gpt'|'deepseek'/.test(CODE));
+})();
+
+// =====================================================================
+// 8) The deployed CA backend (v5, commit 9e8509f) accepts the new payloads (extra fields ignored)
+// =====================================================================
+(function oldBackendAcceptsNewPayload() {
+  let old = null;
+  try { old = require('child_process').execSync('git -C ' + JSON.stringify(ROOT) + ' show 9e8509f:gas/Code.gs', { stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8'); }
+  catch (e) { console.log('SKIP git history not available: deployed CA backend check'); return; }
+  const SS = new Spreadsheet();
+  const props = {};
+  const ctx = Object.assign({}, makeEnv().ctx);
+  ctx.SpreadsheetApp = { flush() {}, getActiveSpreadsheet: () => SS, openById: () => SS, getUi: () => ({ alert() {}, createMenu() { return { addItem() { return this; }, addSeparator() { return this; }, addToUi() {} }; } }) };
+  ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; }, getProperties: () => Object.assign({}, props) }) };
+  vm.createContext(ctx);
+  vm.runInContext(old, ctx, { filename: 'Code-v5.gs' });
+  ok('deployed backend is v5', ctx.BACKEND_VERSION === '2026-11-20.ca-backend-v5', ctx.BACKEND_VERSION);
+  ctx.setup();
+  const env = { ctx };
+  const r = runSession(env, { name: '신규 사이트', type: 'A', set: 'v1', lang: 'en', langs: ['en'] }, [['P051_deepseek', [4, 4, 4, 4, 4], 'en'], ['P011_gpt', [5, 4, 4, 4, 4], 'en']]);
+  ok('deployed v5 backend: new-style payloads (ui_lang, set_id, ui_langs …) accepted', r.start.ok && r.fin.ok, JSON.stringify(r.fin));
+  eq('deployed v5 backend: both cases stored', objsOf(SS, 'Responses').filter(x => x.SessionId === r.sid).length, 2);
+  eq('deployed v5 backend: 10 PhaseLong rows', objsOf(SS, 'PhaseLong').filter(x => x.SessionId === r.sid).length, 10);
+  ctx.doPost({ postData: { contents: JSON.stringify({ action: 'view', study_id: 'T2D-CA-2026', visit_id: uuid(), device_id: 'dv', entry: {}, form_factor: 'mobile', is_test: false, app_version: 'x', ui_lang: 'en', set_id: 'v1' }) } });
+  eq('deployed v5 backend: view beacon with ui_lang stored', objsOf(SS, 'Visits').length, 1);
+  let sumOk = true;
+  try { ctx.buildSummary(false); } catch (e) { sumOk = false; }
+  ok('deployed v5 backend: summary still builds', sumOk);
+})();
+
+// =====================================================================
+// 9) Redeploy on the live spreadsheet: the deployed v5 backend (commit 9e8509f) has rows from the earlier site (no ui_lang /
+//    set_id) and from the current site; then v6 is pasted over it (same spreadsheet and script properties, setup() not run)
+//    and the sessions started under v5 finish under v6.
+// =====================================================================
+(function redeployV5toV6() {
+  let old = null;
+  try { old = require('child_process').execSync('git -C ' + JSON.stringify(ROOT) + ' show 9e8509f:gas/Code.gs', { stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8'); }
+  catch (e) { console.log('SKIP git history not available: v5 → v6 redeploy check'); return; }
+  const SS = new Spreadsheet();
+  const props = {};
+  const svc = makeEnv().ctx;
+  const project = (code, file) => {
+    const ctx = {};
+    ['LockService', 'ScriptApp', 'Utilities', 'ContentService', 'Logger', 'console', 'JSON', 'Math', 'Date', 'String', 'Number', 'Object', 'Array', 'isNaN']
+      .forEach(k => { ctx[k] = svc[k]; });
+    ctx.SpreadsheetApp = { flush() {}, getActiveSpreadsheet: () => SS, openById: () => SS, getUi: () => ({ alert() {}, createMenu() { return { addItem() { return this; }, addSeparator() { return this; }, addToUi() {} }; } }) };
+    ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; }, getProperties: () => Object.assign({}, props) }) };
+    vm.createContext(ctx);
+    vm.runInContext(code, ctx, { filename: file });
+    return { ctx, post: p => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(p) } }).getContent()) };
+  };
+  const v5 = project(old, 'Code-v5.gs');
+  v5.ctx.setup();
+  const oldCase = (c) => { delete c.ui_langs; delete c.ui_lang_mixed; Object.keys(c.metrics.steps).forEach(s => { delete c.metrics.steps[s].ui_lang; }); return c; };
+  const sess = (o, n) => Object.assign({ started_at: new Date().toISOString(), total_active_ms: 600000, total_idle_ms: 0, total_hidden_ms: 0, total_wall_ms: 600000,
+    resumes: 1, cases_completed: n, interruptions: 0, send_failures: 0 }, o.lang === null ? {} : { ui_lang_start: o.lang, ui_lang_switches: 0, ui_langs: [o.lang] });
+  // A: earlier site (no ui_lang / set_id anywhere) · B: current site (English) · C: earlier site, completed under v5
+  const P = { A: { name: '이전 사이트', lang: null, set: null }, B: { name: '현재 사이트', lang: 'en', set: 'v1' }, C: { name: '완료 v5', lang: null, set: null } };
+  const keys = ['P051_deepseek', 'P011_gpt'];
+  Object.keys(P).forEach(id => {
+    const o = P[id];
+    o.sid = uuid();
+    const st = v5.post(caPayload(o.sid, 'start', o));
+    o.seq = st.seq_index;
+    o.cases = keys.map((k, i) => { const c = caCase(k, i + 1, [4, 4, 3, 4, 5], o.lang || 'ko'); return o.lang === null ? oldCase(c) : c; });
+    o.r1 = v5.post(caPayload(o.sid, 'case', Object.assign({}, o, { seq: o.seq, order: keys, extra: { case: o.cases[0], session: sess(o, 1) } })));
+  });
+  const c2 = Object.assign({}, P.C, { seq: P.C.seq, order: keys });
+  v5.post(caPayload(P.C.sid, 'case', Object.assign({}, c2, { extra: { case: P.C.cases[1], session: sess(P.C, 2) } })));
+  const finC = v5.post(caPayload(P.C.sid, 'finish', Object.assign({}, c2, { extra: { cases: P.C.cases, session: Object.assign(sess(P.C, 2), { finished_at: new Date().toISOString() }), end_items: { intent_use: { value: '4 · 그렇다', code: 4 } }, overall_comment: '' } })));
+  ok('v5: three sessions started, first cases and session C stored', ['A', 'B', 'C'].every(id => P[id].r1.ok) && finC.ok);
+  v5.ctx.doPost({ postData: { contents: JSON.stringify({ action: 'view', study_id: 'T2D-CA-2026', visit_id: uuid(), device_id: 'dv0', entry: {}, form_factor: 'mobile', is_test: false, app_version: 'old' }) } });
+  const names = ['Sessions', 'Responses', 'PhaseLong', 'Visits'];
+  const before = {};
+  names.forEach(n => { before[n] = read(SS, n) || []; });
+  // ---- paste v6 over it (no setup) ----
+  const v6 = project(CODE, 'Code.gs');
+  eq('redeploy: v6 runs on the v5 spreadsheet', v6.ctx.BACKEND_VERSION, '2026-11-21.ca-backend-v6');
+  ['A', 'B'].forEach(id => {
+    const o = Object.assign({}, P[id], { order: keys });
+    const r2 = v6.post(caPayload(o.sid, 'case', Object.assign({}, o, { extra: { case: o.cases[1], session: sess(o, 2) } })));
+    const fin = v6.post(caPayload(o.sid, 'finish', Object.assign({}, o, { extra: { cases: o.cases, session: Object.assign(sess(o, 2), { finished_at: new Date().toISOString() }), end_items: { intent_use: { value: '4 · 그렇다', code: 4 } }, overall_comment: '' } })));
+    ok('redeploy: session ' + id + ' (started under v5) finishes under v6', r2.ok && fin.ok, JSON.stringify([r2, fin]));
+  });
+  v6.ctx.doPost({ postData: { contents: JSON.stringify({ action: 'view', study_id: 'T2D-CA-2026', visit_id: uuid(), device_id: 'dv', entry: {}, form_factor: 'mobile', is_test: false, app_version: 'x', ui_lang: 'en', set_id: 'v1' }) } });
+  names.forEach(n => {
+    const h0 = (before[n][0] || []).map(String), h1 = (read(SS, n)[0] || []).map(String);
+    if (!h0.length) return;
+    ok('redeploy ' + n + ': v5 columns keep their positions, new ones appended (' + h1.slice(h0.length).join(',') + ')',
+      h1.slice(0, h0.length).join('|') === h0.join('|') && h1.indexOf('SetId') >= 0 && h1.indexOf('UiLang') >= 0);
+    // rows v6 does not touch (session C, finished under v5; Visits) keep every v5 value; their new columns stay blank
+    const now = read(SS, n), si = h0.indexOf('SessionId');
+    const mine = (r) => si < 0 || String(r[si]) === P.C.sid;
+    const oldRows = before[n].slice(1).map((r, i) => [r, now[i + 1]]).filter(x => mine(x[0]));
+    ok('redeploy ' + n + ': ' + oldRows.length + ' row(s) written by v5 and not touched since keep their values, new columns blank',
+      oldRows.length > 0 && oldRows.every(([a, b]) => a.every((v, j) => String(v) === String(b[j])) && b.slice(h0.length).every(v => v === '' || v === undefined)));
+  });
+  const S = objsOf(SS, 'Sessions');
+  ['A', 'B', 'C'].forEach(id => {
+    const rows = S.filter(x => x.SessionId === P[id].sid);
+    eq('redeploy: session ' + id + ' = one completed Sessions row', rows.map(x => x.Status + '/' + x.CasesCompleted).join(','), 'completed/2');
+  });
+  const R = objsOf(SS, 'Responses');
+  eq('redeploy: 2 Responses rows per session', ['A', 'B', 'C'].map(id => R.filter(x => x.SessionId === P[id].sid).length).join(','), '2,2,2');
+  eq('redeploy: earlier-site session A → SetId / UiLang blank (= v1 / ko)', R.filter(x => x.SessionId === P.A.sid).map(x => (x.SetId || '-') + '/' + (x.UiLang || '-')).join(','), '-/-,-/-');
+  // a case stored by v5 is not rewritten by the v6 finish (same CaseCompletedAt): its new columns stay blank (= v1 / ko, the
+  // documented meaning of blank); the screen language of that request is still in RawJSON.Payload
+  eq('redeploy: current-site session B → case 1 (stored by v5) blank, case 2 (under v6) SetId v1 / UiLang en',
+    R.filter(x => x.SessionId === P.B.sid).map(x => (x.SetId || '-') + '/' + (x.UiLang || '-')).join(','), '-/-,v1/en');
+  ok('redeploy: RawJSON keeps ui_lang/set_id of the case-1 request handled by v5',
+    objsOf(SS, 'RawJSON').some(x => x.SessionId === P.B.sid && x.Action === 'case' && /"ui_lang":"en"/.test(x.Payload) && /"set_id":"v1"/.test(x.Payload) && /P051_deepseek/.test(x.Payload)));
+  eq('redeploy: Sessions.SetId of session B', S.find(x => x.SessionId === P.B.sid).SetId, 'v1');
+  // a new session under v6: balanced against the v5 rows (blank SetId = v1)
+  const used = S.filter(x => x.StudyType === 'A').map(x => Number(x.SequenceIndex));
+  const cnt = [0, 1].map(i => used.filter(u => u === i).length);
+  const d = v6.post(caPayload(uuid(), 'start', { name: '새 세션', lang: 'ko', set: 'v1' }));
+  ok('redeploy: a new v6 session gets the less-used order of Type A (counts ' + cnt.join('/') + ' → ' + d.seq_index + ')', d.ok && cnt[d.seq_index] === Math.min.apply(null, cnt));
+  let sumOk = true, err = '';
+  try { v6.ctx.buildSummary(false); } catch (e) { sumOk = false; err = e.message; }
+  ok('redeploy: v6 summary builds on the mixed v5/v6 sheet', sumOk, err);
+  const sum = read(SS, 'Summary') || [];
+  ok('redeploy: summary analyses set v1 (old rows counted as v1)', sum.some(r => /분석 케이스 세트/.test(String(r[0])) && String(r[1]) === 'v1'));
+  const hBefore = names.map(n => (read(SS, n)[0] || []).join('|'));
+  v6.ctx.setup();
+  ok('redeploy: running setup() afterwards changes no headers', names.every((n, i) => (read(SS, n)[0] || []).join('|') === hBefore[i]));
+})();
+
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

@@ -23,11 +23,21 @@ const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const DUMP = process.argv.indexOf('--dump') >= 0 ? process.argv[process.argv.indexOf('--dump') + 1] : '';   // write GC sheets as TSV
-const CODE = fs.readFileSync(path.join(ROOT, 'gas', 'GcCode.gs'), 'utf8');
+const CODE_REAL = fs.readFileSync(path.join(ROOT, 'gas', 'GcCode.gs'), 'utf8');
 const CA_CODE = fs.readFileSync(path.join(ROOT, 'gas', 'Code.gs'), 'utf8');
 const loadWindow = (rel) => { const win = {}; vm.runInNewContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), { window: win }); return win; };
-const GC_DATA = loadWindow('gc/data/gc_items.js').GC_DATA;
+// The protocol / summary tests below are written against set v1 (the live study: its items, Parts and the v1 literals in
+// gc-config.js). They read v1 from its archive, so they keep passing after cases/active.json switches to another set.
+// The ACTIVE set (gc/data/gc_items.js, embedded in gas/GcCode.gs as GC_ITEMS) is checked on its own in staticChecks.
+const ACTIVE_GC = loadWindow('gc/data/gc_items.js').GC_DATA;
+const ACTIVE_ID = ACTIVE_GC.set_id || 'v1';
+const GC_DATA = loadWindow('gc/data/sets/v1/gc_items.js').GC_DATA;
 const GC_CONFIG = loadWindow('gc/gc-config.js').GC_CONFIG;
+const V1_SET_TEXT = fs.readFileSync(path.join(ROOT, 'gc', 'data', 'sets', 'v1.json'), 'utf8');
+const GC_ITEMS_AT = CODE_REAL.lastIndexOf('\nvar GC_ITEMS = {');
+// v1 world: the real GcCode.gs, with set v1 as the embedded copy when another set is active (identical when v1 is active)
+const CODE = ACTIVE_ID === 'v1' ? CODE_REAL : CODE_REAL.slice(0, GC_ITEMS_AT) + '\nvar GC_ITEMS = ' + V1_SET_TEXT.trim() + ';\n';
+const INDEX_URL = 'https://eval.asclep.org/gc/data/sets/index.json';
 
 // ---------------- In-memory spreadsheet mock (same as tools/test_summary.js) ----------------
 class Range {
@@ -110,16 +120,23 @@ class Spreadsheet {
  *                created at script.google.com (getActiveSpreadsheet → null, setup() creates the spreadsheet)
  * opts.setup   → run setup() right away (default true)
  * opts.code    → script source (default gas/GcCode.gs)
+ * opts.fetch   → false: no UrlFetchApp (a deployment without the 'external service' permission); default: UrlFetchApp serves
+ *                the repository files for https://eval.asclep.org/<path> (env.site[url] = {code, text} overrides one URL,
+ *                env.fetches logs every fetched URL). CacheService.getScriptCache() is an in-memory store (env.cache).
+ * opts.from    → an earlier env: the new code runs as a redeploy of that project (same spreadsheets, script properties, triggers)
  */
 function makeEnv(opts) {
   opts = opts || {};
-  const SS = new Spreadsheet('bound');
-  const props = {};
-  const triggers = [];
+  const prev = opts.from || null;
+  const SS = prev ? prev.SS : new Spreadsheet('bound');
+  const props = prev ? prev.props : {};
+  const triggers = prev ? prev.triggers : [];
   const lock = { busy: false, acquired: 0, released: 0, held: false, flushHeld: 0, flushFree: 0 };
   const created = [], opened = [], logs = [];
-  const books = { [SS.getId()]: SS };
-  const env = { SS, props, triggers, lock, created, opened, logs };
+  const books = prev ? prev.books : { [SS.getId()]: SS };
+  const env = { SS, props, triggers, lock, created, opened, logs, fetches: [], site: {}, cache: {}, cachePuts: 0, books };
+  // v1 world: when another set is active on the site, the site's index.json is served as if v1 were active
+  if (ACTIVE_ID !== 'v1') env.site[INDEX_URL] = { code: 200, text: JSON.stringify({ active: 'v1', sets: ['v1'] }) };
   const ctx = {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => (opts.bound ? SS : null),
@@ -152,10 +169,27 @@ function makeEnv(opts) {
       sleep: () => {}
     },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) },
+    CacheService: { getScriptCache: () => ({
+      get: k => (k in env.cache ? env.cache[k] : null),
+      put: (k, v, ttl) => { if (String(v).length > 100000) throw new Error('Argument too large'); env.cache[k] = String(v); env.cachePuts++; env.lastTtl = ttl; },
+      remove: k => { delete env.cache[k]; } }) },
     Logger: { log: (m) => logs.push(String(m)) },
     console: { log: () => {}, warn: (...a) => console.warn(...a), error: () => {} },
     JSON, Math, Date, String, Number, Object, Array, isNaN
   };
+  if (opts.fetch !== false) {
+    ctx.UrlFetchApp = { fetch: (url, o) => {
+      env.fetches.push(url);
+      (env.fetchHeld = env.fetchHeld || []).push(lock.held);
+      if (!o || o.muteHttpExceptions !== true) throw new Error('test: muteHttpExceptions must be set');
+      const fake = env.site[url];
+      if (fake) { if (fake.throw) throw new Error(fake.throw); return { getResponseCode: () => fake.code, getContentText: () => fake.text }; }
+      const m = /^https:\/\/eval\.asclep\.org\/(.+)$/.exec(url);
+      const fp = m ? path.join(ROOT, decodeURIComponent(m[1])) : '';
+      if (!fp || !fp.startsWith(ROOT) || !fs.existsSync(fp)) return { getResponseCode: () => 404, getContentText: () => 'Not Found' };
+      return { getResponseCode: () => 200, getContentText: () => fs.readFileSync(fp, 'utf8') };
+    } };
+  }
   vm.createContext(ctx);
   vm.runInContext(opts.code || CODE, ctx, { filename: 'GcCode.gs' });
   env.ctx = ctx;
@@ -213,17 +247,18 @@ const H_GC_SESS = ['FirstSeenAt', 'ServerUpdatedAt', 'SessionId', 'IsTest', 'Eva
   'SequenceIndex', 'SeqSource', 'Order', 'Status', 'ItemsTotal', 'ItemsDone', 'AgreeN', 'DisagreeN', 'LinkedSessionId', 'SessionOrdinal',
   'DeviceId', 'VisitId', 'Src', 'Site', 'Wave', 'PartPreselected', 'ConsentVersion', 'ConsentAt', 'ConsentInherited', 'InstrumentVersion',
   'Incentive', 'StartedAt', 'FinishedAt', 'TotalActiveMin', 'TotalWallMin', 'Resumes', 'SendFailures', 'FurthestUnit', 'FurthestItem',
-  'LastActivityAt', 'OverallComment', 'FormFactor', 'ViewportW', 'ViewportH', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion'];
+  'LastActivityAt', 'OverallComment', 'FormFactor', 'ViewportW', 'ViewportH', 'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion',
+  'UiLang', 'UiLangStart', 'UiLangs', 'UiLangSwitches', 'SetId'];   // v4: language + case set appended at the end
 const H_GC_JUDG = ['ServerUpdatedAt', 'SessionId', 'IsTest', 'EvaluatorName', 'EvaluatorCode', 'EvaluatorId', 'Part', 'SequenceIndex',
   'SessionOrdinal', 'UnitOrder', 'ItemOrder', 'UnitKey', 'PatientId', 'Model', 'Combo', 'Question', 'Element', 'ItemId', 'TargetKey',
   'AuditMark', 'AuditCategory', 'RaterVerdict', 'AuditCorrected', 'AIFinal', 'Agree', 'PhysVerdict', 'PhysVerdict_code', 'AgreeWithRater',
   'AgreeWithAIFinal', 'Comment', 'AnsweredAt', 'ItemSec', 'ActiveSec', 'TTFDSec', 'Changes', 'OpenedCriterion', 'OpenedFullAnswer',
-  'OpenedBasis', 'OpenedPatient', 'ClientMismatch', 'AppVersion', 'DataVersion', 'BackendVersion'];
+  'OpenedBasis', 'OpenedPatient', 'ClientMismatch', 'AppVersion', 'DataVersion', 'BackendVersion', 'UiLang', 'UiLangs', 'SetId'];
 const H_RAW = ['ReceivedAt', 'Action', 'SessionId', 'MsgId', 'IsTest', 'Payload', 'ElapsedMs', 'Error'];
 const H_ADJ = ['ItemId', 'UnitKey', 'Element', 'Title', 'Combo', 'Question', 'AuditMark', 'AuditCategory', 'RaterVerdict', 'AIFinal', 'N',
-  'AgreeN', 'Met', 'Deducted', 'NotApplicable', 'Adjudicated', 'Status', 'Comments'];
+  'AgreeN', 'Met', 'Deducted', 'NotApplicable', 'Adjudicated', 'Status', 'Comments', 'SetId'];
 const H_CONC = ['TargetKey', 'N_AI', 'Met_Raw', 'Met_AI', 'Score_Raw', 'Score_AI', 'N_Adj', 'Met_Adj', 'ConcordanceScore', 'FlaggedItems',
-  'Adjudicated', 'Pending'];
+  'Adjudicated', 'Pending', 'SetId'];
 
 // ---------------- payload builders ----------------
 const ITEM = {};
@@ -248,7 +283,8 @@ function base(ph, action, extra) {
     evaluator_id: ph.evId, device_id: ph.dev, visit_id: ph.visit, session_ordinal: ph.ordinal, linked_session_id: ph.linked, part: ph.part,
     sequence_index: ph.seq, seq_source: ph.seqSource, order: ph.order, n_sequences: 2,
     entry: { src: 'qr', site: '', wave: 'main', part_preselected: false, in_app: '', referrer_origin: '' },
-    consent: { version: GC_CONFIG.CONSENT_VERSION, at: iso(0), inherited: ph.ordinal > 1 }, incentive: GC_CONFIG.INCENTIVE
+    consent: { version: GC_CONFIG.CONSENT_VERSION, at: iso(0), inherited: ph.ordinal > 1 }, incentive: GC_CONFIG.INCENTIVE,
+    ui_lang: ph.lang || 'ko', set_id: ph.set || 'v1'   // site v2.2+: screen language and case set on every payload
   }, extra || {});
 }
 const DEVICE = { form_factor: 'mobile', vw: 390, vh: 844, ua: 'Mozilla/5.0 (iPhone) test' };
@@ -317,8 +353,8 @@ const endItems = (a, b) => ({
   const G = env.ctx.GC_ITEMS;
   GC_CONFIG.PROFILE_FIELDS.forEach(f => eq('GC_OPT.' + f.id + ' = gc-config.js PROFILE_FIELDS options (codes)', JSON.stringify(env.ctx.GC_OPT[f.id]), JSON.stringify(f.options)));
   eq('profile fields = board_years, setting, ai_freq', GC_CONFIG.PROFILE_FIELDS.map(f => f.id).join(','), 'board_years,setting,ai_freq');
-  eq('GC_BACKEND_VERSION', env.ctx.GC_BACKEND_VERSION, '2026-11-20.gc-backend-v3');
-  eq('GC_ITEMS data_version = gc_items.js', G.data_version, GC_DATA.data_version);
+  eq('GC_BACKEND_VERSION', env.ctx.GC_BACKEND_VERSION, '2026-11-21.gc-backend-v4');
+  eq('GC_ITEMS data_version = gc/data/sets/v1/gc_items.js', G.data_version, GC_DATA.data_version);
   eq('GC_ITEMS units', Object.keys(G.units).join(','), Object.keys(GC_DATA.units).join(','));
   eq('GC_ITEMS item counts (P051_gpt 4, P051_deepseek 8, P011_gpt 10, P011_deepseek 7)',
     Object.keys(G.units).map(k => G.units[k].items.length).join(','), '4,8,10,7');
@@ -335,16 +371,38 @@ const endItems = (a, b) => ({
   ok('GC_ITEMS concordance_base = gc_items.js', Object.keys(G.units).every(k => JSON.stringify(G.units[k].concordance_base) === JSON.stringify(GC_DATA.units[k].concordance_base)));
   ok('GC_ITEMS block is compact (no criterion/explanation text)', CODE.indexOf('"criterion"') < 0 && CODE.indexOf('"explanation"') < 0);
   // backend Part mapping must match the site config
-  const gp = env.ctx.GC_PARTS;
-  ok('GC_PARTS (gc.gs) = GC_CONFIG.PARTS (gc-config.js)', GC_CONFIG.PARTS.every(p => gp[p.id] &&
+  const gp = env.ctx.gcParts_(G);
+  ok('embedded Parts (GC_ITEMS.parts) = GC_CONFIG.PARTS (gc-config.js fallback)', GC_CONFIG.PARTS.every(p => gp[p.id] &&
     p.sequences.every(seq => seq.slice().sort().join(',') === gp[p.id].slice().sort().join(','))) && Object.keys(gp).length === GC_CONFIG.PARTS.length);
-  ok('GC_PARTS sequences per Part = 2 (n_sequences default)', GC_CONFIG.PARTS.every(p => p.sequences.length === 2));
+  ok('GC_CONFIG.PARTS sequences per Part = 2 (n_sequences default)', GC_CONFIG.PARTS.every(p => p.sequences.length === 2));
+  ok('no GC_PARTS literal left in the backend (Parts come from the set data)', !/var GC_PARTS\b/.test(CODE));
+  eq('GC_ITEMS.set_id = v1 (v1 world)', G.set_id, GC_DATA.set_id);
+  const SET_JSON = JSON.parse(fs.readFileSync(path.join(ROOT, 'gc', 'data', 'sets', GC_DATA.set_id + '.json'), 'utf8'));
+  eq('GC_ITEMS = gc/data/sets/<active>.json (the copy the backend fetches)', JSON.stringify(G), JSON.stringify(SET_JSON));
+  const DESIGN = loadWindow('data/sets/v1/design.js').T2D_DESIGN;
+  eq('GC_ITEMS.parts = data/sets/v1/design.js gc.parts (sequences, items, minutes)', JSON.stringify(G.parts),
+    JSON.stringify(DESIGN.gc.parts.map(p => ({ id: p.id, sequences: p.sequences, items: p.items, minutes: p.minutes }))));
+  // the ACTIVE set: gas/GcCode.gs embeds exactly gc/data/sets/<active>.json, which matches gc/data/gc_items.js and data/design.js
+  const realCtx = { console: { log() {}, warn() {}, error() {} } };
+  vm.createContext(realCtx);
+  vm.runInContext(CODE_REAL.slice(GC_ITEMS_AT) + '\nthis.__G = GC_ITEMS;', realCtx);
+  const RG = realCtx.__G, ACT_DESIGN = loadWindow('data/design.js').T2D_DESIGN;
+  const ACT_JSON = JSON.parse(fs.readFileSync(path.join(ROOT, 'gc', 'data', 'sets', ACTIVE_ID + '.json'), 'utf8'));
+  eq('gas/GcCode.gs embedded GC_ITEMS = gc/data/sets/' + ACTIVE_ID + '.json (active set ' + ACTIVE_ID + ')', JSON.stringify(RG), JSON.stringify(ACT_JSON));
+  eq('active set: embedded data_version = gc/data/gc_items.js', RG.data_version, ACTIVE_GC.data_version);
+  eq('active set: embedded units / item counts = gc/data/gc_items.js', Object.keys(RG.units).map(k => k + ':' + RG.units[k].items.length).join(','),
+    Object.keys(ACTIVE_GC.units).map(k => k + ':' + ACTIVE_GC.units[k].items.length).join(','));
+  eq('active set: data/design.js set_id', ACT_DESIGN.set_id, ACTIVE_ID);
+  eq('active set: embedded parts = data/design.js gc.parts', JSON.stringify(RG.parts),
+    JSON.stringify(ACT_DESIGN.gc.parts.map(p => ({ id: p.id, sequences: p.sequences, items: p.items, minutes: p.minutes }))));
+  if (ACTIVE_ID !== 'v1') console.log('NOTE active set is ' + ACTIVE_ID + ': protocol and summary tests run on set v1 (archive gc/data/sets/v1/, embedded copy swapped in memory)');
+  ok('deployment header names the one extra permission (외부 서비스에 연결)', /외부 서비스에 연결/.test(CODE.slice(0, 6000)) && /외부 서비스 연결/.test(CODE.slice(0, 6000)));
   const ends = GC_CONFIG.END_ITEMS.map(e => e.id).sort().join(',');
   ok('GC_CB_ITEMS covers END_ITEMS and PROFILE_FIELDS', ends === Object.keys(env.ctx.GC_CB_ITEMS).filter(k => env.ctx.GC_CB_ITEMS[k][0] === 'End_').sort().join(',') &&
     GC_CONFIG.PROFILE_FIELDS.every(f => env.ctx.GC_CB_ITEMS[f.id] && JSON.stringify(env.ctx.GC_OPT[f.id]) === JSON.stringify(f.options)));
 
   eq('setup: sheets of the GC spreadsheet', env.SS.getSheets().map(s => s.getName()).join(','), 'Visits,GC_Sessions,GC_Judgments,GC_Raw');
-  eq('setup: Visits headers (same columns as CA)', JSON.stringify(read(env.SS, 'Visits')[0]), JSON.stringify(['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser', 'ReferrerOrigin', 'IsTest', 'AppVersion']));
+  eq('setup: Visits headers (same columns as CA)', JSON.stringify(read(env.SS, 'Visits')[0]), JSON.stringify(['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser', 'ReferrerOrigin', 'IsTest', 'AppVersion', 'UiLang', 'SetId']));
   eq('setup: GC_Sessions headers = contract', JSON.stringify(read(env.SS, 'GC_Sessions')[0]), JSON.stringify(H_GC_SESS));
   eq('setup: GC_Judgments headers = contract', JSON.stringify(read(env.SS, 'GC_Judgments')[0]), JSON.stringify(H_GC_JUDG));
   eq('setup: GC_Raw headers = contract', JSON.stringify(read(env.SS, 'GC_Raw')[0]), JSON.stringify(H_RAW));
@@ -427,7 +485,7 @@ const endItems = (a, b) => ({
   eq('ConsentVersion', s1.ConsentVersion, GC_CONFIG.CONSENT_VERSION);
   eq('PartPreselected FALSE', s1.PartPreselected, false);
   eq('Src', s1.Src, 'qr');
-  eq('BackendVersion', s1.BackendVersion, '2026-11-20.gc-backend-v3');
+  eq('BackendVersion', s1.BackendVersion, '2026-11-21.gc-backend-v4');
   ok('FirstSeenAt is a Date', s1.FirstSeenAt instanceof Date);
   eq('GC_Raw logged gc_start', objs(SS, 'GC_Raw').filter(r => r.Action === 'gc_start').length, 1);
   ok('no CA sheets in the GC spreadsheet', ['RawJSON', 'Sessions', 'Responses', 'PhaseLong', 'Summary'].every(n => !SS.getSheetByName(n)));
@@ -558,6 +616,14 @@ const endItems = (a, b) => ({
   eq('progress after completion ignored', objs(SS, 'GC_Sessions').find(x => x.SessionId === p1.sid).FurthestUnit, '');
   // 6 starts (incl. re-send) + 4 judgments + 2 finishes + 1 late judgment + 1 progress; rejected/busy requests are not logged
   eq('GC_Raw logs every accepted GC request', objs(SS, 'GC_Raw').length, 14);
+  // GC_Raw.Payload = the request as received: valid JSON, no server-added keys (v4 must not copy the case-set data into every row)
+  const rawP = objs(SS, 'GC_Raw').map(x => String(x.Payload).replace(/^'/, ''));
+  const parsed = rawP.map(t => { try { return JSON.parse(t); } catch (e) { return null; } });
+  ok('GC_Raw.Payload: every row parses as JSON', parsed.every(Boolean), rawP.filter((t, i) => !parsed[i]).map(t => t.slice(-40)).join(' | '));
+  ok('GC_Raw.Payload: no server-added keys (_set, _gcev)', parsed.every(o => o && !('_set' in o) && !('_gcev' in o)),
+    parsed.filter(o => o && ('_set' in o || '_gcev' in o)).map(o => Object.keys(o).filter(k => k[0] === '_').join(',')).join(' | '));
+  ok('GC_Raw.Payload: a judgment row stays small (< 4,000 chars)', rawP.filter((t, i) => parsed[i] && parsed[i].action === 'gc_judgment').every(t => t.length < 4000),
+    rawP.map(t => t.length).join(','));
 
   // --- progress ---
   post(base(p2, 'gc_progress', { progress: { furthest_unit: 1, furthest_item: 3, items_done: 2, last_activity_at: iso(5e3) } }));
@@ -1097,6 +1163,238 @@ const endItems = (a, b) => ({
   const r = f.slice(f.findIndex(x => String(x[0]).startsWith('[4-3]'))).find(x => x[0] === '(미응답·기타)') || [];
   eq('no ai_freq: [4-3] (미응답·기타) phys/n/agree', r.slice(2, 5).join('/'), '1/1/1');
   eq('no ai_freq: [2] AI 사용 빈도 (미응답) n', (section(S, 2).find(x => x[1] === '(미응답)') || [])[2], 1);
+})();
+
+// =====================================================================
+// 4-3) Case sets: site fetch + 10-minute cache + embedded fallback, several sets, languages
+// =====================================================================
+const SET_URL = id => 'https://eval.asclep.org/gc/data/sets/' + id + '.json';
+const V1_JSON = fs.readFileSync(path.join(ROOT, 'gc', 'data', 'sets', 'v1.json'), 'utf8');
+/** a synthetic set 'v2': the v1 data under another id, with its own Parts and one item changed (final flipped) */
+function makeV2() {
+  const d = JSON.parse(V1_JSON);
+  d.set_id = 'v2';
+  d.data_version = 'v2.gc-test';
+  d.parts = [{ id: 'A', sequences: [['P051_gpt', 'P011_deepseek'], ['P011_deepseek', 'P051_gpt']], items: 11, minutes: [10, 15] },
+    { id: 'B', sequences: [['P011_gpt', 'P051_deepseek'], ['P051_deepseek', 'P011_gpt']], items: 18, minutes: [20, 25] },
+    { id: 'C', sequences: [['P051_gpt']], items: 4, minutes: [5, 10] }];
+  const it = d.units.P051_gpt.items[0];
+  it.final = it.final === 'met' ? 'deducted' : 'met';
+  return d;
+}
+
+(function caseSets() {
+  // --- fetch → cache → memo ---
+  const env = makeEnv();
+  ok('setup checks the site data and logs it', env.logs.some(l => /✅ 사이트 케이스 세트 자료 읽기 확인: 활성 세트 v1/.test(l)), env.logs.slice(-4).join(' | '));
+  ok('setup: last log line is still the result line', /✅ GC 응답 시트 준비 완료/.test(env.logs[env.logs.length - 1]));
+  const C = env.ctx;
+  env.fetches.length = 0; env.cache = {}; C.GC_SET_MEMO_ = {};
+  let r = C.gcSetData_('v1');
+  eq('gcSetData_(v1): read from the site', r.source, 'site');
+  ok('gcSetData_(v1): exact, same data as the embedded copy', r.exact && JSON.stringify(r.data) === JSON.stringify(C.GC_ITEMS));
+  eq('gcSetData_: fetch URL', env.fetches.join(','), SET_URL('v1'));
+  ok('gcSetData_: cached for 10 minutes', env.cache['gcset:v1'] && env.lastTtl === 600);
+  C.gcSetData_('v1');
+  eq('gcSetData_: second call in the same execution uses the memo (no fetch)', env.fetches.length, 1);
+  C.GC_SET_MEMO_ = {};
+  eq('gcSetData_: next execution uses CacheService', C.gcSetData_('v1').source, 'cache');
+  eq('gcSetData_: still one fetch', env.fetches.length, 1);
+  eq('blank set id = v1', C.gcSetData_('').id, 'v1');
+  // --- fallbacks ---
+  const fb = (label, setup, id, wantExact, opts) => {
+    const e = makeEnv(Object.assign({ setup: false }, opts || {}));
+    setup(e);
+    const x = e.ctx.gcSetData_(id || 'v1');
+    ok(label + ' → embedded copy', x.source === 'embedded' && x.exact === wantExact && x.data === e.ctx.GC_ITEMS, JSON.stringify({ s: x.source, n: x.note, e: x.exact }));
+    return x;
+  };
+  fb('site returns 404', e => { e.site[SET_URL('v1')] = { code: 404, text: 'nope' }; }, 'v1', true);
+  fb('site returns HTML instead of JSON', e => { e.site[SET_URL('v1')] = { code: 200, text: '<html>' }; }, 'v1', true);
+  const bad = JSON.parse(V1_JSON); delete bad.parts;
+  fb('site JSON without parts (shape check)', e => { e.site[SET_URL('v1')] = { code: 200, text: JSON.stringify(bad) }; }, 'v1', true);
+  const wrongId = JSON.parse(V1_JSON); wrongId.set_id = 'v7';
+  fb('site JSON of another set (set_id check)', e => { e.site[SET_URL('v1')] = { code: 200, text: JSON.stringify(wrongId) }; }, 'v1', true);
+  fb('fetch throws (quota, DNS)', e => { e.site[SET_URL('v1')] = { throw: 'Service invoked too many times' }; }, 'v1', true);
+  const noPerm = fb('no UrlFetchApp (permission not granted)', () => {}, 'v1', true, { fetch: false });
+  ok('fallback note says why', /UrlFetchApp/.test(noPerm.note), noPerm.note);
+  const e0 = makeEnv({ fetch: false });
+  ok('setup without the permission warns and still finishes', e0.logs.some(l => /⚠️ 사이트 케이스 세트 자료를 읽지 못했습니다/.test(l)) && /✅ GC 응답 시트 준비 완료/.test(e0.logs[e0.logs.length - 1]));
+  const v9 = fb('unknown set v9 (not on the site)', () => {}, 'v9', false);
+  ok('unknown set: note names the embedded set', /내장 사본은 세트 v1/.test(v9.note), v9.note);
+  ok('cache corrupted → refetch', (() => { const e = makeEnv({ setup: false }); e.cache['gcset:v1'] = '{bad'; return e.ctx.gcSetData_('v1').source === 'site'; })());
+
+  // --- the protocol with a second set v2 served by the site ---
+  const env2 = makeEnv();
+  const V2 = makeV2();
+  env2.site[SET_URL('v2')] = { code: 200, text: JSON.stringify(V2) };
+  env2.site['https://eval.asclep.org/gc/data/sets/index.json'] = { code: 200, text: JSON.stringify({ active: 'v2', sets: ['v1', 'v2'] }) };
+  env2.cache = {};   // setup() already cached index.json (active v1) for 10 minutes: start from a cold cache
+  const ph1 = physician('김세트', 'A', { set: 'v2', lang: 'en' });
+  const st = env2.post(base(ph1, 'gc_start', { device: DEVICE }));
+  ok('v2 start ok', st.ok, JSON.stringify(st));
+  ph1.seq = st.seq_index; ph1.order = V2.parts[0].sequences[st.seq_index].slice();
+  const sess = objs(env2.SS, 'GC_Sessions').find(x => x.SessionId === ph1.sid);
+  eq('v2 session: SetId', sess.SetId, 'v2');
+  eq('v2 session: ItemsTotal from the v2 Parts (P051_gpt 4 + P011_deepseek 7)', sess.ItemsTotal, 11);
+  eq('v2 session: UiLang', sess.UiLang, 'en');
+  const flipped = V2.units.P051_gpt.items[0];
+  const jj = judgment(ph1, flipped.id, flipped.final, { ai_final: flipped.final });
+  jj.ui_lang = 'en'; jj.ui_langs = ['ko', 'en']; jj.agree = true;
+  env2.post(base(ph1, 'gc_judgment', { judgment: jj, data_version: V2.data_version }));
+  const jr = objs(env2.SS, 'GC_Judgments').find(x => x.SessionId === ph1.sid && x.ItemId === flipped.id);
+  eq('v2 judgment: AIFinal from the v2 set data (changed item)', jr.AIFinal, flipped.final);
+  eq('v2 judgment: Agree computed against the v2 data', jr.Agree, true);
+  eq('v2 judgment: SetId / UiLang / UiLangs', [jr.SetId, jr.UiLang, jr.UiLangs].join('|'), 'v2|en|ko;en');
+  eq('v2 judgment: no ClientMismatch', jr.ClientMismatch, '');
+  const jRaw = objs(env2.SS, 'GC_Raw').filter(x => x.SessionId === ph1.sid && x.Action === 'gc_judgment').map(x => String(x.Payload).replace(/^'/, ''));
+  ok('v2 judgment: GC_Raw.Payload is the request verbatim (set data not attached)', jRaw.length === 1 && !/"_set"|"_gcev"/.test(jRaw[0]) &&
+    JSON.parse(jRaw[0]).judgment.item_id === flipped.id && jRaw[0].length < 4000, jRaw.map(t => t.length + ':' + t.slice(-60)).join(' | '));
+  // balanced sequence counted per set
+  const ph2 = physician('이세트', 'A', { set: 'v1' });
+  eq('first v1 Part A session after a v2 Part A session → seq 0 (sets counted apart)', startPh(env2, ph2).seq_index, 0);
+  ok('sequence counters: GC_SEQ_COUNTER_A (v1) and GC_SEQ_COUNTER_A_v2', env2.props.GC_SEQ_COUNTER_A === '1' && env2.props.GC_SEQ_COUNTER_A_v2 === '1', JSON.stringify(env2.props));
+  // a v1 judgment of the same item id uses the v1 data
+  const jv1 = judgment(ph2, flipped.id, ITEM[flipped.id].final);
+  env2.post(base(ph2, 'gc_judgment', { judgment: jv1 }));
+  const jr1 = objs(env2.SS, 'GC_Judgments').find(x => x.SessionId === ph2.sid && x.ItemId === flipped.id);
+  eq('same ItemId in v1: AIFinal from the v1 data', jr1.AIFinal, ITEM[flipped.id].final);
+  eq('v1 judgment: SetId v1, UiLang ko', [jr1.SetId, jr1.UiLang].join('|'), 'v1|ko');
+  // a set the site does not have → client values, mismatch recorded
+  const ph3 = physician('박세트', 'A', { set: 'v9' });
+  startPh(env2, ph3);
+  const j9 = judgment(ph3, flipped.id, 'deducted', { ai_final: 'met' });
+  env2.post(base(ph3, 'gc_judgment', { judgment: j9 }));
+  const jr9 = objs(env2.SS, 'GC_Judgments').find(x => x.SessionId === ph3.sid);
+  ok('unknown set v9: judgment stored with the site\'s values and a ClientMismatch note',
+    jr9 && jr9.AIFinal === 'met' && /세트 v9 자료를 읽지 못함/.test(jr9.ClientMismatch) && jr9.SetId === 'v9', JSON.stringify(jr9 && [jr9.AIFinal, jr9.ClientMismatch]));
+  // summary grouped by set
+  let res;
+  try { res = env2.ctx.buildGcSummary(false); ok('multi-set summary builds', true); } catch (e) { ok('multi-set summary builds', false, e.stack); return; }
+  const S = read(env2.SS, 'GC_Summary');
+  const s0 = section(S, 0);
+  ok('[0] lists both sets with their source (v2 active from index.json)', s0.some(x => x[0] === '케이스 세트 v2 (활성)' && x[1] === 'v2.gc-test') && s0.some(x => x[0] === '케이스 세트 v1'));
+  ok('[0] notes the set whose data could not be read (v9)', s0.some(x => String(x[0]).indexOf('케이스 세트 v9') === 0));
+  ok('[0] Part rows qualified by set', s0.some(x => x[0] === '  v2 · Part C' && x[1] === 4) && s0.some(x => x[0] === '  v1 · Part A' && x[1] === 18));
+  eq('[0] items = v2 29 + v1 29', row(s0, x => String(x[0]).startsWith('검증 대상 판정 수'))[1], 58);
+  ok('[0] judgments of the unreadable set counted apart', row(s0, x => String(x[0]).startsWith('세트 자료에 없는 ItemId'))[1] === 1);
+  const s3 = section(S, 3);
+  const hdr = s3.find(x => x[0] === '상태');
+  eq('[3] status table: one column per set × Part', hdr.slice(2, 7).join(','), 'v2 · Part A,v2 · Part B,v2 · Part C,v1 · Part A,v1 · Part B');
+  const s1 = section(S, 1);
+  ok('[1] rows per set and per language', s1.some(x => x[0] === '세트 v2' && x[3] === 1) && s1.some(x => x[0] === '화면 언어 en' && x[3] === 1) && s1.some(x => x[0] === '화면 언어 ko' && x[3] === 2));
+  ok('[4] language rows when English judgments exist', section(S, 4).some(x => x[0] === '화면 언어 (UiLang)' && x[1] === 'en' && x[2] === 1));
+  const ADJ = read(env2.SS, 'GC_Adjudication'), ah = ADJ[0];
+  const a2 = ADJ.find(x => x[0] === flipped.id && x[ah.indexOf('SetId')] === 'v2'), a1 = ADJ.find(x => x[0] === flipped.id && x[ah.indexOf('SetId')] === 'v1');
+  ok('GC_Adjudication: the same ItemId is a separate row per set', !!a1 && !!a2 && a1 !== a2);
+  eq('GC_Adjudication v2 row: AIFinal from v2, 1 vote', [a2[ah.indexOf('AIFinal')], a2[ah.indexOf('N')]].join('|'), flipped.final + '|1');
+  const CONC = read(env2.SS, 'GC_Concordance'), ch = CONC[0];
+  eq('GC_Concordance: TargetKeys of both sets', CONC.slice(1).filter(x => x[ch.indexOf('SetId')] === 'v2').length, CONC.slice(1).filter(x => x[ch.indexOf('SetId')] === 'v1').length);
+  ok('rules mention the set data source', S.some(x => /gc\/data\/sets/.test(String(x[0])) && /^\d+\. /.test(String(x[0]))));
+  eq('summary result counts items of both sets', res.items, 58);
+  // the site is read before the script lock is taken (a slow site never blocks other requests)
+  const env4 = makeEnv();
+  env4.cache = {}; env4.fetchHeld = []; env4.fetches.length = 0;
+  const ph4 = physician('잠금', 'B');
+  startPh(env4, ph4);
+  ok('doPost reads the set data before taking the lock', env4.fetches.length === 1 && env4.fetchHeld.every(h => h === false), JSON.stringify([env4.fetches, env4.fetchHeld]));
+  // single set (v1 only, the live study): labels stay 'Part A' (no set prefix)
+  const env3 = makeEnv();
+  env3.ctx.buildGcSummary(false);
+  const S3 = read(env3.SS, 'GC_Summary');
+  ok('single set: unqualified labels as before', section(S3, 0).some(x => x[0] === '  Part A') && !S3.some(x => /v1 · Part/.test(String(x[0]))));
+  ok('single set: [3] columns Part A, Part B', (section(S3, 3).find(x => x[0] === '상태') || []).slice(2, 4).join(',') === 'Part A,Part B');
+})();
+
+// =====================================================================
+// 4-4) The deployed GC backend (v3, commit 9e8509f) accepts the new payloads (ui_lang, set_id, ui_langs: ignored)
+// =====================================================================
+(function oldGcBackend() {
+  let old = null;
+  try { old = require('child_process').execSync('git -C ' + JSON.stringify(ROOT) + ' show 9e8509f:gas/GcCode.gs', { stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8'); }
+  catch (e) { console.log('SKIP git history not available: deployed GC backend check'); return; }
+  const env = makeEnv({ code: old, fetch: false });
+  eq('old GC backend is v3', env.ctx.GC_BACKEND_VERSION, '2026-11-20.gc-backend-v3');
+  const ph = physician('구버전', 'A', { lang: 'en', set: 'v1' });
+  const st = env.post(base(ph, 'gc_start', { device: DEVICE }));
+  ph.seq = st.seq_index; ph.order = GC_CONFIG.PARTS[0].sequences[st.seq_index].slice();
+  const items = partItems('A');
+  const js = items.map((id, i) => Object.assign(judgment(ph, id, ITEM[id].final, { item_order: i + 1 }), { ui_lang: 'en', ui_langs: ['en'] }));
+  const r1 = env.post(base(ph, 'gc_judgment', { judgment: js[0] }));
+  const r2 = env.post(base(ph, 'gc_finish', { judgments: js, end_items: endItems(4, 4), session: { started_at: iso(0), finished_at: iso(9e5), ui_lang_start: 'en', ui_langs: ['en'], ui_lang_switches: 0 } }));
+  ok('old GC backend: new-style payloads accepted', st.ok && r1.ok && r2.ok, JSON.stringify([st, r1, r2]));
+  eq('old GC backend: all judgments stored', objs(env.SS, 'GC_Judgments').filter(x => x.SessionId === ph.sid).length, items.length);
+  let okSum = true;
+  try { env.ctx.buildGcSummary(false); } catch (e) { okSum = false; }
+  ok('old GC backend: summary still builds', okSum);
+})();
+
+// =====================================================================
+// 4-5) Redeploy on the live project: the deployed v3 backend (commit 9e8509f) has sessions from the earlier site (no ui_lang /
+//      set_id) and from the current site; then v4 is pasted over it (same spreadsheet + script properties) and the sessions
+//      started under v3 finish under v4, before and after the PI runs setup() as the deployment notes say.
+// =====================================================================
+(function redeployV3toV4() {
+  let old = null;
+  try { old = require('child_process').execSync('git -C ' + JSON.stringify(ROOT) + ' show 9e8509f:gas/GcCode.gs', { stdio: ['ignore', 'pipe', 'ignore'] }).toString('utf8'); }
+  catch (e) { console.log('SKIP git history not available: v3 → v4 redeploy check'); return; }
+  const v3 = makeEnv({ code: old, fetch: false });
+  const strip = (p) => { delete p.ui_lang; delete p.set_id; return p; };
+  const P = { A: physician('이전사이트', 'A'), B: physician('현재사이트', 'B', { lang: 'en', set: 'v1' }), C: physician('완료v3', 'A') };
+  P.A.oldSite = P.C.oldSite = true;
+  const send = (env, ph, action, extra) => { const p = base(ph, action, extra); return env.post(ph.oldSite ? strip(p) : p); };
+  const js = {};
+  Object.keys(P).forEach(id => {
+    const ph = P[id];
+    const st = send(v3, ph, 'gc_start', { device: DEVICE });
+    ph.seq = st.seq_index; ph.order = GC_CONFIG.PARTS.find(p => p.id === ph.part).sequences[st.seq_index].slice();
+    js[id] = partItems(ph.part).map((it, i) => {
+      const j = judgment(ph, it, ITEM[it].final, { item_order: i + 1 });
+      return ph.oldSite ? j : Object.assign(j, { ui_lang: 'en', ui_langs: ['en'] });
+    });
+    ph.r1 = send(v3, ph, 'gc_judgment', { judgment: js[id][0] });
+  });
+  const fin = (env, id) => send(env, P[id], 'gc_finish', { judgments: js[id], end_items: endItems(4, 4),
+    session: Object.assign({ started_at: iso(0), finished_at: iso(9e5) }, P[id].oldSite ? {} : { ui_lang_start: 'en', ui_langs: ['en'], ui_lang_switches: 0 }) });
+  const fC = fin(v3, 'C');
+  ok('v3: three sessions started, first judgments and session C stored', ['A', 'B', 'C'].every(id => P[id].r1.ok) && fC.ok);
+  const names = ['Visits', 'GC_Sessions', 'GC_Judgments', 'GC_Raw'];
+  const before = {};
+  names.forEach(n => { before[n] = read(v3.SS, n) || []; });
+  // ---- paste v4 over it; first requests before setup() (the PI may test the URL first) ----
+  const v4 = makeEnv({ from: v3, setup: false });
+  eq('redeploy: v4 on the v3 project', v4.ctx.GC_BACKEND_VERSION, '2026-11-21.gc-backend-v4');
+  const fA = fin(v4, 'A');
+  ok('redeploy: earlier-site session A (started under v3) finishes under v4 before setup()', fA.ok, JSON.stringify(fA));
+  v4.ctx.setup();
+  ok('redeploy: setup() reuses the spreadsheet (no new one)', v4.created.length === 0 && v4.props.GC_SPREADSHEET_ID === v3.props.GC_SPREADSHEET_ID);
+  const fB = fin(v4, 'B');
+  ok('redeploy: current-site session B (started under v3) finishes under v4 after setup()', fB.ok, JSON.stringify(fB));
+  const SS = v4.SS;
+  names.forEach(n => {
+    const h0 = (before[n][0] || []).map(String), h1 = (read(SS, n)[0] || []).map(String);
+    ok('redeploy ' + n + ': v3 columns keep their positions, new ones appended (' + h1.slice(h0.length).join(',') + ')',
+      h0.length > 0 && h1.slice(0, h0.length).join('|') === h0.join('|'));
+  });
+  const J = objs(SS, 'GC_Judgments');
+  eq('redeploy: all judgments of A, B, C stored once', ['A', 'B', 'C'].map(id => J.filter(x => x.SessionId === P[id].sid).length).join(','),
+    ['A', 'B', 'C'].map(id => js[id].length).join(','));
+  eq('redeploy: session A judgments → SetId blank (= v1)', [...new Set(J.filter(x => x.SessionId === P.A.sid).map(x => x.SetId || '-'))].join(','), '-');
+  // the judgment stored by v3 is not rewritten by the v4 finish (same answer): its new columns stay blank (= v1 / ko); the
+  // screen language of that request is still in GC_Raw
+  const jb = J.filter(x => x.SessionId === P.B.sid);
+  eq('redeploy: session B → judgment 1 (stored by v3) blank, the rest (under v4) SetId v1 / UiLang en',
+    [(jb[0].SetId || '-') + '/' + (jb[0].UiLang || '-'), [...new Set(jb.slice(1).map(x => x.SetId + '/' + x.UiLang))].join(',')].join(' | '), '-/- | v1/en');
+  ok('redeploy: GC_Raw keeps ui_lang/set_id of the judgment request handled by v3',
+    (read(SS, 'GC_Raw') || []).some(r => { const x = r.join(' '); return x.includes(P.B.sid) && x.includes('gc_judgment') && x.includes('"ui_lang":"en"') && x.includes('"set_id":"v1"'); }));
+  const S = objs(SS, 'GC_Sessions');
+  eq('redeploy: one completed GC_Sessions row per session', ['A', 'B', 'C'].map(id => S.filter(x => x.SessionId === P[id].sid).map(x => x.Status).join('+')).join(','), 'completed,completed,completed');
+  ok('redeploy: no ClientMismatch for v1 sessions', J.every(x => !x.ClientMismatch), JSON.stringify(J.filter(x => x.ClientMismatch).map(x => x.ClientMismatch)));
+  let okSum = true, err = '';
+  try { v4.ctx.buildGcSummary(false); } catch (e) { okSum = false; err = e.message; }
+  ok('redeploy: v4 summary builds on the mixed v3/v4 sheets', okSum, err);
+  const adj = objs(SS, 'GC_Adjudication');
+  ok('redeploy: adjudication rows carry SetId v1 (old rows counted as v1)', adj.length > 0 && adj.every(x => x.SetId === 'v1'));
 })();
 
 // =====================================================================

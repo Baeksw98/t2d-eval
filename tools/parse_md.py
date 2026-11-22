@@ -1,41 +1,28 @@
-"""Parse the CDSS output markdown (4 AI outputs + 2 patient vignettes) into data/cases.json."""
-import json, re, sys
+#!/usr/bin/env python3
+"""(Legacy wrapper) Parse CDSS output markdown into the intermediate JSON {outputs, patients_raw}.
 
-src = sys.argv[1]
-out = sys.argv[2]
-raw = open(src, encoding="utf-8").read()
-text = raw.replace("**", "")
-lines = text.split("\n")
+    python3 tools/parse_md.py <source.md> <out.json>
 
-# Locate section headers
-heads = []
-for i, l in enumerate(lines):
-    s = l.strip().lstrip("#").strip()
-    m = re.match(r"^(P0\d\d)\s+Deepseek V4\.1 Flash$", s, re.I)
-    if m: heads.append((i, "json", m.group(1), "deepseek")); continue
-    m = re.match(r"^GPT\s*6\.1 Sol\s+(P0\d\d)$", s, re.I)
-    if m: heads.append((i, "json", m.group(1), "gpt")); continue
-    m = re.match(r"^(P0\d\d) Patient Input Information$", s, re.I)
-    if m: heads.append((i, "patient", m.group(1), None)); continue
-heads.append((len(lines), "end", None, None))
-print(heads)
+The case pipeline now does this inside tools/build_cases.py (tools/cases_lib/ca_parse.py; model names via
+cases/models.json). This wrapper is kept for ad-hoc inspection: for the v1 source it writes exactly the (git-ignored, local)
+data/parsed_raw.json.
+"""
+import json
+import pathlib
+import sys
 
-outputs, patients = {}, {}
-for k in range(len(heads) - 1):
-    start, kind, pid, model = heads[k]
-    end = heads[k + 1][0]
-    body = "\n".join(lines[start + 1:end])
-    if kind == "json":
-        # first line of P051 block is "#  {" -> strip leading '#'
-        body = re.sub(r"^\s*#\s*\{", "{", body.strip(), count=1)
-        obj = json.loads(body)
-        outputs[f"{pid}_{model}"] = obj
-    else:
-        patients[pid] = body.strip()
+sys.dont_write_bytecode = True   # no __pycache__ in the repository
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from cases_lib import ca_parse, common  # noqa: E402
 
-json.dump({"outputs": outputs, "patients_raw": patients}, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+if len(sys.argv) != 3:
+    sys.exit(__doc__)
+P = common.Problems()
+models = common.load_models(P)
+outputs, patients, _ = ca_parse.parse_sources([pathlib.Path(sys.argv[1])], models, P)
+print(P.report('parse_md:'))
+if not P.ok():
+    sys.exit(1)
+json.dump({"outputs": outputs, "patients_raw": patients}, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 for key, o in outputs.items():
-    print(key, list(o.keys()), [c.get("name") for c in o["combinations"]])
-    for c in o["combinations"]:
-        print("   answers keys:", list(c["answers"].keys()), "| rx keys:", list(c["prescription"][0].keys()), "n_rx", len(c["prescription"]))
-    print("   phase1:", {kk: (type(v).__name__) for kk, v in o["phase_1"].items()})
+    print(key, [c.get("name") for c in o.get("combinations", [])])

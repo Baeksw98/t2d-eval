@@ -310,8 +310,12 @@ T2D.i18n.add({
     "about.b.chips.label": "모든 단계가 받는 평가",
     "about.c.marks.label": "감사 표시",
     "about.pt.label": "5단계 답변과 두 평가",
-    "about.set.now": "지금 쓰는 케이스 세트 <b>{id}</b> · 케이스 {n}건",
-    "about.set.now0": "지금 쓰는 케이스 세트 <b>{id}</b>"
+    "about.set.now": "지금 쓰는 케이스 세트 <b>{id}</b> · {pt} × {md}",
+    "about.set.now0": "지금 쓰는 케이스 세트 <b>{id}</b>",
+    "about.set.pt": "환자 {n}명",
+    "about.set.pt1": "환자 1명",
+    "about.set.md": "모델 {n}종",
+    "about.set.md1": "모델 1종"
   },
   en: {
     "site.meta.title": "Type 2 Diabetes AI Benchmark · Physician Evaluation",
@@ -620,7 +624,11 @@ T2D.i18n.add({
     "about.b.chips.label": "Evaluations every phase receives",
     "about.c.marks.label": "Audit marks",
     "about.pt.label": "The 5 answer phases and the two evaluations",
-    "about.set.now": "Current case set <b>{id}</b> · {n} cases",
-    "about.set.now0": "Current case set <b>{id}</b>"
+    "about.set.now": "Current case set <b>{id}</b> · {pt} × {md}",
+    "about.set.now0": "Current case set <b>{id}</b>",
+    "about.set.pt": "{n} patients",
+    "about.set.pt1": "1 patient",
+    "about.set.md": "{n} models",
+    "about.set.md1": "1 model"
   }
 });

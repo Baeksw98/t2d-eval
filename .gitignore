@@ -2,3 +2,5 @@ data/parsed_raw.json
 node_modules/
 .DS_Store
 preview_mobile.png
+__pycache__/
+*.pyc

@@ -16,6 +16,8 @@
  *   3) 위쪽 함수 선택 칸에서 setup 선택 → [실행]
  *      → '권한 검토' → 본인 계정 선택 → ('Google에서 확인하지 않은 앱' 화면이 나오면) 고급 → '…(으)로 이동' → [허용]
  *        권한 항목마다 체크박스가 보이는 화면이면 「모두 선택」을 누른 뒤 [계속] (일부만 허용하면 요약 자동 갱신이 설정되지 않습니다)
+ *        권한 목록에 「외부 서비스에 연결」(외부 서비스 연결)이 있습니다 — 사이트 eval.asclep.org 에서 케이스 세트 자료
+ *        (gc/data/sets/<세트>.json)를 읽기 위한 것으로, 이 권한 덕분에 케이스·세트를 바꿔도 코드를 다시 붙여넣지 않아도 됩니다.
  *      → 실행 로그 마지막 줄이 '✅ GC 응답 시트 준비 완료' 인지 확인 ('⚠️' 로 끝나면 setup 을 한 번 더 실행)
  *   4) 아래 [실행 로그]에 나오는 시트 링크(https://docs.google.com/spreadsheets/…)를 눌러 확인
  *      → 내 드라이브에 새 스프레드시트 '가이드라인 부합도 검증 (GC) 응답' 이 만들어져 있습니다
@@ -28,6 +30,9 @@
  *    전문의 브라우저가 Google 로그인으로 막혀 응답이 저장되지 않습니다.
  *  · setup 은 다시 실행해도 안전합니다: 기존 응답은 그대로 두고 빠진 시트·컬럼만 추가하며, 요약 트리거는 1개로 유지됩니다.
  *  · 코드를 고쳐 다시 붙여넣은 뒤에는 [배포] → [배포 관리] → ✏️(수정) → 버전: '새 버전' → [배포] (웹 앱 URL 유지).
+ *  · v3 → v4 로 바꿀 때 (한 번만): 붙여넣기 → 저장 → setup 실행 → 새 권한 「외부 서비스에 연결」 허용 → [배포 관리] → 새 버전.
+ *    setup 실행 로그에 '✅ 사이트 케이스 세트 자료 읽기 확인' 이 보이면 됩니다. 그 뒤로는 케이스·모델·세트를 바꿔도(사이트에 올리기만 하면)
+ *    다시 붙여넣을 필요가 없습니다. 사이트를 읽지 못할 때는 이 파일 끝에 내장된 세트(GC_ITEMS)로 동작합니다.
  *  · 이미 만들어 둔 GC 전용 빈 스프레드시트를 쓰려면 아래 GC_SPREADSHEET_ID 에 시트 주소의 /d/ 와 /edit 사이 ID 를 넣고 저장하세요.
  *    임상 수용성 평가(CA) 응답 스프레드시트의 ID 는 절대 넣지 마세요 (두 평가의 Visits 가 섞입니다). 넣으면 오류로 멈춥니다.
  *  · 요약은 10분마다 자동 갱신됩니다. 바로 보려면 함수 buildGcSummary (테스트 응답 포함: buildGcSummaryIncludingTests) 실행.
@@ -46,7 +51,7 @@
 // GC 응답 스프레드시트 ID. 비워 두면 setup 이 새 스프레드시트를 만들고 그 ID 를 스크립트 속성(GC_SPREADSHEET_ID)에 저장합니다.
 var GC_SPREADSHEET_ID = "";
 var GC_SPREADSHEET_NAME = '가이드라인 부합도 검증 (GC) 응답';
-var GC_BACKEND_VERSION = '2026-11-20.gc-backend-v3';
+var GC_BACKEND_VERSION = '2026-11-21.gc-backend-v4';
 
 // ============================================================
 // HTTP ENTRY POINTS
@@ -59,6 +64,9 @@ function doPost(e) {
   var body0 = (e && e.postData && e.postData.contents) || '';
   // 소개 화면 방문 기록(view): 응답 저장보다 우선순위가 낮으므로 잠깐만 기다리고, 바쁘면 건너뜀
   if (body0.indexOf('"action":"view"') !== -1) return gcHandleView_(body0);
+  // 케이스 세트 자료는 잠금을 잡기 전에 읽어 둔다 (사이트 응답이 느려도 다른 요청을 막지 않도록; 대개 10분 캐시에서 바로 나옴)
+  GC_SET_MEMO_ = {};
+  try { var p0 = JSON.parse(body0); if (p0 && GC_ACTIONS.indexOf(p0.action) >= 0) gcSetData_(p0.set_id); } catch (ePre) {}
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(12000);   // 클라이언트 대기 한도보다 짧게 → 혼잡 시 빨리 'busy' 응답 후 재전송
@@ -114,7 +122,7 @@ function gcHandleView_(body) {
     var sh = sheet_(gcSs_(), GC_SHEET.VISITS, visitsHeaders_());
     sh.appendRow([new Date(), p.visit_id, short_(p.device_id), short_(en.src), short_(en.site), short_(en.wave),
       short_(en.type_param || ''), short_(p.form_factor), short_(en.in_app), short_(en.referrer_origin, 120),
-      !!p.is_test, short_(p.app_version)].map(cell_));
+      !!p.is_test, short_(p.app_version), uiLang_(p.ui_lang), setId_(p.set_id)].map(cell_));
     sh.getRange(sh.getLastRow(), 1).setNumberFormat(TIME_FMT);   // ReceivedAt: 초 단위
     return json_({ ok: true });
   } catch (err) {
@@ -204,6 +212,14 @@ function setup() {
   var trigOk = false;
   try { ensureGcSummaryTrigger_(); trigOk = true; Logger.log('✅ GC 요약 자동 갱신(10분 주기) 설정 완료'); }
   catch (eTrig) { Logger.log('⚠️ 자동 갱신 트리거 설정 실패: ' + eTrig); }
+  // 사이트의 케이스 세트 자료를 읽을 수 있는지 (외부 서비스에 연결 권한) — 실패해도 내장 사본으로 동작
+  try {
+    GC_SET_MEMO_ = {};
+    var idx = gcSetIndex_(), rec = gcSetData_(idx.active);
+    if (rec.source === 'embedded') Logger.log('⚠️ 사이트 케이스 세트 자료를 읽지 못했습니다(' + rec.note + ') — 내장 사본(세트 ' + gcSetId_(gcItems_().set_id) +
+      ')으로 동작합니다. 권한 화면에서 「외부 서비스에 연결」을 허용했는지 확인하세요.');
+    else Logger.log('✅ 사이트 케이스 세트 자료 읽기 확인: 활성 세트 ' + rec.id + ' (' + (rec.data.data_version || '') + ')');
+  } catch (eSet) { Logger.log('⚠️ 케이스 세트 자료 확인 실패: ' + eSet); }
   var url = ss.getUrl();
   Logger.log('다음 단계: [배포] → [새 배포] → 웹 앱 (실행 사용자: 나 / 액세스: 모든 사용자) → 웹 앱 URL 을 gc/gc-config.js ENDPOINT 에');
   // 마지막 줄 = 결과 (헤더 3) 단계에서 이 줄을 확인하도록 안내)
@@ -333,7 +349,10 @@ function showGcCounter() {
  *   CA 연결: GC_Concordance 의 TargetKey·ConcordanceScore 를 CA 스프레드시트의 Concordance 시트에 붙여 넣으면
  *   CA Summary [14] 에 나란히 표시된다 (두 프로젝트는 서로의 시트를 읽지 않음).
  *
- * 판정 메타데이터(GC_ITEMS)는 tools/build_gas.py 가 gc/data/gc_items.js 에서 만들어 GcCode.gs 끝에 붙인다.
+ * 케이스 세트 (백엔드 v4): 판정 메타데이터와 Part 는 케이스 세트마다 사이트의 gc/data/sets/<세트>.json 에서 읽는다
+ *   (gcSetData_: UrlFetchApp → CacheService 10분 → 형식 확인 → 실패하면 내장 사본 GC_ITEMS). GC_ITEMS 는
+ *   tools/build_gas.py 가 빌드 때의 활성 세트를 GcCode.gs 끝에 붙인 것이다. 그래서 케이스·세트를 바꿔도 다시 붙여넣을 필요가 없다.
+ *   요청마다 SetId(빈칸 = v1)와 화면 언어 UiLang(빈칸 = ko)을 기록하고, 요약은 세트별로 집계한다.
  * 시트 유틸리티(table_, tWrite_, cell_, sm_write_ …)는 같은 빌드가 CA 소스(gas/src)에서 이름으로 복사해 온다.
  */
 
@@ -346,8 +365,10 @@ var GC_SHEET = {
 var GC_VERDICTS = ['met', 'deducted', 'not_applicable'];          // PhysVerdict_code = 순서 + 1
 var GC_VERDICT_KO = { met: '충족', deducted: '감점', not_applicable: '채점 대상 아님' };
 var GC_MARK_KO = { major: '✗ (판정 보정)', minor: '△ (근거 보완)' };   // 판정 화면(gc/gc.js MARK)과 같은 이름
-// Part → 답변(unit) 묶음. gc/gc-config.js 의 PARTS 와 같아야 한다 (tools/test_gc.js 가 확인).
-var GC_PARTS = { A: ['P051_deepseek', 'P011_gpt'], B: ['P011_deepseek', 'P051_gpt'] };
+// 케이스 세트 자료 (tools/build_cases.py 가 만든 사이트 파일). Part → 답변(unit) 묶음도 세트 자료의 parts 에서 읽는다.
+var GC_SET_BASE = 'https://eval.asclep.org/gc/data/sets/';
+var GC_SET_CACHE_SEC = 600;                 // CacheService 10분
+var GC_SET_MEMO_ = {};                      // 요청(실행) 안의 메모 — doPost · buildGcSummary 시작 때 비운다
 var GC_STATUS = {
   PENDING: '대기', UNANIMOUS: '확정(만장일치)', MAJORITY: '확정(다수결)', SINGLE: '잠정(1인)', REVIEW: '추가 검토 필요'
 };
@@ -367,9 +388,9 @@ var GC_CB_ITEMS = {
   hitl_acceptable: ['End_', 'AI 감사가 표시한 판정만 전문의가 확정하고 나머지는 AI 판정을 쓰는 방식은 타당하다', '1 전혀 그렇지 않다 … 5 매우 그렇다', true]
 };
 var GC_ADJ_COLS = ['ItemId', 'UnitKey', 'Element', 'Title', 'Combo', 'Question', 'AuditMark', 'AuditCategory', 'RaterVerdict',
-  'AIFinal', 'N', 'AgreeN', 'Met', 'Deducted', 'NotApplicable', 'Adjudicated', 'Status', 'Comments'];
+  'AIFinal', 'N', 'AgreeN', 'Met', 'Deducted', 'NotApplicable', 'Adjudicated', 'Status', 'Comments', 'SetId'];
 var GC_CONC_COLS = ['TargetKey', 'N_AI', 'Met_Raw', 'Met_AI', 'Score_Raw', 'Score_AI', 'N_Adj', 'Met_Adj', 'ConcordanceScore',
-  'FlaggedItems', 'Adjudicated', 'Pending'];
+  'FlaggedItems', 'Adjudicated', 'Pending', 'SetId'];
 
 // ============================================================
 // HEADERS
@@ -380,7 +401,7 @@ function gcSessHeaders_() {
     'SessionOrdinal', 'DeviceId', 'VisitId', 'Src', 'Site', 'Wave', 'PartPreselected', 'ConsentVersion', 'ConsentAt',
     'ConsentInherited', 'InstrumentVersion', 'Incentive', 'StartedAt', 'FinishedAt', 'TotalActiveMin', 'TotalWallMin', 'Resumes',
     'SendFailures', 'FurthestUnit', 'FurthestItem', 'LastActivityAt', 'OverallComment', 'FormFactor', 'ViewportW', 'ViewportH',
-    'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion'];
+    'UserAgent', 'AppVersion', 'DataVersion', 'BackendVersion', 'UiLang', 'UiLangStart', 'UiLangs', 'UiLangSwitches', 'SetId'];
 }
 
 function gcJudgHeaders_() {
@@ -389,36 +410,117 @@ function gcJudgHeaders_() {
     'TargetKey', 'AuditMark', 'AuditCategory', 'RaterVerdict', 'AuditCorrected', 'AIFinal', 'Agree', 'PhysVerdict',
     'PhysVerdict_code', 'AgreeWithRater', 'AgreeWithAIFinal', 'Comment', 'AnsweredAt', 'ItemSec', 'ActiveSec', 'TTFDSec',
     'Changes', 'OpenedCriterion', 'OpenedFullAnswer', 'OpenedBasis', 'OpenedPatient', 'ClientMismatch', 'AppVersion',
-    'DataVersion', 'BackendVersion'];
+    'DataVersion', 'BackendVersion', 'UiLang', 'UiLangs', 'SetId'];
 }
 
 // ============================================================
-// ITEM METADATA (GC_ITEMS, generated)
+// CASE SETS + ITEM METADATA (site gc/data/sets/<id>.json, fallback GC_ITEMS)
 // ============================================================
+/** 내장 사본: 빌드 때의 활성 세트 (GcCode.gs 끝의 GC_ITEMS, tools/build_gas.py) */
 function gcItems_() {
-  return (typeof GC_ITEMS !== 'undefined' && GC_ITEMS && GC_ITEMS.units) ? GC_ITEMS : { data_version: '', units: {} };
+  return (typeof GC_ITEMS !== 'undefined' && GC_ITEMS && GC_ITEMS.units) ? GC_ITEMS : { set_id: 'v1', data_version: '', units: {}, parts: [] };
 }
 
-var GC_ITEM_INDEX_ = null;
-function gcItem_(id) {
-  if (!GC_ITEM_INDEX_) {
-    GC_ITEM_INDEX_ = {};
-    var U = gcItems_().units;
-    Object.keys(U).forEach(function (k) {
-      (U[k].items || []).forEach(function (m) { GC_ITEM_INDEX_[m.id] = m; });
-    });
+/** 세트 ID (빈칸·형식 오류 = v1) */
+function gcSetId_(v) { return setId_(v) || 'v1'; }
+
+/** 세트 자료 형식 확인: {set_id, data_version, parts:[{id, sequences}], units:{key:{items:[{id, final, target_key}], concordance_base}}} */
+function gcValidSet_(d, id) {
+  if (!d || typeof d !== 'object' || d.set_id !== id || !d.units || typeof d.units !== 'object' || !Array.isArray(d.parts)) return false;
+  var ok = Object.keys(d.units).every(function (k) {
+    var u = d.units[k];
+    return u && Array.isArray(u.items) && u.concordance_base && typeof u.concordance_base === 'object' &&
+      u.items.every(function (m) { return m && m.id && m.final && m.target_key; });
+  });
+  return ok && d.parts.every(function (p) { return p && p.id && Array.isArray(p.sequences) && p.sequences.length && Array.isArray(p.sequences[0]); });
+}
+
+/** 사이트 JSON 하나 읽기: CacheService(10분) → UrlFetchApp. 실패하면 { data: null, note } */
+function gcFetchJson_(name, check) {
+  var key = 'gcset:' + name, cache = null, note = '';
+  try { cache = (typeof CacheService !== 'undefined') ? CacheService.getScriptCache() : null; } catch (eC) { cache = null; }
+  if (cache) {
+    try {
+      var hit = cache.get(key);
+      if (hit) { var d0 = JSON.parse(hit); if (check(d0)) return { data: d0, source: 'cache', note: '' }; }
+    } catch (eH) {}
   }
-  return Object.prototype.hasOwnProperty.call(GC_ITEM_INDEX_, id) ? GC_ITEM_INDEX_[id] : null;
+  if (typeof UrlFetchApp === 'undefined') return { data: null, note: 'UrlFetchApp 없음' };
+  try {
+    var res = UrlFetchApp.fetch(GC_SET_BASE + encodeURIComponent(name) + '.json', { muteHttpExceptions: true, followRedirects: true });
+    var code = res.getResponseCode();
+    if (code !== 200) return { data: null, note: 'HTTP ' + code };
+    var txt = res.getContentText();
+    var d = JSON.parse(txt);
+    if (!check(d)) return { data: null, note: '형식이 맞지 않음' };
+    if (cache && txt.length < 95000) { try { cache.put(key, txt, GC_SET_CACHE_SEC); } catch (eP) {} }
+    return { data: d, source: 'site', note: '' };
+  } catch (eF) {
+    note = String(eF && eF.message || eF).slice(0, 120);
+  }
+  return { data: null, note: note };
 }
 
-function gcUnitItemCount_(key) {
-  var u = gcItems_().units[key];
+/**
+ * 케이스 세트 자료: 사이트 gc/data/sets/<id>.json (CacheService 10분, 형식 확인) → 실패하면 내장 GC_ITEMS.
+ * 반환 { id, data, source: 'site'|'cache'|'embedded', note, exact } — exact = data 가 요청한 세트의 자료인가
+ * (내장 사본이 다른 세트이면 false: 판정 메타데이터는 사이트가 보낸 값을 쓰고 ClientMismatch 에 남긴다).
+ */
+function gcSetData_(setId) {
+  var id = gcSetId_(setId);
+  if (Object.prototype.hasOwnProperty.call(GC_SET_MEMO_, id)) return GC_SET_MEMO_[id];
+  var r = gcFetchJson_(id, function (d) { return gcValidSet_(d, id); });
+  var out;
+  if (r.data) out = { id: id, data: r.data, source: r.source, note: '', exact: true };
+  else {
+    var emb = gcItems_(), embId = gcSetId_(emb.set_id);
+    out = { id: id, data: emb, source: 'embedded', note: r.note, exact: embId === id };
+    if (embId !== id) out.note += ' — 내장 사본은 세트 ' + embId;
+  }
+  GC_SET_MEMO_[id] = out;
+  return out;
+}
+
+/** 활성 세트·세트 목록: 사이트 gc/data/sets/index.json → 없으면 내장 사본의 세트 */
+function gcSetIndex_() {
+  if (Object.prototype.hasOwnProperty.call(GC_SET_MEMO_, ':index')) return GC_SET_MEMO_[':index'];
+  var r = gcFetchJson_('index', function (d) { return d && typeof d === 'object' && setId_(d.active) && Array.isArray(d.sets); });
+  var embId = gcSetId_(gcItems_().set_id);
+  var out = r.data ? { active: setId_(r.data.active), sets: r.data.sets.map(gcSetId_), source: r.source }
+    : { active: embId, sets: [embId], source: 'embedded' };
+  GC_SET_MEMO_[':index'] = out;
+  return out;
+}
+
+/** 세트 자료 안에서 판정 메타데이터 찾기 (색인은 자료 객체에 한 번 만든다) */
+function gcItemOf_(data, id) {
+  if (!data || !data.units) return null;
+  if (!data._index) {
+    var ix = {};
+    Object.keys(data.units).forEach(function (k) { (data.units[k].items || []).forEach(function (m) { ix[m.id] = m; }); });
+    try { Object.defineProperty(data, '_index', { value: ix, enumerable: false }); } catch (eD) { data._index = ix; }
+  }
+  return Object.prototype.hasOwnProperty.call(data._index, id) ? data._index[id] : null;
+}
+
+/** 내장 사본에서 찾기 (이전 호출부 호환) */
+function gcItem_(id) { return gcItemOf_(gcItems_(), id); }
+
+function gcUnitItemCount_(key, data) {
+  var u = (data || gcItems_()).units[key];
   return u && u.items ? u.items.length : 0;
 }
 
-function gcPartOf_(unitKey) {
-  var found = '';
-  Object.keys(GC_PARTS).forEach(function (p) { if (GC_PARTS[p].indexOf(unitKey) >= 0) found = p; });
+/** 세트 자료의 Part → 답변 묶음 { A: [unit, …] } (첫 순서 기준) */
+function gcParts_(data) {
+  var o = {};
+  ((data && data.parts) || []).forEach(function (p) { if (p && p.id && p.sequences && p.sequences[0]) o[String(p.id)] = p.sequences[0].slice(); });
+  return o;
+}
+
+function gcPartOf_(unitKey, data) {
+  var P = gcParts_(data || gcItems_()), found = '';
+  Object.keys(P).forEach(function (p) { if (P[p].indexOf(unitKey) >= 0) found = p; });
   return found;
 }
 
@@ -436,6 +538,7 @@ function gcTargetKey_(itemId) {
 // ============================================================
 /** doPost(gc_main.gs)가 잠금을 잡고 검사를 마친 뒤 호출. result 에 응답 필드를 채운다. */
 function gcHandle_(ss, db, p, result) {
+  gcHide_(p, '_set', gcSetData_(p.set_id));   // 이 세션의 케이스 세트 자료 (doPost 가 잠금 전에 읽어 둔 메모 → 캐시 → 사이트 → 내장 사본)
   if (p.action === 'gc_start') {
     result.seq_index = gcStart_(ss, db, p);
   } else if (p.action === 'gc_judgment') {
@@ -449,6 +552,16 @@ function gcHandle_(ss, db, p, result) {
   }
   // 판정 시트를 마지막에 기록 (CA 의 Responses 와 같은 이유: 재전송 판단 기준이 다른 시트보다 먼저 생기지 않도록)
   [GC_SHEET.SESS, GC_SHEET.JUDG].forEach(function (k) { if (db[k]) tFlush_(db[k]); });
+}
+
+/**
+ * 서버가 요청 객체에 붙여 두는 계산값(_set 세트 자료, _gcev 전문의 컬럼)은 열거되지 않는 속성으로 둔다.
+ * GC_Raw 의 Payload 는 JSON.stringify(p) 이므로, 이렇게 해야 받은 요청 원문만 남는다 (세트 자료 전체가 행마다 복사되지 않음).
+ */
+function gcHide_(p, key, val) {
+  try { Object.defineProperty(p, key, { value: val, enumerable: false, writable: true, configurable: true }); }
+  catch (eD) { p[key] = val; }
+  return val;
 }
 
 function gcPart_(p) { return String(p.part || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 8); }
@@ -500,16 +613,19 @@ function gcEvalCols_(p) {
   var f = ev.fields || {}, cd = ev.codes || {};
   Object.keys(f).forEach(function (k) { if (/^[A-Za-z0-9_]{1,40}$/.test(k)) o['Eval_' + k] = short_(f[k], 120); });
   Object.keys(cd).forEach(function (k) { if (/^[A-Za-z0-9_]{1,40}$/.test(k)) o['Eval_' + k + '_code'] = Number(cd[k]) || ''; });
-  p._gcev = o;
-  return o;
+  return gcHide_(p, '_gcev', o);
 }
 
 function gcItemsTotal_(p) {
-  var units = (p.order && p.order.length) ? p.order : (GC_PARTS[gcPart_(p)] || []);
+  var rec = p._set || gcSetData_(p.set_id);
+  var units = (p.order && p.order.length) ? p.order : (gcParts_(rec.data)[gcPart_(p)] || []);
   var n = 0;
-  units.forEach(function (k) { n += gcUnitItemCount_(String(k)); });
+  if (rec.exact) units.forEach(function (k) { n += gcUnitItemCount_(String(k), rec.data); });
   return n || '';
 }
+
+/** 모든 GC 행 공통: 보낼 때의 화면 언어 · 케이스 세트 */
+function gcLangSetCols_(p) { return { UiLang: uiLang_(p.ui_lang), SetId: setId_(p.set_id) }; }
 
 /** 제시 순서 배정 (Part 안에서 균형). 이미 배정된 세션은 같은 값을 돌려준다. */
 function gcStart_(ss, db, p) {
@@ -526,7 +642,7 @@ function gcStart_(ss, db, p) {
     if (cur !== '' && cur !== null) seq = Number(cur);
   }
   if (seq === undefined || isNaN(seq)) {
-    seq = p.is_test ? Math.floor(Math.random() * n) : gcBalancedSeq_(t, n, part);
+    seq = p.is_test ? Math.floor(Math.random() * n) : gcBalancedSeq_(t, n, part, p.set_id);
   }
   p.sequence_index = seq;
   gcUpsertSession_(ss, db, p, 'started');
@@ -536,11 +652,13 @@ function gcStart_(ss, db, p) {
 /**
  * 균형 배정 (CA core.gs nextBalancedSeq_ 와 같은 규칙, 같은 Part 안에서만): 실제(비테스트) 세션 중 판정이 1건 이상
  * 들어온 세션(in_progress/completed)과 최근 2시간 이내 시작한 세션(started)을 순서별로 세어 가장 적은 순서를 배정.
- * 동률이면 순환 카운터(스크립트 속성 GC_SEQ_COUNTER_<Part>) 순서. → 중도 이탈자가 균형을 깨지 않음.
+ * 동률이면 순환 카운터(스크립트 속성 GC_SEQ_COUNTER_<Part>, 세트 v1 이 아니면 _<세트>) 순서. → 중도 이탈자가 균형을 깨지 않음.
+ * 같은 케이스 세트(SetId, 빈칸 = v1) 안에서만 센다 (세트마다 Part 구성이 다름).
  */
-function gcBalancedSeq_(t, n, part) {
+function gcBalancedSeq_(t, n, part, setId) {
   var props = PropertiesService.getScriptProperties();
-  var key = 'GC_SEQ_COUNTER' + (part ? '_' + part : '');
+  var sid = gcSetId_(setId);
+  var key = 'GC_SEQ_COUNTER' + (part ? '_' + part : '') + (sid !== 'v1' ? '_' + sid : '');
   var counter = Number(props.getProperty(key) || '0');
   props.setProperty(key, String(counter + 1));
   var counts = [];
@@ -549,6 +667,7 @@ function gcBalancedSeq_(t, n, part) {
   t.rows.forEach(function (r) {
     if (isTrue_(r[t.map.IsTest - 1])) return;
     if (t.map.Part && String(r[t.map.Part - 1]) !== String(part)) return;   // 같은 Part 안에서만 균형
+    if (t.map.SetId && gcSetId_(r[t.map.SetId - 1]) !== sid) return;           // 같은 케이스 세트 안에서만
     var raw = r[t.map.SequenceIndex - 1];
     var seq = Number(raw);
     if (raw === '' || isNaN(seq) || seq < 0 || seq >= n) return;
@@ -617,6 +736,9 @@ function gcUpsertSession_(ss, db, p, status) {
     row.TotalWallMin = gcMin_(s.total_wall_ms);
     row.Resumes = gcNum_(s.resumes);
     row.SendFailures = gcNum_(s.send_failures);
+    if (s.ui_lang_start !== undefined) row.UiLangStart = uiLang_(s.ui_lang_start);
+    if (s.ui_langs) row.UiLangs = uiLangs_(s.ui_langs);
+    if (s.ui_lang_switches !== undefined) row.UiLangSwitches = gcNum_(s.ui_lang_switches);
   }
   if (p.action === 'gc_finish') {
     row.OverallComment = clip_(String(p.overall_comment || ''));
@@ -627,15 +749,16 @@ function gcUpsertSession_(ss, db, p, status) {
     row.UserAgent = short_(d.ua, 400);
   }
   Object.assign(row, gcCounts_(ss, db, p.session_id));
-  Object.assign(row, gcEvalCols_(p));
+  Object.assign(row, gcEvalCols_(p), gcLangSetCols_(p));
   tWrite_(t, idx, row);
 }
 
-/** 판정 1건 upsert (SessionId + ItemId). 메타데이터는 서버의 GC_ITEMS 를 우선(없으면 클라이언트 값). */
+/** 판정 1건 upsert (SessionId + ItemId). 메타데이터는 서버가 읽은 그 세트의 자료를 우선(없으면 클라이언트 값). */
 function gcWriteJudgment_(ss, db, p, j, fromFinish) {
   if (!j || !j.item_id) return;
   var itemId = short_(j.item_id, 80);
-  var m = gcItem_(itemId) || {};
+  var rec = p._set || gcSetData_(p.set_id);
+  var m = (rec.exact && gcItemOf_(rec.data, itemId)) || {};
   var t = table_(ss, db, GC_SHEET.JUDG, gcJudgHeaders_());
   var idx = tFind_(t, { SessionId: p.session_id, ItemId: itemId });
 
@@ -678,18 +801,21 @@ function gcWriteJudgment_(ss, db, p, j, fromFinish) {
     ItemSec: gcSec_(j.item_ms), ActiveSec: gcSec_(j.active_ms), TTFDSec: gcSec_(j.ttfd_ms), Changes: gcNum_(j.changes),
     OpenedCriterion: gcBool_(o.criterion), OpenedFullAnswer: gcBool_(o.full_answer), OpenedBasis: gcBool_(o.basis),
     OpenedPatient: gcBool_(o.patient), ClientMismatch: gcClientMismatch_(p, j, m, final, phys),
-    AppVersion: short_(p.app_version, 80), DataVersion: short_(p.data_version, 80), BackendVersion: GC_BACKEND_VERSION
+    AppVersion: short_(p.app_version, 80), DataVersion: short_(p.data_version, 80), BackendVersion: GC_BACKEND_VERSION,
+    UiLang: uiLang_(j.ui_lang || p.ui_lang), UiLangs: uiLangs_(j.ui_langs), SetId: setId_(p.set_id)
   };
   tWrite_(t, idx, row);
 }
 
 /**
- * 사이트가 보낸 값이 서버의 GC_ITEMS 와 다른 점 (빈칸 = 일치). 사이트(gc_items.js)와 붙여넣은 GcCode.gs 의 자료가
- * 어긋난 경우를 찾기 위한 기록이며, 집계는 언제나 서버의 AIFinal 기준이다.
+ * 사이트가 보낸 값이 서버가 읽은 세트 자료와 다른 점 (빈칸 = 일치). 사이트 화면의 자료와 서버의 자료가 어긋난 경우를
+ * 찾기 위한 기록이며, 집계는 언제나 서버의 AIFinal 기준이다. 서버가 그 세트의 자료를 읽지 못했으면 그 사실도 남긴다.
  */
 function gcClientMismatch_(p, j, m, final, phys) {
   var out = [];
-  var dv = String(gcItems_().data_version || '');
+  var rec = p._set || gcSetData_(p.set_id);
+  if (!rec.exact) out.push('세트 ' + rec.id + ' 자료를 읽지 못함 (' + rec.note + ') — 사이트 값으로 기록');
+  var dv = rec.exact ? String(rec.data.data_version || '') : '';
   if (dv && p.data_version && String(p.data_version) !== dv) out.push('data_version ' + short_(p.data_version, 40) + ' ≠ ' + dv);
   if (m && m.id && j.ai_final && String(j.ai_final) !== String(final)) out.push('ai_final ' + short_(j.ai_final, 20) + ' ≠ ' + final);
   if (typeof j.agree === 'boolean' && phys && j.agree !== (phys === final)) out.push('agree(사이트) ' + j.agree);
@@ -728,7 +854,7 @@ function gcProgress_(ss, db, p) {
     var tot = gcItemsTotal_(p);
     if (tot !== '') row.ItemsTotal = tot;
   }
-  Object.assign(row, gcEvalCols_(p));
+  Object.assign(row, gcEvalCols_(p), gcLangSetCols_(p));
   tWrite_(t, idx, row);
 }
 
@@ -770,26 +896,15 @@ function buildGcSummary(includeTests) {
 }
 
 function gc_load_(ss, includeTests) {
+  GC_SET_MEMO_ = {};
   var G = {
     includeTests: includeTests,
     S: sm_read_(ss, GC_SHEET.SESS), J: sm_read_(ss, GC_SHEET.JUDG), V: sm_read_(ss, GC_SHEET.VISITS),
     raw: sm_readHeader_(ss, GC_SHEET.RAW),
     units: [], items: [], itemBy: {}, sessions: [], sessBy: {}, pool: [], rows: [], counted: [], phys: [], physBy: {},
-    unknownItems: 0, excludedTestSessions: 0, excludedPilotSessions: 0, mismatchRows: 0, visits: []
+    unknownItems: 0, excludedTestSessions: 0, excludedPilotSessions: 0, mismatchRows: 0, visits: [],
+    sets: [], setNotes: [], partKeys: [], multi: false
   };
-  var data = gcItems_();
-  G.dataVersion = data.data_version || '';
-  Object.keys(data.units).forEach(function (k) {
-    var u = data.units[k];
-    var unit = { key: k, patient: u.patient || k.split('_')[0], model: u.model || '', base: u.concordance_base || {}, items: [], part: gcPartOf_(k) };
-    (u.items || []).forEach(function (m) {
-      var it = { m: m, id: m.id, unit: unit, part: unit.part, final: m.final, rater: m.rater_verdict, byIdent: {}, votes: [] };
-      unit.items.push(it);
-      G.items.push(it);
-      G.itemBy[m.id] = it;
-    });
-    G.units.push(unit);
-  });
 
   G.S.rows.forEach(function (o) {
     var id = sm_str_(o.SessionId);
@@ -803,8 +918,10 @@ function gc_load_(ss, includeTests) {
     var s = sm_has_(G.sessBy, sid) ? G.sessBy[sid] : gc_addSess_(G, sid, null, o);
     var v = sm_str_(o.PhysVerdict);
     if (GC_VERDICTS.indexOf(v) < 0) return;
-    s.rows.push({ o: o, s: s, i: i, itemId: itemId, v: v, test: s.isTest || sm_bool_(o.IsTest) === true });
+    s.rows.push({ o: o, s: s, i: i, itemId: itemId, v: v, test: s.isTest || sm_bool_(o.IsTest) === true,
+      setId: sm_str_(o.SetId) ? gcSetId_(o.SetId) : s.setId });
   });
+  gc_loadSets_(G);
 
   G.sessions.forEach(function (s) { s.pilot = /^pilot/i.test(sm_str_(s.row && s.row.Wave)); });
   G.same = gc_sameName_(G, includeTests);
@@ -820,7 +937,8 @@ function gc_load_(ss, includeTests) {
       j.at = sm_time_(j.o.AnsweredAt);
       j.upd = sm_time_(j.o.ServerUpdatedAt);
       j.comment = sm_str_(j.o.Comment);
-      j.item = sm_has_(G.itemBy, j.itemId) ? G.itemBy[j.itemId] : null;
+      j.item = sm_has_(G.itemBy, j.setId + '\u0001' + j.itemId) ? G.itemBy[j.setId + '\u0001' + j.itemId] : null;
+      j.lang = uiLang_(j.o.UiLang) || s.uiLang || 'ko';
       if (sm_str_(j.o.ClientMismatch) !== '') G.mismatchRows++;
       if (!sm_has_(G.physBy, j.ident)) {
         var e = { ident: j.ident, code: j.ident.indexOf('C:') === 0 ? j.ident.slice(2) : ('X' + ('00' + (++pseudo)).slice(-3)), sessions: [], first: null };
@@ -909,15 +1027,65 @@ function gc_sameName_(G, includeTests) {
   return out;
 }
 
+/**
+ * 집계할 케이스 세트: 사이트 index.json 의 활성 세트(없으면 내장 사본의 세트) + 응답이 있는 세트. 세트마다 사이트 자료를 읽고
+ * (gcSetData_), 그 세트의 자료를 읽지 못하면 그 세트의 판정은 '세트 자료에 없는 판정' 으로 따로 센다.
+ */
+function gc_loadSets_(G) {
+  var idx = gcSetIndex_();
+  var ids = [idx.active];
+  var seen = {};
+  G.sessions.forEach(function (s) { seen[s.setId] = 1; s.rows.forEach(function (j) { seen[j.setId] = 1; }); });
+  Object.keys(seen).sort().forEach(function (k) { if (ids.indexOf(k) < 0) ids.push(k); });
+  var ok = [];
+  ids.forEach(function (id) {
+    var rec = gcSetData_(id);
+    if (!rec.exact) { G.setNotes.push({ id: id, note: rec.note }); return; }
+    ok.push({ id: id, rec: rec, active: id === idx.active });
+  });
+  if (!ok.length) {   // 어느 세트도 읽지 못함 → 내장 사본의 세트라도 (AI 점수표는 보이도록)
+    var embId = gcSetId_(gcItems_().set_id), recE = gcSetData_(embId);
+    if (recE.exact) ok.push({ id: embId, rec: recE, active: false });
+  }
+  G.multi = ok.length > 1;
+  G.setIndexSource = idx.source;
+  ok.forEach(function (st) {
+    var data = st.rec.data, P = gcParts_(data);
+    st.parts = P;
+    G.sets.push(st);
+    Object.keys(P).forEach(function (p) {
+      G.partKeys.push({ set: st.id, part: p, key: st.id + '\u0001' + p, label: (G.multi ? st.id + ' · ' : '') + 'Part ' + p, units: P[p] });
+    });
+    Object.keys(data.units).forEach(function (k) {
+      var u = data.units[k];
+      var part = gcPartOf_(k, data);
+      var unit = { key: k, set: st.id, patient: u.patient || k.split('_')[0], model: u.model || '', base: u.concordance_base || {}, items: [],
+        part: part, partKey: st.id + '\u0001' + part, partLabel: (G.multi ? st.id + ' · ' : '') + part };
+      (u.items || []).forEach(function (m) {
+        var it = { m: m, id: m.id, unit: unit, set: st.id, part: part, partKey: unit.partKey, partLabel: unit.partLabel, final: m.final,
+          rater: m.rater_verdict, byIdent: {}, votes: [] };
+        unit.items.push(it);
+        G.items.push(it);
+        G.itemBy[st.id + '\u0001' + m.id] = it;
+      });
+      G.units.push(unit);
+    });
+  });
+  G.dataVersion = G.sets.length ? (G.sets[0].rec.data.data_version || '') : '';
+}
+
 function gc_addSess_(G, id, row, jrow) {
   var src = row || {};
   var s = {
     id: id, row: row, ord: G.sessions.length, rows: [],
     isTest: sm_bool_(row ? row.IsTest : (jrow ? jrow.IsTest : '')) === true,
+    setId: gcSetId_(src.SetId || (jrow && jrow.SetId)),
+    uiLang: uiLang_(src.UiLangStart) || uiLang_(src.UiLang) || uiLang_(jrow && jrow.UiLang) || 'ko',
     part: sm_str_(src.Part || (jrow && jrow.Part)), status: sm_str_(src.Status).toLowerCase(),
     code: sm_str_(src.EvaluatorCode || (jrow && jrow.EvaluatorCode)), evId: sm_str_(src.EvaluatorId || (jrow && jrow.EvaluatorId)),
     firstSeen: sm_time_(src.FirstSeenAt), ordinal: sm_num_(src.SessionOrdinal), linked: sm_str_(src.LinkedSessionId)
   };
+  s.partKey = s.setId + '\u0001' + s.part;
   G.sessBy[id] = s;
   G.sessions.push(s);
   return s;
@@ -997,7 +1165,7 @@ function gc_adjRows_(G) {
     var comments = it.votes.filter(function (v) { return v.comment !== ''; })
       .map(function (v) { return v.ev.code + ': ' + v.comment; }).join(' / ');
     rows.push([it.id, it.unit.key, m.element, m.title, m.combo, m.question, m.audit_mark, m.audit_category, it.rater, it.final,
-      it.n, it.agreeN, it.cnt.met, it.cnt.deducted, it.cnt.not_applicable, it.adj, it.status, comments]);
+      it.n, it.agreeN, it.cnt.met, it.cnt.deducted, it.cnt.not_applicable, it.adj, it.status, comments, it.set]);
   });
   return rows;
 }
@@ -1006,7 +1174,7 @@ function gc_concRows_(G) {
   var rows = [GC_CONC_COLS.slice()];
   G.targets.forEach(function (t) {
     rows.push([t.key, t.n, t.metRaw, t.metAi, gc_score_(t.metRaw, t.n), gc_score_(t.metAi, t.n), t.nAdj, t.metAdj,
-      gc_score_(t.metAdj, t.nAdj), t.items.length, t.decided, t.pending]);
+      gc_score_(t.metAdj, t.nAdj), t.items.length, t.decided, t.pending, t.unit.set]);
   });
   return rows;
 }
@@ -1032,7 +1200,11 @@ function gc_rules_() {
     '부합도 조정: TargetKey 마다 AI 감사 후 충족 수(Met_AI)와 채점 판정 수(N_AI)에서 출발해, 확정 판정이 AI 최종과 다르면 충족↔감점은 충족 수를 1 옮기고, 채점 대상 아님은 채점 판정 수에서 빼며(AI 최종이 충족이면 충족 수에서도 뺌). ConcordanceScore = Met_Adj ÷ N_Adj (소수 넷째 자리).',
     '점수표 [6] 의 범위별 점수는 대상 TargetKey 들의 충족 수 합 ÷ 채점 판정 수 합(pooled)입니다.',
     '일치율의 95% CI 는 Wilson. 전문의 간 쌍 일치율 = 문항마다 같은 판정을 한 전문의 쌍의 비율(검증자 n ≥ 2)의 평균. Fleiss κ 는 한 Part 의 모든 문항을 같은 수(≥ 2)의 전문의가 검증했을 때만 계산합니다.',
-    '참여 자격(분과전문의 여부)은 기기에서 확인하며 서버에는 자격이 있는 경우만 기록됩니다(자격 없음 응답 수는 집계 불가).'
+    '참여 자격(분과전문의 여부)은 기기에서 확인하며 서버에는 자격이 있는 경우만 기록됩니다(자격 없음 응답 수는 집계 불가).',
+    '케이스 세트(SetId, 빈칸 = v1): 판정 메타데이터와 Part 는 세트마다 사이트 gc/data/sets/<세트>.json 에서 읽고(10분 캐시), 읽지 못하면 GcCode.gs 에 내장된 빌드 때의 활성 세트를 씁니다. ' +
+      '집계 대상 세트 = 사이트 index.json 의 활성 세트 + 응답이 있는 세트. 판정·확정·부합도는 세트별로 따로 셉니다(같은 ItemId 라도 세트가 다르면 다른 판정). ' +
+      '세트가 둘 이상이면 Part·답변 이름 앞에 세트 ID 를 붙입니다. 순서 배정 균형도 같은 세트 안에서만 셉니다.',
+    '화면 언어(UiLang, 빈칸 = ko): 판정 값은 언어와 관계없이 met / deducted / not_applicable 로 저장됩니다. 영어 판정이 있으면 [4] 에 언어별 행을 두며, 영어 문구는 연구책임자 확인 전입니다.'
   ];
 }
 
@@ -1046,9 +1218,14 @@ function gc_s0_(o, G) {
   o.gap();
   o.title('[0] 머리말 — 검증 대상과 포함 규칙');
   o.head(['항목', '값', '', '']);
+  G.sets.forEach(function (st) {
+    o.add(['케이스 세트 ' + st.id + (st.active ? ' (활성)' : ''), st.rec.data.data_version || '',
+      { site: '사이트에서 읽음', cache: '사이트 자료 (캐시)', embedded: '내장 사본 (사이트를 읽지 못함: ' + st.rec.note + ')' }[st.rec.source] || st.rec.source]);
+  });
+  G.setNotes.forEach(function (x) { o.add(['케이스 세트 ' + x.id + ' — 자료를 읽지 못함', x.note, '이 세트의 판정은 집계하지 못했습니다(아래 "세트 자료에 없는 판정 행")']); });
   o.add(['검증 대상 판정 수 (AI 감사 △/✗)', G.items.length]);
-  Object.keys(GC_PARTS).forEach(function (p) {
-    o.add(['  Part ' + p, G.items.filter(function (it) { return it.part === p; }).length, GC_PARTS[p].join(' + ')]);
+  G.partKeys.forEach(function (pk) {
+    o.add(['  ' + pk.label, G.items.filter(function (it) { return it.partKey === pk.key; }).length, pk.units.join(' + ')]);
   });
   o.add(['  ' + GC_MARK_KO.major + ' / ' + GC_MARK_KO.minor, G.items.filter(function (it) { return it.m.audit_mark === 'major'; }).length,
     G.items.filter(function (it) { return it.m.audit_mark === 'minor'; }).length]);
@@ -1062,8 +1239,8 @@ function gc_s0_(o, G) {
       return f.code + ': 기기 ' + f.n + '개, ' + f.why + (f.split ? ' → 따로 집계 (' + f.code + '-1 …)' : ' → 1명으로 집계 (최신 판정)');
     }).join(' / ') || '없음']);
   o.add(['사이트 자료가 서버와 어긋난 판정 행 (GC_Judgments.ClientMismatch)', G.mismatchRows,
-    G.mismatchRows ? '사이트 gc/data/gc_items.js 와 붙여넣은 GcCode.gs 의 판정 자료 버전을 맞추세요 (집계는 서버 AIFinal 기준)' : '']);
-  if (G.unknownItems) o.add(['GC_ITEMS 에 없는 ItemId 판정 행 (집계 제외)', G.unknownItems]);
+    G.mismatchRows ? '사이트 화면 자료와 서버가 읽은 세트 자료(gc/data/sets/<세트>.json)가 다릅니다 — python3 tools/build_cases.py 로 다시 만들어 올리세요 (집계는 서버 AIFinal 기준)' : '']);
+  if (G.unknownItems) o.add(['세트 자료에 없는 ItemId 판정 행 (집계 제외)', G.unknownItems]);
   o.gap();
   o.head(['포함 · 파생 규칙']);
   gc_rules_().forEach(function (t, i) { o.add([(i + 1) + '. ' + t]); });
@@ -1084,20 +1261,34 @@ function gc_s1_(o, G) {
       (visits && dev) ? r3_(sess.length / dev) : '']);
   };
   row('전체', G.pool, G.V.exists ? G.visits : null);
-  Object.keys(GC_PARTS).forEach(function (p) { row('Part ' + p, G.pool.filter(function (s) { return s.part === p; }), null); });
+  if (G.multi || G.sets.some(function (st) { return st.id !== 'v1'; })) {
+    sm_uniq_(G.sets.map(function (st) { return st.id; }).concat(G.pool.map(function (s) { return s.setId; }))).forEach(function (id) {
+      row('세트 ' + id, G.pool.filter(function (s) { return s.setId === id; }), null);
+    });
+  }
+  G.partKeys.forEach(function (pk) { row(pk.label, G.pool.filter(function (s) { return s.partKey === pk.key; }), null); });
+  sm_orderKeys_(sm_uniq_(['ko'].concat(G.pool.map(function (s) { return s.uiLang; }))), ['ko', 'en']).forEach(function (l) {
+    row('화면 언어 ' + l, G.pool.filter(function (s) { return s.uiLang === l; }), null);
+  });
   o.note('방문 = Visits 시트(GC 사이트 소개 화면 조회). Part 는 소개 화면 이후에 고르므로 Part 별 방문 수는 없습니다(링크로 미리 지정한 Part 는 Visits.TypeParam).');
   o.note('참여 자격 질문에서 "아니요"를 고른 방문자는 서버에 기록되지 않습니다(자격/비자격 수는 집계 불가).');
+  o.note('화면 언어 = 세션을 시작한 언어(UiLangStart, 없으면 UiLang, 둘 다 없으면 ko).');
   if (G.excludedPilotSessions) o.note('이 표의 세션에는 파일럿 세션(Wave=pilot) ' + G.excludedPilotSessions + '개가 포함됩니다. 판정 집계([2]–[8])에서는 제외합니다.');
   o.gap();
-  var parts = {};
+  var parts = {}, nParts = {};
+  G.sets.forEach(function (st) { nParts[st.id] = Object.keys(st.parts).length; });
   G.pool.forEach(function (s) {
     if (s.status !== 'completed') return;
-    var id = gc_ident_(G, s.code, s.evId, s.id);
+    var id = gc_ident_(G, s.code, s.evId, s.id) + '\u0001' + s.setId;
     (parts[id] = parts[id] || {})[s.part] = 1;
   });
+  var allTwo = G.sets.every(function (st) { return nParts[st.id] === 2; });
   o.head(['지표', '값']);
   o.add(['참여 전문의 (판정 1건 이상)', G.phys.length]);
-  o.add(['두 Part 를 모두 완료한 전문의', Object.keys(parts).filter(function (k) { return Object.keys(parts[k]).length >= 2; }).length]);
+  o.add([allTwo ? '두 Part 를 모두 완료한 전문의' : '한 세트의 모든 Part 를 완료한 전문의', sm_uniq_(Object.keys(parts).filter(function (k) {
+    var sid = k.split('\u0001')[1];
+    return Object.keys(parts[k]).length >= Math.max(nParts[sid] || 2, 2);
+  }).map(function (k) { return k.split('\u0001')[0]; })).length]);
   o.add(['이어서 검증한 세션 (SessionOrdinal = 2 또는 LinkedSessionId)', G.pool.filter(function (s) { return s.ordinal === 2 || s.linked !== ''; }).length]);
   o.add(['서버 대신 기기에서 순서 배정한 세션 (SeqSource = local)', G.pool.filter(function (s) { return sm_str_(s.row && s.row.SeqSource).toLowerCase() === 'local'; }).length]);
   o.gap();
@@ -1123,7 +1314,7 @@ function gc_s2_(o, G) {
   sm_cat_(o, '분과전문의 취득 후 경력 (board_years)', E, function (e) { return sm_item_(pick(e, 'Eval_board_years'), pick(e, 'Eval_board_years_code'), GC_OPT.board_years).label; }, GC_OPT.board_years);
   sm_cat_(o, '주 근무 기관 (setting)', E, function (e) { return sm_item_(pick(e, 'Eval_setting'), pick(e, 'Eval_setting_code'), GC_OPT.setting).label; }, GC_OPT.setting);
   sm_cat_(o, 'AI 사용 빈도 (ai_freq)', E, gc_aiFreq_, GC_OPT.ai_freq);
-  sm_cat_(o, '검증한 Part 수', E, function (e) { return String(sm_uniq_(e.sessions.map(function (s) { return s.part; }).filter(function (x) { return x; })).length); }, ['1', '2']);
+  sm_cat_(o, '검증한 Part 수', E, function (e) { return String(sm_uniq_(e.sessions.filter(function (s) { return s.part; }).map(function (s) { return s.partKey; })).length); }, ['1', '2']);
   sm_cat_(o, '유입 경로 (Src)', E, function (e) { return sm_str_(pick(e, 'Src')); }, null, '(없음)');
   sm_cat_(o, '기기 (FormFactor)', E, function (e) { return sm_str_(pick(e, 'FormFactor')); }, ['mobile', 'tablet', 'desktop'], '(미기록)');
   o.gap();
@@ -1136,24 +1327,20 @@ function gc_s3_(o, G) {
     '충족', '감점', '채점 대상 아님', '확정 판정', '상태', '부합도 반영']);
   G.items.forEach(function (it) {
     var m = it.m;
-    o.add([it.id, it.part, m.combo ? '조합 ' + m.combo : 'Phase 1', m.question, m.element, GC_MARK_KO[m.audit_mark] || m.audit_mark,
+    o.add([it.id, it.partLabel, m.combo ? '조합 ' + m.combo : 'Phase 1', m.question, m.element, GC_MARK_KO[m.audit_mark] || m.audit_mark,
       m.audit_category, GC_VERDICT_KO[it.rater] || it.rater, GC_VERDICT_KO[it.final] || it.final, it.n, it.agreeN,
       it.cnt.met, it.cnt.deducted, it.cnt.not_applicable, GC_VERDICT_KO[it.adj] || it.adj, it.status, it.changed ? '변경' : '']);
   });
   o.gap();
-  o.head(['상태', '전체', 'Part A', 'Part B', '✗', '△', '그중 AI 최종과 다른 확정']);
-  GC_STATUS_ORDER.forEach(function (st) {
-    var arr = G.items.filter(function (it) { return it.status === st; });
+  o.head(['상태', '전체'].concat(G.partKeys.map(function (pk) { return pk.label; })).concat(['✗', '△', '그중 AI 최종과 다른 확정']));
+  var statusRow = function (label, arr) {
     var c = function (f) { return arr.filter(f).length; };
-    o.add([st, arr.length, c(function (it) { return it.part === 'A'; }), c(function (it) { return it.part === 'B'; }),
-      c(function (it) { return it.m.audit_mark === 'major'; }), c(function (it) { return it.m.audit_mark === 'minor'; }),
-      c(function (it) { return it.changed; })]);
-  });
-  o.add(['합계', G.items.length, G.items.filter(function (it) { return it.part === 'A'; }).length,
-    G.items.filter(function (it) { return it.part === 'B'; }).length,
-    G.items.filter(function (it) { return it.m.audit_mark === 'major'; }).length,
-    G.items.filter(function (it) { return it.m.audit_mark === 'minor'; }).length,
-    G.items.filter(function (it) { return it.changed; }).length]);
+    o.add([label, arr.length].concat(G.partKeys.map(function (pk) { return c(function (it) { return it.partKey === pk.key; }); }))
+      .concat([c(function (it) { return it.m.audit_mark === 'major'; }), c(function (it) { return it.m.audit_mark === 'minor'; }),
+        c(function (it) { return it.changed; })]));
+  };
+  GC_STATUS_ORDER.forEach(function (st) { statusRow(st, G.items.filter(function (it) { return it.status === st; })); });
+  statusRow('합계', G.items);
   o.note('자세한 집계와 전문의 의견은 GC_Adjudication 시트에 있습니다.');
   o.gap();
 }
@@ -1176,7 +1363,12 @@ function gc_s4_(o, G) {
   sm_uniq_(G.items.map(function (it) { return it.m.audit_category || '(없음)'; })).sort().forEach(function (c) {
     row('감사 분류', c, V.filter(function (v) { return (v.item.m.audit_category || '(없음)') === c; }));
   });
-  Object.keys(GC_PARTS).forEach(function (p) { row('Part', p, V.filter(function (v) { return v.item.part === p; })); });
+  G.partKeys.forEach(function (pk) { row('Part', G.multi ? pk.set + ' · ' + pk.part : pk.part, V.filter(function (v) { return v.item.partKey === pk.key; })); });
+  if (V.some(function (v) { return v.lang !== 'ko'; })) {
+    sm_orderKeys_(sm_uniq_(V.map(function (v) { return v.lang; })), ['ko', 'en']).forEach(function (l) {
+      row('화면 언어 (UiLang)', l, V.filter(function (v) { return v.lang === l; }));
+    });
+  }
   o.note('△ 판정은 AI 감사가 판정을 바꾸지 않았으므로 AI 최종 = AI Rater 원판정입니다. ✗ 판정에서 두 동의율의 차이가 AI 감사의 수정이 전문의 판단과 맞는 정도를 보여 줍니다.');
   o.gap();
   o.sub('[4-2] 판정(문항) 단위 — 확정·잠정 판정 중 AI 최종 / AI Rater 원판정과 같은 비율');
@@ -1249,7 +1441,7 @@ function gc_s5_(o, G) {
     o.add([label, items.length, m.length, lo === hi ? String(lo) : lo + '–' + hi, pa.length ? r3_(mean_(pa)) : '',
       m.length ? r3_(m.filter(function (it) { return gc_pairAgree_(it) === 1; }).length / m.length) : '', r3_(fk.k), fk.why]);
   };
-  Object.keys(GC_PARTS).forEach(function (p) { row('Part ' + p, G.items.filter(function (it) { return it.part === p; })); });
+  G.partKeys.forEach(function (pk) { row(pk.label, G.items.filter(function (it) { return it.partKey === pk.key; })); });
   row('전체', G.items);
   o.note('범주 = 충족 / 감점 / 채점 대상 아님. 쌍 일치율 = 같은 판정을 한 전문의 쌍의 비율(문항 평균, 검증자 ≥ 2 문항만).');
   o.gap();
@@ -1271,7 +1463,7 @@ function gc_s6_(o, G) {
       var sum = function (f) { return arr.reduce(function (a, t) { return a + t[f]; }, 0); };
       var n = sum('n'), nAdj = sum('nAdj'), sAi = gc_score_(sum('metAi'), n), sAdj = gc_score_(sum('metAdj'), nAdj);
       var fl = arr.reduce(function (a, t) { return a + t.items.length; }, 0), dec = sum('decided');
-      o.add([u.key, u.part, sc[0], n, sum('metRaw'), gc_score_(sum('metRaw'), n), sum('metAi'), sAi, nAdj, sum('metAdj'), sAdj,
+      o.add([G.multi ? u.set + ' · ' + u.key : u.key, u.partLabel, sc[0], n, sum('metRaw'), gc_score_(sum('metRaw'), n), sum('metAi'), sAi, nAdj, sum('metAdj'), sAdj,
         (sAi !== '' && sAdj !== '') ? sm_round_(sAdj - sAi, 4) : '', fl, dec, fl - dec]);
     });
   });
@@ -1410,8 +1602,14 @@ function gcCbDefs_(a) {
   a('InAppBrowser', '인앱 브라우저(카카오톡 등) 감지 결과', '문자열 (빈칸 = 일반 브라우저)');
   a('ReferrerOrigin', '유입 페이지 출처 (origin 만)', '문자열');
   a('BackendVersion', '백엔드(GC Apps Script) 버전', '문자열');
-  a('PatientId', '가상 환자 ID', 'P051 / P011');
-  a('Model', '모델 코드 (전문의에게 비공개, 분석용)', 'gpt / deepseek');
+  a('PatientId', '가상 환자 ID', '예: P051');
+  a('Model', '모델 코드 (전문의에게 비공개, 분석용; cases/models.json 의 code)', '예: gpt, deepseek');
+  a('UiLang', '보낼 때의 화면 언어 (GC_Judgments: 그 판정을 정한 때의 언어; 빈칸 = ko: 백엔드 v4 이전 행). 판정 값은 언어와 관계없음', 'ko / en');
+  a('UiLangs', '화면이 보인 언어들 (GC_Judgments: 그 판정, GC_Sessions: 그 세션)', 'ko · en · ko;en');
+  a('UiLangStart', '세션을 시작한 화면 언어', 'ko / en (빈칸 = ko)');
+  a('UiLangSwitches', '세션 중 화면 언어를 바꾼 횟수', '정수');
+  a('SetId', '케이스 세트 (cases/sets/<id>.json; 빈칸 = v1: 백엔드 v4 이전 행)', '예: v1');
+  a(GC_SHEET.VISITS + '.UiLang', '소개 화면을 열었을 때의 화면 언어', 'ko / en');
   // Visits (GC 소개 화면 방문)
   a(GC_SHEET.VISITS + '.ReceivedAt', '서버가 방문 기록을 받은 시각', '날짜시간');
   a(GC_SHEET.VISITS + '.VisitId', '방문 ID (소개 화면 1회 조회; GC_Sessions.VisitId 와 연결)', 'UUID');
@@ -1444,10 +1642,10 @@ function gcCbDefs_(a) {
     a(sh + '.EvaluatorId', '전문의 ID (기기에서 생성, 이어서 검증 시 승계)', 'UUID');
     a(sh + '.SequenceIndex', 'Part 안의 제시 순서 번호 (Part 안에서 균형 배정)', '정수 (0부터)');
     a(sh + '.SessionOrdinal', '전문의의 몇 번째 Part 인지', '1 = 첫 Part, 2 = 이어서 검증');
-    a(sh + '.DataVersion', '판정 자료 버전 (gc/data/gc_items.js data_version)', '문자열');
+    a(sh + '.DataVersion', '판정 자료 버전 (사이트 gc/data/gc_items.js 의 data_version — 세트마다 다름)', '문자열');
     a(sh + '.AppVersion', 'GC 사이트 버전', '문자열');
   });
-  a('Part', '검증 Part (답변 2건 묶음)', 'A / B');
+  a('Part', '검증 Part (한 세션에 보는 답변 묶음, 세트의 data/design.js)', 'A, B … (케이스 세트마다 구성이 다름)');
   S('Order', '제시된 답변(unit) 순서', 'UnitKey > UnitKey');
   S('Status', '진행 상태 (후퇴하지 않음)', 'started → in_progress → completed');
   a('ItemsTotal', '이 세션에서 검증할 판정 수', '정수');
@@ -1462,7 +1660,7 @@ function gcCbDefs_(a) {
   a('FurthestUnit', '도달한 마지막 답변 번호 (progress)', '정수 (1부터)');
   a('FurthestItem', '도달한 마지막 판정 번호 (progress)', '정수 (1부터)');
   S('OverallComment', '전체 의견 (자유 서술)', '문자열');
-  a('UnitOrder', '세션 안의 답변 순서', '1 / 2');
+  a('UnitOrder', '세션 안의 답변 순서', '정수 (1부터)');
   a('ItemOrder', '세션 안의 판정 순서', '정수 (1부터)');
   a('UnitKey', '답변 식별자 (환자_모델, 전문의에게는 "답변 1/2" 로만 표시)', '예: P051_gpt');
   a('Combo', '치료 조합 번호 (0 = Phase 1)', '0–3');
@@ -1491,7 +1689,7 @@ function gcCbDefs_(a) {
   a('OpenedFullAnswer', '이 조합 전체 답변·처방을 한 번이라도 펼쳤는지' + CUM, 'TRUE/FALSE');
   a('OpenedBasis', '채점표 적용 근거를 한 번이라도 펼쳤는지' + CUM, 'TRUE/FALSE');
   a('OpenedPatient', '환자 정보를 한 번이라도 열었는지' + CUM, 'TRUE/FALSE');
-  J('ClientMismatch', '사이트가 보낸 값이 서버 GC_ITEMS 와 다른 점 (빈칸 = 일치; 집계는 서버 AIFinal 기준)', 'data_version … ≠ … ; ai_final … ≠ … ; agree(사이트) …');
+  J('ClientMismatch', '사이트가 보낸 값이 서버가 읽은 세트 자료와 다른 점 (빈칸 = 일치; 집계는 서버 AIFinal 기준). 서버가 그 세트 자료를 읽지 못했으면 그 사실도 기록', '세트 … 자료를 읽지 못함 ; data_version … ≠ … ; ai_final … ≠ … ; agree(사이트) …');
   a(GC_SHEET.RAW + '.Action', '요청 종류', 'gc_start | gc_judgment | gc_finish | gc_progress');
   a(GC_SHEET.RAW + '.SessionId', 'GC 검증 세션 ID', 'UUID');
   A('Title', '채점 요소 제목', '문자열');
@@ -1504,6 +1702,7 @@ function gcCbDefs_(a) {
   A('Adjudicated', '확정 판정 (대기·추가 검토 필요면 AI 최종 유지)', V);
   A('Status', '확정 상태', '대기 / 확정(만장일치) / 확정(다수결) / 잠정(1인) / 추가 검토 필요');
   A('Comments', '전문의 의견 (가명 코드: 의견, " / " 로 연결; 동명이인으로 나눈 코드는 G001-1 형식)', '문자열');
+  A('SetId', '케이스 세트 (같은 ItemId 라도 세트가 다르면 다른 판정)', '예: v1');
   C('TargetKey', '부합도 집계 대상 (CA PhaseLong.TargetKey 와 같은 형식)', '<UnitKey>|P1 또는 <UnitKey>|C<n>|P<2–5>');
   C('N_AI', '채점 판정 수 (AI)', '정수');
   C('Met_Raw', '충족 수 — AI Rater 원판정', '정수');
@@ -1516,12 +1715,13 @@ function gcCbDefs_(a) {
   C('FlaggedItems', '이 대상의 검증 대상 판정 수 (AI 감사 △/✗)', '정수');
   C('Adjudicated', '그중 확정·잠정된 판정 수', '정수');
   C('Pending', '그중 대기·추가 검토 필요 판정 수', '정수');
+  C('SetId', '케이스 세트 (CA Concordance 시트에 이 열도 붙여 넣으면 CA 요약이 분석 세트의 행만 씀)', '예: v1');
 }
 
 // ============================================================
 // SHARED HELPERS — copied by tools/build_gas.py from the CA sources (gas/src/*.gs), only the ones GC uses.
 // Do not edit here: change gas/src/*.gs (CA) or gas/gc/*.gs (GC) and re-run `python3 tools/build_gas.py`.
-// core.gs: 27; summary.gs: 32
+// core.gs: 30; summary.gs: 32
 // ============================================================
 var SHEET = {
   RESP: 'Responses',
@@ -1534,7 +1734,7 @@ var SHEET = {
 
 function visitsHeaders_() {
   return ['ReceivedAt', 'VisitId', 'DeviceId', 'Src', 'Site', 'Wave', 'TypeParam', 'FormFactor', 'InAppBrowser',
-    'ReferrerOrigin', 'IsTest', 'AppVersion'];
+    'ReferrerOrigin', 'IsTest', 'AppVersion', 'UiLang', 'SetId'];
 }
 
 function rawHeaders_() {
@@ -1548,6 +1748,21 @@ function json_(obj) {
 }
 
 function short_(v, n) { return String(v == null ? '' : v).slice(0, n || 64); }
+
+/** 화면 언어 ko / en (그 밖의 값은 짧게 잘라 그대로, 없으면 빈칸 = ko 로 해석) */
+function uiLang_(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  return s === 'ko' || s === 'en' ? s : s.replace(/[^a-z\-]/g, '').slice(0, 8);
+}
+
+/** 언어 목록 ['ko','en'] → 'ko;en' */
+function uiLangs_(a) { return Array.isArray(a) ? a.map(uiLang_).filter(function (x) { return x; }).join(';') : ''; }
+
+/** 케이스 세트 ID (사이트 data/cases.js 의 set_id). 형식이 아니면 빈칸 = v1 로 해석 */
+function setId_(v) {
+  var s = String(v == null ? '' : v).trim();
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(s) ? s : '';
+}
 
 /** 시트를 가져오거나 만들고, 필요한 헤더가 모두 있도록 보장(누락된 헤더는 오른쪽 끝에 추가). */
 function sheet_(ss, name, headers) {
@@ -1965,12 +2180,15 @@ function r2_(v) { return sm_round_(v, 2); }
 function r3_(v) { return sm_round_(v, 3); }
 
 // ============================================================
-// GC_ITEMS — GENERATED by tools/build_gas.py from gc/data/gc_items.js. Do not edit here;
-// re-run `python3 tools/build_gas.py` after tools/build_gc_data.py regenerates the data.
+// GC_ITEMS — GENERATED by tools/build_gas.py from gc/data/sets/<active set>.json (tools/build_cases.py). Do not edit here.
+// The backend reads each case set from the site at run time (gcSetData_); this copy of the ACTIVE set at build time is
+// only the fallback when the site cannot be reached. Content changes therefore do not need a repaste.
 // ============================================================
 var GC_ITEMS = {
+  set_id: "v1",
   data_version: "2026-11-19.gc2",
   scope: "AI audit flagged (△/✗) judgments only",
+  parts: [{"id":"A","sequences":[["P051_deepseek","P011_gpt"],["P011_gpt","P051_deepseek"]],"items":18,"minutes":[20,25]},{"id":"B","sequences":[["P011_deepseek","P051_gpt"],["P051_gpt","P011_deepseek"]],"items":11,"minutes":[10,15]}],
   units: {
     "P051_gpt": {"key":"P051_gpt","patient":"P051","model":"gpt","concordance_base":{"P051_gpt|P1":{"n":2,"met_raw":2,"met_ai":2},"P051_gpt|C1|P2":{"n":7,"met_raw":7,"met_ai":7},"P051_gpt|C2|P2":{"n":7,"met_raw":7,"met_ai":7},"P051_gpt|C3|P2":{"n":7,"met_raw":5,"met_ai":6},"P051_gpt|C1|P3":{"n":27,"met_raw":26,"met_ai":26},"P051_gpt|C2|P3":{"n":28,"met_raw":25,"met_ai":25},"P051_gpt|C3|P3":{"n":27,"met_raw":26,"met_ai":26},"P051_gpt|C1|P4":{"n":17,"met_raw":17,"met_ai":17},"P051_gpt|C2|P4":{"n":19,"met_raw":19,"met_ai":19},"P051_gpt|C3|P4":{"n":17,"met_raw":17,"met_ai":17},"P051_gpt|C1|P5":{"n":23,"met_raw":18,"met_ai":18},"P051_gpt|C2|P5":{"n":24,"met_raw":18,"met_ai":19},"P051_gpt|C3|P5":{"n":23,"met_raw":17,"met_ai":17}},"items":[{"id":"P051_gpt|C3|Q2.1-02","unit":"P051_gpt","patient":"P051","model":"gpt","combo":3,"question":"2.1","element":"Q2.1-02","title":"기대 효과를 환자의 고혈당과 연결하지 않음·과대 기술","target_key":"P051_gpt|C3|P2","audit_mark":"major","audit_category":"답변 내용 오독 · 충족 여부","audit_corrected":"met","rater_verdict":"deducted","final":"met"},{"id":"P051_gpt|C2|Q5.3-03","unit":"P051_gpt","patient":"P051","model":"gpt","combo":2,"question":"5.3","element":"Q5.3-03","title":"아플 때 insulin 대처 없음·기저 insulin 임의 중단 지시","target_key":"P051_gpt|C2|P5","audit_mark":"minor","audit_category":"답변 내용 오독 · 인용과 사유","audit_corrected":null,"rater_verdict":"met","final":"met"},{"id":"P051_gpt|C3|Q5.3-03","unit":"P051_gpt","patient":"P051","model":"gpt","combo":3,"question":"5.3","element":"Q5.3-03","title":"아플 때 insulin 대처 없음·기저 insulin 임의 중단 지시","target_key":"P051_gpt|C3|P5","audit_mark":"minor","audit_category":"답변 내용 오독 · 인용과 사유","audit_corrected":null,"rater_verdict":"met","final":"met"},{"id":"P051_gpt|C2|Q5.3-06","unit":"P051_gpt","patient":"P051","model":"gpt","combo":2,"question":"5.3","element":"Q5.3-06","title":"심한 복통(췌장염) 때의 환자 지시 누락","target_key":"P051_gpt|C2|P5","audit_mark":"major","audit_category":"답변 내용 오독 · 충족 여부","audit_corrected":"met","rater_verdict":"deducted","final":"met"}]},
     "P051_deepseek": {"key":"P051_deepseek","patient":"P051","model":"deepseek","concordance_base":{"P051_deepseek|P1":{"n":2,"met_raw":2,"met_ai":2},"P051_deepseek|C1|P2":{"n":7,"met_raw":5,"met_ai":4},"P051_deepseek|C2|P2":{"n":7,"met_raw":7,"met_ai":7},"P051_deepseek|C3|P2":{"n":6,"met_raw":5,"met_ai":5},"P051_deepseek|C1|P3":{"n":25,"met_raw":22,"met_ai":23},"P051_deepseek|C2|P3":{"n":27,"met_raw":25,"met_ai":25},"P051_deepseek|C3|P3":{"n":23,"met_raw":19,"met_ai":19},"P051_deepseek|C1|P4":{"n":16,"met_raw":13,"met_ai":14},"P051_deepseek|C2|P4":{"n":17,"met_raw":14,"met_ai":15},"P051_deepseek|C3|P4":{"n":15,"met_raw":13,"met_ai":13},"P051_deepseek|C2|P5":{"n":25,"met_raw":11,"met_ai":11},"P051_deepseek|C1|P5":{"n":18,"met_raw":8,"met_ai":9},"P051_deepseek|C3|P5":{"n":18,"met_raw":8,"met_ai":8}},"items":[{"id":"P051_deepseek|C1|Q2.2-04","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":1,"question":"2.2","element":"Q2.2-04","title":"환자 기록과 어긋나는 사실을 전제로 한 안전성 판단","target_key":"P051_deepseek|C1|P2","audit_mark":"major","audit_category":"환자 사실 오류 · 충족 여부","audit_corrected":"deducted","rater_verdict":"met","final":"deducted"},{"id":"P051_deepseek|C2|Q3.4-09","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":2,"question":"3.4","element":"Q3.4-09","title":"insulin 시작·강화하며 metformin 중단","target_key":"P051_deepseek|C2|P3","audit_mark":"minor","audit_category":"인용 불일치 · 인용과 사유","audit_corrected":null,"rater_verdict":"met","final":"met"},{"id":"P051_deepseek|C2|Q3.5-02","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":2,"question":"3.5","element":"Q3.5-02","title":"안정 심부전을 metformin 금기로 잘못 판단","target_key":"P051_deepseek|C2|P3","audit_mark":"minor","audit_category":"인용 불일치 · 인용과 사유","audit_corrected":null,"rater_verdict":"met","final":"met"},{"id":"P051_deepseek|C1|Q3.8-15","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":1,"question":"3.8","element":"Q3.8-15","title":"ACEi/ARB 적응·용량 미검토·판단 오류","target_key":"P051_deepseek|C1|P3","audit_mark":"major","audit_category":"항목 적용 오류 · 충족 여부","audit_corrected":"met","rater_verdict":"deducted","final":"met"},{"id":"P051_deepseek|C1|Q4.2-11","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":1,"question":"4.2","element":"Q4.2-11","title":"말초동맥질환 선별 누락","target_key":"P051_deepseek|C1|P4","audit_mark":"major","audit_category":"항목 적용 오류 · 충족 여부","audit_corrected":"met","rater_verdict":"deducted","final":"met"},{"id":"P051_deepseek|C2|Q4.2-11","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":2,"question":"4.2","element":"Q4.2-11","title":"말초동맥질환 선별 누락","target_key":"P051_deepseek|C2|P4","audit_mark":"major","audit_category":"항목 적용 오류 · 충족 여부","audit_corrected":"met","rater_verdict":"deducted","final":"met"},{"id":"P051_deepseek|C1|Q5.4-01","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":1,"question":"5.4","element":"Q5.4-01","title":"식사의 질 지침 없음·잘못된 권고","target_key":"P051_deepseek|C1|P5","audit_mark":"major","audit_category":"답변 내용 오독 · 충족 여부","audit_corrected":"met","rater_verdict":"deducted","final":"met"},{"id":"P051_deepseek|C1|Q5.4-10","unit":"P051_deepseek","patient":"P051","model":"deepseek","combo":1,"question":"5.4","element":"Q5.4-10","title":"운동 처방 누락","target_key":"P051_deepseek|C1|P5","audit_mark":"minor","audit_category":"답변 내용 오독 · 인용과 사유","audit_corrected":null,"rater_verdict":"deducted","final":"deducted"}]},

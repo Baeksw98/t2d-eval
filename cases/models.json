@@ -1,0 +1,15 @@
+{
+  "_comment": "CDSS models. code = the id used in unit keys (P051_gpt) and in the response sheets (Model column). name = ModelName column (analysis only). aliases = every spelling of the model in the source documents (CA output headers such as 'GPT 6.1 Sol P011', GC report titles such as '# E11_P051 · OpenAI gpt-6.1-sol 채점·감사 검증 자료'); matching ignores case, spaces, hyphens and underscores. Model codes and names are NEVER shown to evaluators.",
+  "models": [
+    {
+      "code": "gpt",
+      "name": "GPT-6.1 Sol",
+      "aliases": ["GPT 6.1 Sol", "GPT6.1 Sol", "GPT-6.1 Sol", "OpenAI gpt-6.1-sol", "gpt-6.1-sol"]
+    },
+    {
+      "code": "deepseek",
+      "name": "DeepSeek-V4.1-Flash",
+      "aliases": ["Deepseek V4.1 Flash", "DeepSeek-V4.1-Flash", "DeepSeek V4.1 Flash (1017)"]
+    }
+  ]
+}
