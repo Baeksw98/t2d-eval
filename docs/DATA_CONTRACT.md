@@ -196,6 +196,18 @@ Answer values never depend on the UI language: `evaluator.fields`, `items`, `end
 - Until the PI signs off the English instrument wording, analyse responses with `ui_lang_mixed` or an English `ui_langs` separately.
   Backend v6 stores them as the columns above (blank in old rows = ko / v1); the v5 backend kept them only in RawJSON.
 
+### Continue or start over (site v3.9, `APP_VERSION 2026-11-24.ca-v3.9`) — no backend change
+- Landing `/`: for a CA session saved at `case`/`final` the banner offers 이어서 하기 (`/ca/`) and 처음부터 다시 (`/ca/?restart=1`); the
+  「임상 수용성 평가」 card always links to `/ca/?restart=1`.
+- `/ca/?restart=1`: a saved session whose `screen` is not `done` is removed from `t2d-ca:T2D-CA-2026:v3`; its unsent `outbox` items move to
+  `t2d-ca:T2D-CA-2026:v3:unsent` (deduplicated by `msg_id`) and are POSTed unchanged on this and later `/ca/` visits (boot, `online`,
+  every 30 s), each removed once the server answers ok. A `done` session is kept. The parameter is then removed from the URL.
+- The next session started in that tab carries `entry.restart_of` = the cleared `session_id` (`'unknown'` if it had none) in every payload
+  of that session (kept in sessionStorage `t2d-ca:restart_of` across reloads of the intro; later sessions do not carry it). Backend v6
+  does not have a column for it: it is in **RawJSON** only. The cleared session stays in Sessions (Status `started`/`in_progress`); its
+  completed cases stay in Responses and are handled by the existing duplicate rule (same evaluator + same set + same Type → the session
+  that completed every case first is kept).
+
 ### Case data (site side, `tools/build_cases.py`)
 - `data/cases.js` → `window.T2D_DATA = {data_version, set_id, patients{}, outputs{}}` (active set); archives `data/sets/<id>/cases.js`.
 - `data/design.js` → `window.T2D_DESIGN = {set_id, data_version, gc_data_version, status, title{ko,en}, units[{key, patient, model}],

@@ -3,6 +3,11 @@
  * 2) Landing: shows an '이어서 하기' banner when this browser holds an unfinished evaluation.
  *    Reads (never writes) the evaluation apps' localStorage:
  *      CA  't2d-ca:T2D-CA-2026:v3'  (app.js: STORE_KEY = 't2d-ca:' + STUDY_ID + ':v3', screen intro → case → final → done)
+ *      CA  't2d-ca:T2D-CA-2026:v3:unsent' (app.js UNSENT_KEY: answers of a session cleared by ?restart=1, not yet sent)
+ *    CA in progress (case/final) gets two actions: 이어서 하기 → ca/ and 처음부터 다시 → ca/?restart=1. The CA card itself
+ *    links to ca/?restart=1 (index.html), so a click on it always starts over; while an unfinished CA assessment is saved,
+ *    the card shows #pcCaRestart ("누르면 처음부터 새로 시작합니다"). app.js does the clearing (a finished session is kept).
+ *    The banner is re-read on 'pageshow' (back/forward cache), so it never offers a session that was cleared meanwhile.
  *      GC  'gc:state:v1'            (gc/gc.js: screen starting → eval → final → done)
  *      GC  'gc:draft:v1'            (gc/gc.js: next-Part continuation saved before its session starts; has .linked)
  * 3) About: highlights the current section in the sticky table of contents. On phones details[data-mobile-closed]
@@ -28,6 +33,7 @@
     if (refOrigin !== location.origin) sessionStorage.setItem('t2d:entry_ref', refOrigin);
   } catch (_) {}
   var CA_KEY = 't2d-ca:T2D-CA-2026:v3';
+  var CA_UNSENT_KEY = CA_KEY + ':unsent';
   var GC_KEY = 'gc:state:v1';
   var GC_DRAFT_KEY = 'gc:draft:v1';
 
@@ -111,13 +117,22 @@
       if (ca.screen === 'case') {
         var ci = (typeof ca.caseIdx === 'number' ? ca.caseIdx : 0) + 1;
         out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.case.t'),
-          sub: [ty, n ? t('site.resume.case', { i: Math.min(ci, n), n: n }) : t('site.resume.inprog')], btn: t('site.resume.btn'), icon: 'i-resume', test: ca.is_test });
+          sub: [ty, n ? t('site.resume.case', { i: Math.min(ci, n), n: n }) : t('site.resume.inprog')], btn: t('site.resume.btn'), icon: 'i-resume', test: ca.is_test,
+          restart: 'ca/?restart=1' });
       } else if (ca.screen === 'final') {
         out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.final.t'),
-          sub: [ty, t('site.resume.ca.final.s')], btn: t('site.resume.btn'), icon: 'i-resume', test: ca.is_test });
+          sub: [ty, t('site.resume.ca.final.s')], btn: t('site.resume.btn'), icon: 'i-resume', test: ca.is_test,
+          restart: 'ca/?restart=1' });
       } else if (ca.screen === 'done' && unsent) {
         out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.unsent.t'),
           sub: [ty, t('site.resume.ca.unsent.s')], btn: t('site.resume.btn.send'), icon: 'i-send', test: ca.is_test });
+      }
+    }
+    if (!out.length) {   // answers of a session cleared by 처음부터 다시 that could not be sent yet (opening /ca/ sends them)
+      var orphans = read(CA_UNSENT_KEY);
+      if (orphans && orphans.length) {
+        out.push({ track: 'ca', href: 'ca/', title: t('site.resume.ca.unsent.t'),
+          sub: [t('site.resume.ca.unsent.s')], btn: t('site.resume.btn.send'), icon: 'i-send' });
       }
     }
     var gs = read(GC_KEY);
@@ -152,17 +167,21 @@
   }
 
   var zone = document.getElementById('resume');
+  var caRestartHint = document.getElementById('pcCaRestart');
   function renderResume() {
     if (!zone || !I) return;
     var items = findResumes();
+    if (caRestartHint) caRestartHint.hidden = !items.some(function (r) { return r.restart; });
     if (!items.length) { zone.hidden = true; zone.innerHTML = ''; return; }
     zone.innerHTML = '<h2 class="sr-only">' + esc(t('site.resume.h')) + '</h2>' + items.map(function (r) {
       var sub = r.sub.filter(Boolean).join(' · ') + (r.test ? ' · ' + t('site.resume.test') : '') + ' — ' + t('site.resume.saved');
       return '<div class="resume ' + r.track + '">' +
         '<span class="r-icon" aria-hidden="true"><svg class="ic"><use href="assets/icons.svg#' + r.icon + '"/></svg></span>' +
         '<div><h3 class="r-title">' + esc(r.title) + '</h3><p>' + esc(sub) + '</p></div>' +
+        (r.restart ? '<div class="r-act">' : '') +
         '<a class="btn ' + (r.track === 'gc' ? 'btn-gc' : 'btn-ca') + '" data-carry href="' + esc(r.href) + '">' + esc(r.btn) +
         '<svg class="ic" aria-hidden="true"><use href="assets/icons.svg#i-arrow"/></svg></a>' +
+        (r.restart ? '<a class="btn btn-line" data-carry data-restart href="' + esc(r.restart) + '">' + esc(t('site.resume.btn.restart')) + '</a></div>' : '') +
       '</div>';
     }).join('');
     carryLinks(zone);
@@ -172,6 +191,8 @@
   function renderAll() { renderMinutes(); renderSet(); renderResume(); }
   renderAll();
   window.addEventListener('t2d:lang', renderAll);
+  // back/forward cache: the saved state may have changed on /ca/ (e.g. cleared by 처음부터 다시) since this page was shown
+  window.addEventListener('pageshow', function (e) { if (e.persisted) renderResume(); });
 
   // ---- 3a) collapsible blocks ----
   //  · details[data-mobile-closed]: closed on phones, open elsewhere (and without JS)

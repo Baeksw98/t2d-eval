@@ -13,7 +13,7 @@ window.T2D_CONFIG = {
   ENDPOINT: 'https://script.google.com/macros/s/AKfycbxPxzjMttjnyGlgwY_8AYRCMcMGN1_LLGsgShtMg0ZTcSPE3d52m3f4WALNJMuH0S1KUg/exec',
 
   STUDY_ID: 'T2D-CA-2026',
-  APP_VERSION: '2026-11-24.ca-v3.8',
+  APP_VERSION: '2026-11-24.ca-v3.9',
 
   // 연구 메타데이터 (응답과 함께 저장 → 논문 방법 기술·버전별 분석용)
   INSTRUMENT_VERSION: 'Delphi-final P1–P5 (5-point agreement)',  // 주 평가 문항(Delphi 확정본) 버전

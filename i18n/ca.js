@@ -89,7 +89,7 @@ T2D.i18n.add({
     'ca.intro.flow5Html': '<b>의견 (선택)</b> — 해당 AI 답변에 대한 의견을 자유롭게 남깁니다.',
     'ca.intro.time': '예상 소요 시간: {lo}–{hi}분 (케이스당 약 {clo}–{chi}분)',
     'ca.intro.patientBtnHtml': '평가 중에는 화면 위쪽 <b>[환자 정보]</b> 버튼으로 환자 기록을 언제든 다시 볼 수 있습니다.',
-    'ca.intro.resume': '창을 닫아도 같은 기기·브라우저에서 다시 열면 이어서 진행됩니다.',
+    'ca.intro.resume': '진행 상황은 이 기기·브라우저에 자동 저장됩니다. 중간에 나가면 처음 화면에서 「이어서 하기」로 계속하거나 「처음부터 다시」로 새로 시작할 수 있습니다.',
     'ca.intro.scaleTitle': '평가 척도',
     'ca.intro.scaleLead': '각 Phase마다 다음 형식의 문장에 얼마나 동의하는지 선택합니다.',
     'ca.intro.evalTitle': '평가자 정보',
@@ -185,6 +185,7 @@ T2D.i18n.add({
     'ca.err.endItems': '보조 문항에 답해 주세요.',
     'ca.toast.caseSaved': '케이스 {n} 평가가 저장되었습니다.',
     'ca.toast.resumed': '이전에 진행하던 평가를 불러왔습니다.',
+    'ca.toast.restarted': '진행 중이던 응답을 지우고 처음부터 시작합니다.',
     'ca.confirm.comboReset': '선호 조합을 바꾸면 이미 입력한 Phase 2–5 점수({n}개)가 초기화됩니다. 바꾸시겠습니까?',
 
     // ---- final / done ----
@@ -354,7 +355,7 @@ T2D.i18n.add({
     'ca.intro.flow5Html': '<b>Comments (optional)</b> — add any comments on the AI answer.',
     'ca.intro.time': 'Estimated time: {lo}–{hi} min (about {clo}–{chi} min per case)',
     'ca.intro.patientBtnHtml': 'While rating, the <b>[Patient]</b> button at the top reopens the patient record at any time.',
-    'ca.intro.resume': 'If you close the window, reopening it on the same device and browser picks up where you left off.',
+    'ca.intro.resume': 'Your progress is saved automatically in this browser on this device. If you leave midway, the start page lets you Continue or Start over.',
     'ca.intro.scaleTitle': 'Rating scale',
     'ca.intro.scaleLead': 'For each phase, choose how much you agree with a statement of this form:',
     'ca.intro.evalTitle': 'About you',
@@ -450,6 +451,7 @@ T2D.i18n.add({
     'ca.err.endItems': 'Please answer the additional question.',
     'ca.toast.caseSaved': 'Case {n} ratings saved.',
     'ca.toast.resumed': 'Your evaluation in progress has been restored.',
+    'ca.toast.restarted': 'The answers in progress were cleared. Starting from the beginning.',
     'ca.confirm.comboReset': 'Changing the preferred regimen clears the Phase 2–5 scores you already entered ({n}). Change it?',
 
     // ---- final / done ----

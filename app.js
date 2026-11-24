@@ -16,11 +16,46 @@
 
   var params = new URLSearchParams(location.search);
   var URL_TEST = params.get('test') === '1';
+  // 다시 시작하며 버린 세션의 미전송 응답(서버가 msg_id 로 중복을 걸러 냄). 부팅·온라인 복귀·30초마다 다시 보낸다.
+  var UNSENT_KEY = STORE_KEY + ':unsent';
+  function stripParam(name) {   // src·site·wave·test·type 은 유지 (새로고침해도 다시 지우지 않도록)
+    var keep = new URLSearchParams(location.search); keep.delete(name);
+    history.replaceState(null, '', location.pathname + (keep.toString() ? '?' + keep.toString() : '') + location.hash);
+  }
   if (params.get('reset') === '1') {
     try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-    var keep = new URLSearchParams(location.search); keep.delete('reset');   // src·site·wave·test 는 유지
-    history.replaceState(null, '', location.pathname + (keep.toString() ? '?' + keep.toString() : ''));
+    stripParam('reset');
   }
+  // ?restart=1 — 처음 화면(/)의 「임상 수용성 평가」 카드와 이어서 하기 배너의 「처음부터 다시」가 붙인다.
+  // 끝나지 않은 평가(screen intro·case·final)는 지우고 처음부터 시작한다. 아직 보내지 못한 응답은 UNSENT_KEY 로 옮겨 마저 보낸다.
+  // 끝난 평가(done)는 그대로 둔다: 완료 화면에서 다른 Type 을 이어서 하거나 미전송 응답을 보내야 하기 때문.
+  // 버린 세션의 session_id → 다음 세션의 entry.restart_of (RawJSON 에만 남음, 백엔드 변경 없음).
+  // 시작 화면을 새로고침해도 남도록 이 탭의 sessionStorage 에 두고, 다음 세션이 시작되면 지운다.
+  var RESTART_SS = 't2d-ca:restart_of';
+  var RESTART_OF = null, RESTARTED_NOW = false;
+  if (params.get('restart') === '1') {
+    try {
+      var oldRaw = localStorage.getItem(STORE_KEY), old = null;
+      try { old = oldRaw ? JSON.parse(oldRaw) : null; } catch (_) { old = null; }
+      if (oldRaw && (!old || old.v !== 1)) localStorage.removeItem(STORE_KEY);   // 읽을 수 없는 기록
+      else if (old && old.screen !== 'done') {
+        if (old.outbox && old.outbox.length) {
+          var un = [];
+          try { un = JSON.parse(localStorage.getItem(UNSENT_KEY) || '[]') || []; } catch (_) { un = []; }
+          var seen = {};
+          un.forEach(function (x) { if (x && x.msg_id) seen[x.msg_id] = 1; });
+          old.outbox.forEach(function (x) { if (x && x.msg_id && !seen[x.msg_id]) { un.push(x); seen[x.msg_id] = 1; } });
+          localStorage.setItem(UNSENT_KEY, JSON.stringify(un));
+        }
+        localStorage.removeItem(STORE_KEY);
+        RESTART_OF = old.session_id || 'unknown';
+        RESTARTED_NOW = true;
+        try { sessionStorage.setItem(RESTART_SS, RESTART_OF); } catch (_) {}
+      }
+    } catch (_) {}
+    stripParam('restart');
+  }
+  if (!RESTART_OF) { try { RESTART_OF = sessionStorage.getItem(RESTART_SS) || null; } catch (_) {} }
 
   // ---------------------------------------------------------------------------
   // Language (assets/i18n.js + i18n/ca.js). 화면은 T2D.lang 으로 그리고, 응답(payload)에는 항상 한국어 원문 + code 를 저장한다.
@@ -128,6 +163,7 @@
     src: safeParam('src') || 'direct', site: safeParam('site'), wave: safeParam('wave') || CFG.STUDY_WAVE || 'main',
     type_preselected: !!URL_TYPE, type_param: URL_TYPE, in_app: IN_APP, referrer_origin: REF_ORIGIN
   };
+  if (RESTART_OF) ENTRY.restart_of = RESTART_OF;   // 끝내지 않은 이전 세션을 지우고 새로 시작한 방문 (?restart=1)
   // 시작 화면의 '처음 화면'(../) · '벤치마크 소개'(../about/) 링크 — 접속 경로(src·site·wave)만 넘긴다.
   // test·type·reset 은 넘기지 않는다 (루트는 이 값이 있으면 다시 /ca/ 로 보낸다).
   function siteLinksHTML() {
@@ -627,8 +663,34 @@
       if (S.screen === 'done') render();
     });
   }
-  window.addEventListener('online', function () { flush(); });
-  setInterval(function () { if (S && S.outbox.length && !document.hidden) flush(); }, 30000);
+  // 다시 시작하며 버린 세션의 미전송 응답 (UNSENT_KEY): 하나씩 보내고, 보낸 것만 목록에서 뺀다. 실패하면 다음 기회에.
+  var flushingUnsent = false;
+  function readUnsent() {
+    try { var a = JSON.parse(localStorage.getItem(UNSENT_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; }
+  }
+  function flushUnsent() {
+    if (flushingUnsent || !CFG.ENDPOINT || !readUnsent().length) return;
+    flushingUnsent = true;
+    var loop = function () {
+      var list = readUnsent();
+      if (!list.length) return Promise.resolve();
+      var item = list[0];
+      return postJSON(item).then(function () {
+        var now = readUnsent().filter(function (x) { return !(x && x.msg_id === item.msg_id); });
+        try {
+          if (now.length) localStorage.setItem(UNSENT_KEY, JSON.stringify(now)); else localStorage.removeItem(UNSENT_KEY);
+        } catch (_) {}
+        return loop();
+      });
+    };
+    loop().catch(function () {}).then(function () { flushingUnsent = false; });
+  }
+  window.addEventListener('online', function () { flush(); flushUnsent(); });
+  setInterval(function () {
+    if (document.hidden) return;
+    if (S && S.outbox.length) flush();
+    flushUnsent();
+  }, 30000);
 
   // ---------------------------------------------------------------------------
   // Records
@@ -754,7 +816,11 @@
     S = newState(buildEvaluator(), draft.type, draft.linked);
     S.done_types = draft.done_types || [];
     S.evaluator_id = draft.evaluator_id || uuid();
-    S.device_id = DEVICE_ID; S.visit_id = VISIT_ID; S.entry = ENTRY;
+    S.device_id = DEVICE_ID; S.visit_id = VISIT_ID; S.entry = JSON.parse(JSON.stringify(ENTRY));
+    if (ENTRY.restart_of) {   // only the first session after 처음부터 다시 carries it (not a later 새 평가 / other Type)
+      delete ENTRY.restart_of;
+      try { sessionStorage.removeItem(RESTART_SS); } catch (_) {}
+    }
     S.consent = { version: CFG.CONSENT_VERSION || '', at: draft.consent_at || nowIso(), inherited: !!draft.consent_inherited };
     S.session_ordinal = S.done_types.length + 1;
     S.prev_cases = draft.prev_cases || 0;
@@ -2108,6 +2174,8 @@
     if (S && S.screen === 'case') { var m = stepMetrics(curCase(), curStep()); m.visits += 1; noteLang(curCase().metrics); save(); }
     if (S && S.screen !== 'done') { noteLang(S); save(); }
     if (S) flush();
+    flushUnsent();
+    if (RESTARTED_NOW && !S) setTimeout(function () { toast(t('ca.toast.restarted'), 3600); }, 300);
     booted = true;
   }
   ensureI18n(function () { ensureSet(boot); });

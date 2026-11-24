@@ -210,6 +210,8 @@ img, svg { display: block; max-width: 100%; }
 .btn-gc:hover { background: var(--btn-gc-hover); }
 .btn-ca { background: var(--btn-ca); color: #fff; }
 .btn-ca:hover { background: var(--btn-ca-hover); }
+.btn-line { background: var(--surface); color: var(--heading); border-color: var(--line-2); }
+.btn-line:hover { border-color: var(--heading); }
 
 /* ---------- Pills ---------- */
 .pill {
@@ -259,9 +261,15 @@ img, svg { display: block; max-width: 100%; }
 .resume .r-title { font-size: 16.5px; font-weight: 800; line-height: 1.4; }
 .resume p { font-size: 14px; color: var(--muted); margin-top: 2px; }
 .resume .btn { grid-column: 1 / -1; min-height: 46px; }
+/* two actions (CA in progress: 이어서 하기 + 처음부터 다시): side by side under the text on phones, at the right on wider screens */
+.resume .r-act { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.resume .r-act .btn { flex: 1 1 0; min-width: 0; padding: 0 14px; white-space: nowrap; }
+@media (max-width: 339px) { .resume .r-act .btn { flex-basis: 100%; } }
 @media (min-width: 640px) {
   .resume { grid-template-columns: auto 1fr auto; }
   .resume .btn { grid-column: auto; }
+  .resume .r-act { grid-column: auto; flex-wrap: nowrap; }
+  .resume .r-act .btn { flex: none; }
 }
 
 /* ---------- Footer ---------- */
@@ -305,6 +313,8 @@ img, svg { display: block; max-width: 100%; }
 .pc-desc { font-size: 14.5px; color: var(--muted); line-height: 1.45; }
 .pc-meta { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--c-ink); }
 .pc-meta svg { width: 15px; height: 15px; }
+/* CA card while an unfinished CA assessment is saved: the card starts over (the banner continues) */
+.pc-restart { margin-top: 2px; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.45; }
 .pc-go { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--c-btn); color: #fff; flex: none; }
 .pc-go svg { width: 20px; height: 20px; }
 @media (min-width: 680px) {

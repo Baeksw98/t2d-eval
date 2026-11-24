@@ -110,7 +110,8 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     const gc = hrefs.find(h => h.startsWith('/gc/'));
     const ca = hrefs.find(h => h.startsWith('/ca/'));
     ok(gc === '/gc/?src=qr&site=h1&wave=2', 'GC button carries src/site/wave: ' + gc);
-    ok(ca === '/ca/?src=qr&site=h1&wave=2', 'CA button carries src/site/wave: ' + ca);
+    ok(ca === '/ca/?restart=1&src=qr&site=h1&wave=2', 'CA card starts over (?restart=1) and carries src/site/wave: ' + ca);
+    ok(!(await p.isVisible('#pcCaRestart')), 'no "starts over" hint on the CA card without saved state');
     ok(hrefs.some(h => h === '/about/?src=qr&site=h1&wave=2'), 'About link carries params');
     ok(!(await p.isVisible('#resume')), 'no resume banner without saved state');
     ok((await p.innerText('.pick-card.ca .pc-meta')).trim() === `약 ${ACT_MIN.ca[0]}–${ACT_MIN.ca[1]}분` && (await p.innerText('.pick-card.gc .pc-meta')).trim() === `약 ${ACT_MIN.gc[0]}–${ACT_MIN.gc[1]}분`, 'landing card times (active set ' + ACT.set_id + ')');
@@ -148,6 +149,8 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     ['ca-final', { [CA]: { v: 1, screen: 'final', study_type: 'B', order: ['x', 'y'], caseIdx: 1, outbox: [] } }, ['임상 수용성 평가 제출만 남았습니다', 'Type B']],
     ['ca-done-unsent', { [CA]: { v: 1, screen: 'done', study_type: 'A', order: ['x', 'y'], outbox: [{ msg_id: 1 }] } }, ['전송되지 않은 임상 수용성 평가 응답이 있습니다']],
     ['ca-done-sent', { [CA]: { v: 1, screen: 'done', study_type: 'A', order: ['x', 'y'], outbox: [] } }, []],
+    ['ca-orphans', { [CA + ':unsent']: [{ msg_id: 'm1', action: 'case' }] }, ['전송되지 않은 임상 수용성 평가 응답이 있습니다']],
+    ['ca-orphans-empty', { [CA + ':unsent']: [] }, []],
     ['ca-intro', { [CA]: { v: 1, screen: 'intro', study_type: 'A', outbox: [] } }, []],
     ['gc-eval', { 'gc:state:v1': { v: 1, screen: 'eval', part: 'A', outbox: [] } }, ['진행 중인 가이드라인 부합도 검증이 있습니다', 'Part A']],
     ['gc-draft', { 'gc:draft:v1': { linked: 'sess', part: 'B', done_parts: ['A'] } }, ['가이드라인 부합도 검증을 이어서 할 수 있습니다', 'Part B 준비됨']],
@@ -168,9 +171,16 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
       if (!want.length) ok(!vis, `${name}: no banner`);
       else want.forEach(s => ok(txt.includes(s), `${name}: banner has "${s}"`));
       if (vis) {
-        const hrefs = await p.$$eval('#resume a', as => as.map(a => a.getAttribute('href')));
+        const hrefs = await p.$$eval('#resume a:not([data-restart])', as => as.map(a => a.getAttribute('href')));
         ok(hrefs.every(h => /^\/(ca|gc)\/\?src=qr$/.test(h)), `${name}: banner links ${hrefs.join(', ')}`);
       }
+      // CA in progress (case/final): a second action 처음부터 다시 → /ca/?restart=1, and the CA card says it starts over
+      const caOpen = /^(ca-case|ca-final|both|both-en)$/.test(name);
+      const rs = await p.$$eval('#resume a[data-restart]', as => as.map(a => [a.getAttribute('href'), a.textContent.trim()]));
+      ok(caOpen ? (rs.length === 1 && rs[0][0] === '/ca/?restart=1&src=qr' && rs[0][1] === (name === 'both-en' ? 'Start over' : '처음부터 다시')) : !rs.length,
+        `${name}: start-over action ${JSON.stringify(rs)}`);
+      ok((await p.isVisible('#pcCaRestart')) === caOpen, `${name}: CA card "starts over" hint ${caOpen ? 'shown' : 'hidden'}`);
+      ok((await p.getAttribute('.pick-card.ca', 'href')) === '/ca/?restart=1&src=qr', `${name}: CA card links to /ca/?restart=1`);
       if (name === 'both') {   // the banner follows a language switch without a reload
         await p.click('.prefs [data-lang="en"]');
         const t2 = await p.innerText('#resume');

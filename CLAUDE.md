@@ -4,7 +4,11 @@
 - Static site on GitHub Pages (`eval.asclep.org`, branch `main`) + Google Apps Script backends. It is a **living benchmark**:
   new cases and models plug into fixed instruments through versioned case sets (see "Case pipeline").
 - `/` = landing page: what the benchmark is + choose an evaluation (GC or CA), with an '이어서 하기' banner when this browser has an
-  unfinished evaluation. Source: root `index.html`. Root URLs that target CA (`?type=`, `?reset=1`, `?test=1` with no track param,
+  unfinished evaluation (CA case/final: two actions, 이어서 하기 → `ca/` and 처음부터 다시 → `ca/?restart=1`). The CA card links to
+  `ca/?restart=1`, so it always starts over (PI request 2026-11-24): `app.js` clears an unfinished CA session (intro/case/final), moves its
+  unsent outbox to `t2d-ca:T2D-CA-2026:v3:unsent` (sent on the next `/ca/` visit), keeps a finished (`done`) session (other-Type
+  continuation), and the next session's `entry.restart_of` = the cleared session id (RawJSON only). Plain `/ca/` and reloads still resume.
+  Source: root `index.html`. Root URLs that target CA (`?type=`, `?reset=1`, `?test=1` with no track param,
   `?track=ca`) go straight to `/ca/` keeping query+hash; `?track=gc` → `/gc/`. The printed CA QR (`/?src=qr`) opens the landing.
 - `/ca/` = clinical acceptability (CA) evaluation. Treat it as LIVE with real physicians: any push to `main` reaches respondents immediately.
   Source: `ca/index.html`, which loads the root `app.js`, `config.js`, `styles.css`, `data/cases.js`, `data/design.js` via `../`.
@@ -95,5 +99,6 @@ Every evaluation screen must let the respondent take in the information quickly 
 - Changing the CA site must not break a respondent's in-progress session (`localStorage` state) or a continuation into the other Type.
 - Tests: `python3 tools/test_cases.py`, `node tools/test_summary.js`, `node tools/test_gc.js` (runs test_summary too), mock backend
   `node tools/mock_gas_server.js <port>` (serves the site; UrlFetchApp serves repository files), and the e2e suites `tools/e2e.js`
-  (site root → `/ca/`) and `tools/e2e_gc.js`; landing redirects/resume banner: `node tools/test_site.js <mock url>`.
+  (site root → `/ca/`) and `tools/e2e_gc.js`; landing redirects/resume banner: `node tools/test_site.js <mock url>`; CA resume/restart
+  flow: `node tools/e2e_restart.js <mock url>`.
 - The landing banner (`assets/site.js`) hardcodes the CA key `t2d-ca:T2D-CA-2026:v3`: change it there too if `STUDY_ID` or the key suffix changes.

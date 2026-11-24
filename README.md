@@ -4,7 +4,7 @@
 
 | 주소 | 내용 | 원본 |
 |---|---|---|
-| `https://eval.asclep.org/` | **처음 화면**: 무엇을 하는 사이트인지 + 두 평가 중 선택. 이 브라우저에 끝나지 않은 평가가 있으면 '이어서 하기' 안내 | `index.html` |
+| `https://eval.asclep.org/` | **처음 화면**: 무엇을 하는 사이트인지 + 두 평가 중 선택. 이 브라우저에 끝나지 않은 평가가 있으면 '이어서 하기' 안내(CA 는 「이어서 하기」·「처음부터 다시」 두 버튼). 「임상 수용성 평가」 카드는 누를 때마다 처음부터 시작(`ca/?restart=1`) | `index.html` |
 | `https://eval.asclep.org/ca/` | **임상 수용성 평가 (CA)** — 인턴·레지던트·전문의 (아래 1–6절) | `ca/index.html` + 루트 `app.js`·`config.js`·`styles.css`·`data/cases.js` |
 | `https://eval.asclep.org/gc/` | **가이드라인 부합도 검증 (GC)** — 내분비대사내과 분과전문의 (7절) | `gc/*` |
 | `https://eval.asclep.org/about/` | 벤치마크 소개 (About) | `about/*` |
@@ -118,9 +118,10 @@ asclep.org 의 DNS는 **Cloudflare**에서 관리됩니다 (네임서버 `leonar
 | Type A 로 바로 안내 | `https://eval.asclep.org/ca/?type=A` (예전 `/?type=A`, `/a/` 도 동작) |
 | Type B 로 바로 안내 | `https://eval.asclep.org/ca/?type=B` (예전 `/?type=B`, `/b/` 도 동작) |
 | 시험 응답 (분석에서 자동 제외) | `https://eval.asclep.org/ca/?test=1` |
-| 기기에 저장된 진행 상황 초기화 | `…/ca/?reset=1` |
+| 기기에 저장된 진행 상황 초기화 (시험용) | `…/ca/?reset=1` |
+| 끝나지 않은 평가를 지우고 처음부터 (처음 화면의 CA 카드·「처음부터 다시」가 붙임) | `…/ca/?restart=1` — 끝난 평가(완료 화면)는 그대로 두고, 미전송 응답은 따로 옮겨 마저 보냄 |
 
-- 평가자가 창을 닫아도 **같은 기기·브라우저**에서 다시 열면 이어서 진행됩니다.
+- 평가자가 창을 닫아도 **같은 기기·브라우저**에 저장됩니다. 처음 화면에서 **「이어서 하기」**(같은 세션 계속) 또는 **「처음부터 다시」**를 고를 수 있고, **「임상 수용성 평가」 카드를 누르면 언제나 처음부터** 시작합니다(진행 중이던 응답은 이 기기에서 지움, 서버에 이미 저장된 완료 케이스는 남음). `/ca/` 를 직접 열거나 새로고침하면 지금처럼 이어서 진행됩니다.
 - 케이스 하나를 마칠 때마다 서버에 저장되므로 중도 이탈해도 완료한 케이스는 남습니다.
 - 전송 실패 시 기기에 보관했다가 자동 재전송하며, 완료 화면에서 **다시 전송 / 응답 파일 내려받기**가 가능합니다.
 - 한 기기로 여러 명이 평가할 때는 완료 화면의 **새 평가 시작**을 누르면 됩니다.
@@ -210,6 +211,7 @@ node tools/e2e.js http://localhost:8787/ ./shots mobile 테스트평가자 all  
 node tools/test_summary.js                                # Summary·AnalysisLong·Codebook 단위 테스트 (v3.3·v3.4 응답 혼합, 세트·언어·이전 백엔드 호환)
 python3 tools/test_cases.py                               # 케이스 파이프라인 테스트
 node tools/test_site.js http://localhost:8787            # 처음 화면: 예전 주소 → /ca/·/gc/ 이동, '이어서 하기' 안내, src·site·wave 전달
+node tools/e2e_restart.js http://localhost:8787          # CA 이어서 하기 / 처음부터 다시 / 카드 = 처음부터 (미전송 응답 보존, 완료 세션 유지)
 curl http://localhost:8787/__sheets                       # 저장된 시트 내용 확인
 ```
 
