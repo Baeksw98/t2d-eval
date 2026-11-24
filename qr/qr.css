@@ -192,6 +192,14 @@ li + li { margin-top: 4px; }
 @media (min-width: 980px) {
   .qr-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* two QR codes (guideline concordance validation disabled): side by side, both cards laid out the same way */
+@media (min-width: 640px) {
+  .qr-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 980px; margin-inline: auto; width: 100%; }
+  .qr-grid.two .qr-card.featured { grid-column: auto; grid-template-columns: minmax(0, 1fr); text-align: center; justify-items: center; }
+  .qr-grid.two .qr-card.featured .head { justify-items: center; }
+  .qr-grid.two .qr-card.featured .qr-img { grid-row: auto; width: min(64vw, 260px); }
+  .qr-grid.two .qr-card.featured h2 { justify-content: center; }
+}
 
 /* ---------- presentation (projector / monitor) ---------- */
 .present { position: fixed; inset: 0; z-index: 50; background: #fff; display: grid; grid-template-rows: auto 1fr auto; padding: 4vh 4vw; text-align: center; }
@@ -220,6 +228,7 @@ body.print { background: #fff; }
 .sheet .steps { text-align: left; font-size: 18px; color: var(--text); background: var(--steps-bg); border-radius: 16px; padding: 18px 26px 18px 44px; width: 100%; margin: 0; }
 .sheet .foot { margin-top: auto; color: var(--muted); font-size: 14px; }
 .tracks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.tracks.one { grid-template-columns: minmax(0, 1fr); max-width: 420px; margin-inline: auto; }
 .tracks > div { border: 1.5px solid var(--line-2); border-radius: 14px; padding: 10px 12px; text-align: center; border-top: 5px solid var(--c); }
 .tracks b { display: block; color: var(--navy); font-size: 19px; line-height: 1.35; }
 .tracks span { display: block; color: var(--muted); font-size: 14.5px; line-height: 1.45; }

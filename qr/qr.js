@@ -24,6 +24,11 @@
   var lang = function () { return I ? I.lang : 'ko'; };
   var PATHS = { main: '/', ca: '/ca/', gc: '/gc/' };
   var ORDER = ['main', 'ca', 'gc'];
+  // assets/features.js: while the guideline concordance validation is disabled (gc:false), the hub shows only the main + CA QR codes and
+  // the main QR's texts (card, poster, message) use the qr.main1.* variants, which describe the clinical acceptability assessment only.
+  function gcOpen() { var F = window.T2D_FEATURES; return !(F && F.gc === false); }
+  function shown() { return gcOpen() ? ORDER : ORDER.filter(function (id) { return id !== 'gc'; }); }
+  function hasKey(k) { var d = I && I.i18n && I.i18n.dict; return !!(d && d.ko && d.ko[k] !== undefined); }
   var INK = { main: '#14304a', ca: '#b4541a', gc: '#187368' };
 
   // ---------------------------------------------------------------------------
@@ -52,12 +57,13 @@
     var ca = caInfo(), gc = gcInfo();
     var caTime = t('qr.time.ca', { n: ca.n, lo: ca.lo, hi: ca.hi });
     var vars = { ca_time: caTime, gc_time: gc.time, n: ca.n, lo: ca.lo, hi: ca.hi };
-    var k = function (s, v) { return t('qr.' + id + '.' + s, v || vars); };
-    var mainLo = Math.min(ca.lo, gc.lo || ca.lo), mainHi = Math.max(ca.hi, gc.hi);
+    var caOnly = id === 'main' && !gcOpen();
+    var k = function (s, v) { var key = 'qr.' + id + '.' + s; if (caOnly && hasKey('qr.main1.' + s)) key = 'qr.main1.' + s; return t(key, v || vars); };
+    var mainLo = caOnly ? ca.lo : Math.min(ca.lo, gc.lo || ca.lo), mainHi = caOnly ? ca.hi : Math.max(ca.hi, gc.hi);
     var C = {
       id: id, path: PATHS[id], img: id,
       name: k('name'), file: k('file'), title: k('title'), subtitle: k('subtitle'), who: k('who'), brand: k('brand'),
-      time: id === 'ca' ? caTime : id === 'gc' ? gc.time : t('qr.time.main', { lo: mainLo, hi: mainHi }),
+      time: id === 'ca' || caOnly ? caTime : id === 'gc' ? gc.time : t('qr.time.main', { lo: mainLo, hi: mainHi }),
       hint: [k('hint1'), k('hint2')], foot: k('foot'), caTime: caTime, gcTime: gc.time
     };
     var values = id === 'ca' ? ca.values : gc.values, list = values.join('·');
@@ -297,9 +303,10 @@
           (T0.site ? '<div class="site">' + esc(t('qr.site.line', { site: T0.site })) + '</div>' : '') + '</div>';
         return;
       }
-      var tracks = id === 'main' ? '<div class="tracks">' +
+      var tracks = id === 'main' ? '<div class="tracks' + (gcOpen() ? '' : ' one') + '">' +
         '<div style="--c:var(--orange)"><b>' + esc(t('qr.ca.title')) + '</b><span>' + esc(t('qr.ca.audience')) + '<br>' + esc(C0.caTime) + '</span></div>' +
-        '<div style="--c:var(--teal)"><b>' + esc(t('qr.gc.title')) + '</b><span>' + esc(t('qr.gc.audience')) + '<br>' + esc(C0.gcTime) + '</span></div></div>' : '';
+        (gcOpen() ? '<div style="--c:var(--teal)"><b>' + esc(t('qr.gc.title')) + '</b><span>' + esc(t('qr.gc.audience')) + '<br>' + esc(C0.gcTime) + '</span></div>' : '') +
+        '</div>' : '';
       app.innerHTML = '<section class="sheet' + (T0.variant ? ' with-part' : '') + (tracks ? ' with-tracks' : '') + '">' +
         '<div class="brand"><span class="mark"></span>' + esc(C0.brand) + '</div>' +
         '<h1>' + esc(C0.title) + '</h1><div class="en">' + esc(C0.subtitle) + '</div>' + badge + qr +
@@ -420,22 +427,24 @@
     var app = document.getElementById('app');
     var Ts = {};
     function render() {
-      ORDER.forEach(function (id) { Ts[id] = track(id, { base: '', site: site }); });
+      var IDS = shown();
+      IDS.forEach(function (id) { Ts[id] = track(id, { base: '', site: site }); });
       var noLib = !window.qrcode;
       app.innerHTML =
         headerHTML(t('qr.hdr.hub'), '../') +
         '<main>' +
           '<section class="card hub-intro">' +
             '<h1>' + esc(t('qr.hub.h')) + '</h1>' +
-            '<ul class="which">' + ORDER.map(function (id) {
-              return '<li><span class="dot" data-track="' + id + '" aria-hidden="true"></span><span>' + t('qr.hub.which.' + id) + '</span></li>';
+            '<ul class="which">' + IDS.map(function (id) {
+              var wk = 'qr.hub.which.' + id + (id === 'main' && !gcOpen() && hasKey('qr.hub.which.main1') ? '1' : '');
+              return '<li><span class="dot" data-track="' + id + '" aria-hidden="true"></span><span>' + t(wk) + '</span></li>';
             }).join('') + '</ul>' +
             (site ? '<p>' + t('qr.hub.siteOn', { site: esc(site) }) + '</p>' : '') +
             (noLib && site ? '<p class="warn" style="margin-top:8px">' + esc(t('qr.hub.warnNoLib')) + '</p>' : '') +
           '</section>' +
-          '<div class="qr-grid">' + ORDER.map(cardHTML).join('') + '</div>' +
+          '<div class="qr-grid' + (IDS.length === 2 ? ' two' : '') + '">' + IDS.map(cardHTML).join('') + '</div>' +
           '<section class="card">' +
-            '<h2><span>' + esc(t('qr.site.h')) + ' <small>' + esc(t('qr.hub.site.small')) + '</small></span></h2>' +
+            '<h2><span>' + esc(t('qr.site.h')) + ' <small>' + esc(t(gcOpen() ? 'qr.hub.site.small' : 'qr.hub.site.small1')) + '</small></span></h2>' +
             '<p class="muted help">' + esc(t('qr.site.help')) + '</p>' +
             '<div class="site-row"><input id="siteCode" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="' + esc(t('qr.site.h')) + '" placeholder="' + esc(t('qr.site.ph')) + '" value="' + esc(site) + '">' +
             '<button type="button" class="btn primary" id="applySite">' + esc(t('qr.site.apply')) + '</button></div>' +
@@ -460,7 +469,7 @@
       });
       document.getElementById('applySite').addEventListener('click', applySite);
       document.getElementById('siteCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); applySite(); } });
-      ORDER.forEach(function (id) { Ts[id].preloadFonts(); });
+      IDS.forEach(function (id) { Ts[id].preloadFonts(); });
     }
     function cardHTML(id) {
       var T = Ts[id], C = T.C;

@@ -16,6 +16,8 @@
   `site.css` and `assets/*` (not `styles.css`).
 - `/qr/` = QR hub (`qr/index.html`, shared code `qr/qr.js` + `qr/qr.css`, same header as the landing page;
   per-track pages `qr/main/`, `qr/ca/`, `qr/gc/`; images from `tools/make_qr.py` + `tools/render_qr_assets.js`).
+  While `T2D_FEATURES.gc` is false the hub shows only the main + CA QR codes and the main card/poster/message use the `qr.main1.*`
+  texts (CA only); `qr/main-*` and `qr/ca-*` were re-rendered that way on 2026-11-24 (re-render `main` again when GC opens).
   `qr/select.*` is the printed CA QR — never change it (same URL as `qr/main.*`).
 - Home/About links inside an evaluation appear only on its intro screen (never during a case/item, never where leaving loses state).
 - Contracts: `docs/DATA_CONTRACT.md` (CA) and `docs/GC_CONTRACT.md` (GC).
@@ -79,7 +81,7 @@
 - **Active CA set = v2 (live 2026-11-24, frozen):** P051 only × 4 models, CA only (`"gc": false`), source
   `cases/sources/ca/2026-11-24_E11_P051_4models.md` (format B). Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm`,
   each in both presentation orders; 2 answers per session, about 20–30 min. `cases/active.json` = `{ "set": "v2", "gc_set": "v1" }`.
-  Model names for analysis: Claude Fable 5.2, GLM-5.3 Flash (the md header says 5.3 Flash; the PI first called it 5.4 — both are aliases).
+  Model names for analysis: Claude Fable 5.2, GLM-5.3 Flash (PI confirmed 5.3 on 2026-11-24; the old 5.4 aliases were removed).
   The CA Summary analyses the set with the most completed cases: set the script property `SUMMARY_SET=v2` to analyse v2 only.
 
 ## Survey UX principle (standing request from the PI)

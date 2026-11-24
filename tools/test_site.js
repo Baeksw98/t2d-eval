@@ -296,7 +296,21 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     ok((await p.innerText('.sheet h1')) === 'Guideline concordance validation' && (await p.innerText('.sheet .type')) === 'Part B', 'poster in English with ?lang=en');
     await p.goto(base + '/qr/', { waitUntil: 'networkidle' });
     const a4 = await p.$$eval('.qr-card a.btn[target]', as => as.map(a => a.getAttribute('href')));
-    ok(a4.length === 3 && a4.every(h => /\/\?mode=poster&lang=en$/.test(h)), 'English hub: A4 buttons open the English print view ' + a4.join(', '));
+    // while the guideline concordance validation is disabled (assets/features.js gc:false) the hub shows only the main + CA QR codes
+    const gcOn = await p.evaluate(() => !(window.T2D_FEATURES && window.T2D_FEATURES.gc === false));
+    const nCards = gcOn ? 3 : 2;
+    ok(a4.length === nCards && a4.every(h => /\/\?mode=poster&lang=en$/.test(h)), 'English hub: A4 buttons open the English print view ' + a4.join(', '));
+    const tracks = await p.$$eval('.qr-card', els => els.map(e => e.getAttribute('data-track')).join(','));
+    ok(tracks === (gcOn ? 'main,ca,gc' : 'main,ca'), 'hub QR cards follow the GC feature flag: ' + tracks);
+    if (!gcOn) {
+      await p.evaluate(() => localStorage.removeItem('t2d:lang'));
+      await p.goto(base + '/qr/main/?mode=poster', { waitUntil: 'networkidle' });
+      const sheet = await p.innerText('.sheet');
+      ok(!/가이드라인|부합도|벤치마크 소개/.test(sheet) && /임상 수용성 평가/.test(sheet) && (await p.$$('.tracks > div')).length === 1,
+        'main poster mentions only the clinical acceptability assessment while GC is disabled');
+      await p.goto(base + '/qr/main/', { waitUntil: 'networkidle' });
+      ok(!/가이드라인|부합도/.test(await p.inputValue('#msg')), 'main invitation message has no GC line while GC is disabled');
+    }
     ok(!errs.length, 'print checks: no console errors ' + errs.join(' | '));
     await c.close();
   }
