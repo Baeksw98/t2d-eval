@@ -7,8 +7,8 @@
  *   T2D.clinical.comorbidities(p) → { dm: [{key, value, pos}], other: [string] }
  *     dm    = diabetes-related comorbidities in a fixed clinical order
  *             CKD: Stage n · Heart failure: Yes (detail) / No · ASCVD: Yes (detail) / No · MASLD: Yes (detail) / No ·
- *             BMI: category (current kg/m²) · Retinopathy / Neuropathy: Yes (moved from the other-conditions list)
- *     other = the remaining (non-diabetes) conditions, without the BMI category line (already shown under BMI)
+ *             Obesity: Yes (current BMI ≥ 25 kg/m²) / No · Retinopathy / Neuropathy: Yes (moved from the other-conditions list)
+ *     other = the remaining (non-diabetes) conditions, without the BMI category line (BMI itself is in the body-measurement rows)
  *   T2D.clinical.orderLabs(labs) → the lab rows with the body-measurement/BP group first, then the blood tests
  *   T2D.clinical.current(p, re)   → the current-visit value of the first lab row whose name matches re ('' if none)
  */
@@ -17,7 +17,8 @@
   var T2D = window.T2D = window.T2D || {};
 
   var NO = /^(no|none|normal|absent|없음|정상)$/i;
-  var ORDER = ['CKD', 'Heart failure', 'ASCVD', 'MASLD', 'BMI', 'Retinopathy', 'Neuropathy'];
+  var ORDER = ['CKD', 'Heart failure', 'ASCVD', 'MASLD', 'Obesity', 'Retinopathy', 'Neuropathy'];
+  var OBESITY_BMI = 25;   // 비만: BMI 25 kg/m² 이상 (대한비만학회·아시아 기준)
 
   function detail(s) {
     // 'HFmrEF (NYHA Class III)' → 'HFmrEF, NYHA III' · 'CAD (MI 2y ago)' → 'CAD, MI 2y ago' (no nested brackets)
@@ -64,8 +65,11 @@
     if ((m = /^ASCVD\s*(?::\s*(.+)|\((.+)\))$/i.exec(t))) { var a = yesNo(m[1] || m[2]); return { key: 'ASCVD', value: a.value, pos: a.pos }; }
     if ((m = /^MASLD\s*(?::\s*(.+)|\((.+)\))$/i.exec(t))) { var l = yesNo(m[1] || m[2]); return { key: 'MASLD', value: l.value, pos: l.pos }; }
     if ((m = /^(?:BMI\s*Category|Body mass index category)\s*:\s*(.+)$/i.exec(t))) {
-      var cat = m[1].trim(), num = currentBmi(p);
-      return { key: 'BMI', value: cat + (num ? ' (' + num + ')' : ''), pos: !NO.test(cat) };
+      // BMI 값 자체는 신체 계측 표에 있으므로 여기서는 비만 여부만: 현재 BMI ≥ 25 → Yes (수치가 없으면 범주로 판단)
+      var bmi = parseFloat(currentBmi(p)), cat = m[1].trim(), yes;
+      if (isFinite(bmi)) yes = bmi >= OBESITY_BMI;
+      else yes = /obes|overweight|비만|과체중/i.test(cat);
+      return { key: 'Obesity', value: yes ? 'Yes' : 'No', pos: yes };
     }
     return null;
   }
@@ -86,7 +90,7 @@
       var t = String(s || '').trim();
       if (!t) return;
       if (/^(?:Body mass index category|BMI\s*Category)\s*:/i.test(t)) {          // shown under BMI
-        if (!dm.some(function (x) { return x.key === 'BMI'; })) { var b = parseDm(t, p); if (b) dm.push(b); }
+        if (!dm.some(function (x) { return x.key === 'Obesity'; })) { var b = parseDm(t, p); if (b) dm.push(b); }
         return;
       }
       for (var i = 0; i < DM_OTHER.length; i++) {

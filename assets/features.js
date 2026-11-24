@@ -20,22 +20,22 @@ window.T2D_FEATURES = window.T2D_FEATURES || { gc: false, about: false };
   if (T2D.i18n) {
     T2D.i18n.add({
       ko: {
-        'feat.badge': '준비 중',
+        'feat.badge': '비활성화',
         'feat.close': '닫기',
         'feat.toCa': '임상 수용성 평가 시작',
         'feat.gc.title': '가이드라인 부합도 검증은 현재 비활성화되어 있습니다',
-        'feat.gc.body': '지금은 임상 수용성 평가만 진행하고 있습니다. 이 검증은 준비가 끝나는 대로 열어 안내드리겠습니다.',
+        'feat.gc.body': '지금은 임상 수용성 평가만 진행하고 있습니다.',
         'feat.about.title': '벤치마크 소개 페이지는 현재 비활성화되어 있습니다',
-        'feat.about.body': '지금은 임상 수용성 평가만 진행하고 있습니다. 소개 페이지는 준비가 끝나는 대로 공개합니다.'
+        'feat.about.body': '지금은 임상 수용성 평가만 진행하고 있습니다.'
       },
       en: {
-        'feat.badge': 'Coming soon',
+        'feat.badge': 'Disabled',
         'feat.close': 'Close',
         'feat.toCa': 'Start the clinical acceptability assessment',
         'feat.gc.title': 'The guideline concordance validation is currently disabled',
-        'feat.gc.body': 'Only the clinical acceptability assessment is open at the moment. This validation will open once it is ready.',
+        'feat.gc.body': 'Only the clinical acceptability assessment is open at the moment.',
         'feat.about.title': 'The About page is currently disabled',
-        'feat.about.body': 'Only the clinical acceptability assessment is open at the moment. The About page will be published once it is ready.'
+        'feat.about.body': 'Only the clinical acceptability assessment is open at the moment.'
       }
     });
   }
@@ -147,7 +147,7 @@ window.T2D_FEATURES = window.T2D_FEATURES || { gc: false, about: false };
     show(area);
   }, true);
 
-  // Mark gated links so pages can style them (e.g. a "준비 중" badge) and assistive tech knows they do not navigate.
+  // Mark gated links so pages can style them (e.g. a "비활성화" badge) and assistive tech knows they do not navigate.
   function mark(root) {
     Array.prototype.forEach.call((root || document).querySelectorAll('a[href]'), function (a) {
       var area = gatedArea(a);

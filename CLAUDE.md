@@ -62,12 +62,12 @@
 
 ## Current study state (2026-11-24)
 - **Only the clinical acceptability (CA) assessment is open.** `assets/features.js` (`window.T2D_FEATURES = { gc: false, about: false }`)
-  gates every link into `/gc/` and `/about/`: the landing GC card (shown greyed with a "준비 중" badge) and the About links open a
+  gates every link into `/gc/` and `/about/`: the landing GC card (shown greyed with a "비활성화" badge) and the About links open a
   "currently disabled" dialog instead of navigating. The pages themselves still exist (their URLs were never shared). To open an
   area, set its flag to `true`. Loaded on the landing, About, QR pages, `/ca/` and `/gc/`.
 - **Patient record = clinical layout** (`assets/clinical.js`, used by `app.js` and `gc/gc.js`; display only, data unchanged):
   diabetes-related comorbidities first as a 'item | value' grid — `CKD: Stage n` (no eGFR range), `Heart failure` / `ASCVD` / `MASLD`:
-  `Yes (detail)` or `No`, `BMI: category (current kg/m²)`, diabetic retinopathy/neuropathy moved here from the other list — then
+  `Yes (detail)` or `No`, `Obesity: Yes` when the current BMI ≥ 25 kg/m² else `No` (the BMI value itself is only in the body-measurement rows), diabetic retinopathy/neuropathy moved here from the other list — then
   the other (non-diabetes) comorbidities without the BMI line; the separate "현재 신체검사" chips are gone and the lab table starts
   with the body-measurement/BP rows, then blood tests. A patient already seen in the session (or in the previous Type) gets a key
   summary (HbA1c, eGFR, BMI, BP, comorbidities, current medications) with the full record behind 「전체 환자 기록 펼치기」.
