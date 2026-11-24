@@ -85,11 +85,12 @@ const T = (key, vars) => String(DICT[LANG][key] !== undefined ? DICT[LANG][key] 
 const CT = (o, k) => (LANG === 'en' && o.en && o.en[k] != null ? o.en[k] : o[k]);
 const GC_DATA = loadWindowScript('gc/data/gc_items.js').GC_DATA;
 const ACTIVE_SET = GC_DATA.set_id || 'v1';
-// Parts as the page reads them: window.T2D_DESIGN (data/design.js, the active set) when present, else the gc-config.js literals
-const DESIGN = loadWindowScript('data/design.js').T2D_DESIGN;
+// Parts as the page reads them: window.T2D_DESIGN of the GC track's set (the page loads data/sets/<set>/design.js —
+// cases/active.json "gc_set"; the CA track may use another set) when present, else the gc-config.js literals
+const DESIGN = loadWindowScript('data/sets/' + ACTIVE_SET + '/design.js').T2D_DESIGN;
 const PARTS = (DESIGN && DESIGN.gc && DESIGN.gc.parts && DESIGN.gc.parts.length) ? DESIGN.gc.parts : GC_CONFIG.PARTS;
 const BLIND = require('./blinding_regex').blindingRegex();
-const T2D_DATA = loadWindowScript('data/cases.js').T2D_DATA;
+const T2D_DATA = loadWindowScript('data/sets/' + ACTIVE_SET + '/cases.js').T2D_DATA;
 const ITEM = {};
 Object.values(GC_DATA.units).forEach(u => u.items.forEach(it => { ITEM[it.id] = it; }));
 // what the page shows for ③ (and ②): the data's 'Rater' in the screen's term 'AI 채점'
@@ -745,7 +746,7 @@ async function layoutProbe(browser, kind, part = 'A', allItems = false) {
 async function phase1Probe(browser, kind) {
   const ctx = await browser.newContext({ ...devices[kind], locale: 'ko-KR' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('t2d:lang', l); } catch (_) {} }, LANG);
-  const CASES = loadWindowScript('data/cases.js').T2D_DATA;
+  const CASES = loadWindowScript('data/sets/' + ACTIVE_SET + '/cases.js').T2D_DATA;
   const unit = PARTS.find(p => p.id === 'A').sequences[0][0];
   const p1 = (CASES.outputs[unit].phase_1 || {})['1.1'] || {};
   const tpl = GC_DATA.units[unit].items.find(it => it.audit.mark === 'major') || GC_DATA.units[unit].items[0];
@@ -758,7 +759,7 @@ async function phase1Probe(browser, kind) {
     const body = (await res.text()).replace(/ENDPOINT:\s*'[^']*'/, "ENDPOINT: ''");
     await route.fulfill({ response: res, body, headers: { ...res.headers(), 'content-type': 'text/javascript; charset=utf-8' } });
   });
-  await ctx.route('**/gc/data/gc_items.js*', async (route) => {
+  await ctx.route('**/gc/data/**gc_items.js*', async (route) => {
     const res = await route.fetch();
     const body = (await res.text()) + `\n;window.GC_DATA.units[${JSON.stringify(unit)}].items.unshift(${JSON.stringify(item)});\n`;
     await route.fulfill({ response: res, body, headers: { ...res.headers(), 'content-type': 'text/javascript; charset=utf-8' } });

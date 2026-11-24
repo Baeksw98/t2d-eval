@@ -164,22 +164,29 @@ if b:
 PA = common.Problems()
 ACTIVE = build.active_set(PA)
 ok('cases/active.json names a set (%s)' % ACTIVE, bool(ACTIVE) and PA.ok(), PA.report())
+GC_ACTIVE = build.active_gc_set(PA, ACTIVE)          # GC track's set ("gc_set", default = "set")
 if ACTIVE:
     ba = b if ACTIVE == 'v1' else build_in(common.CASES, ACTIVE)[0]
-    ok('active set %s builds' % ACTIVE, ba is not None)
-    if ba:
-        for relp, text in ba.active_files().items():
+    bg = b if GC_ACTIVE == 'v1' else (ba if GC_ACTIVE == ACTIVE else build_in(common.CASES, GC_ACTIVE)[0])
+    ok('active set %s builds (GC track: %s)' % (ACTIVE, GC_ACTIVE), ba is not None and bg is not None)
+    ok('GC track set %s has GC data' % GC_ACTIVE, bg is not None and bg.gc_data is not None)
+    if ba and bg:
+        act = dict(ba.ca_active_files()); act.update(bg.gc_active_files())
+        for relp, text in act.items():
             fp = ROOT / relp
-            ok('committed %s is up to date (active set %s)' % (relp, ACTIVE), fp.exists() and fp.read_text(encoding='utf-8') == text)
-        for relp in ('data/cases.js', 'data/design.js') + (('gc/data/gc_items.js',) if ba.gc_data is not None else ()):
-            arch = relp.replace('data/', 'data/sets/%s/' % ACTIVE, 1) if relp.startswith('data/') else 'gc/data/sets/%s/gc_items.js' % ACTIVE
+            ok('committed %s is up to date (CA %s · GC %s)' % (relp, ACTIVE, GC_ACTIVE), fp.exists() and fp.read_text(encoding='utf-8') == text)
+        for relp, sid in (('data/cases.js', ACTIVE), ('data/design.js', ACTIVE), ('gc/data/gc_items.js', GC_ACTIVE)):
+            arch = relp.replace('data/', 'data/sets/%s/' % sid, 1) if relp.startswith('data/') else 'gc/data/sets/%s/gc_items.js' % sid
             ok('active %s = archive %s' % (relp, arch), (ROOT / relp).read_text(encoding='utf-8') == (ROOT / arch).read_text(encoding='utf-8'))
-    eq('gc/data/sets/index.json = {active: cases/active.json, sets: every manifest with GC data}',
-       json.loads((ROOT / 'gc/data/sets/index.json').read_text(encoding='utf-8')), json.loads(build.index_json(ACTIVE)))
+        gp = (ROOT / 'gc/index.html').read_text(encoding='utf-8')
+        ok('the GC page loads the GC set %s from its archive' % GC_ACTIVE,
+           ('../data/sets/%s/cases.js' % GC_ACTIVE) in gp and ('../data/sets/%s/design.js' % GC_ACTIVE) in gp and ('data/sets/%s/gc_items.js' % GC_ACTIVE) in gp)
+    eq('gc/data/sets/index.json = {active: GC track set, sets: every manifest with GC data}',
+       json.loads((ROOT / 'gc/data/sets/index.json').read_text(encoding='utf-8')), json.loads(build.index_json(GC_ACTIVE)))
     ok('index.json lists v1 (archives are never removed)', 'v1' in json.loads((ROOT / 'gc/data/sets/index.json').read_text(encoding='utf-8'))['sets'])
     emb = node_json('w.GC_DATA.set_id', ['gc/data/gc_items.js'])
     if emb is not None:
-        eq('gc/data/gc_items.js loads in JS with set_id %s (active)' % ACTIVE, emb, ACTIVE)
+        eq('gc/data/gc_items.js loads in JS with set_id %s (GC track)' % GC_ACTIVE, emb, GC_ACTIVE)
     for sid in build.list_sets():
         if sid != 'v1':
             ok('archive of set %s exists (data/sets/%s/cases.js)' % (sid, sid), (ROOT / 'data/sets' / sid / 'cases.js').exists())

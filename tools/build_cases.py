@@ -57,9 +57,24 @@ def structural_diff(old, new, path='', out=None, limit=12):
 
 # Pages that load the active set's data files. Their ?v= cache stamps are set from the active files' content, so a rebuilt
 # or switched set reaches browsers at once instead of mixing a cached cases.js with a fresh design.js (Pages caches ~10 min).
-STAMP_PAGES = ['index.html', 'about/index.html', 'ca/index.html', 'gc/index.html',
+STAMP_PAGES = ['index.html', 'about/index.html', 'ca/index.html',
                'qr/index.html', 'qr/main/index.html', 'qr/ca/index.html', 'qr/gc/index.html']
 STAMP_RE = re.compile(r'((?:\.\./)*data/(?:cases|design|gc_items)\.js)\?v=[A-Za-z0-9._-]*')
+# The GC page loads the GC track's set (cases/active.json "gc_set") from its archive, so the CA track can use another set.
+GC_PAGE_RE = re.compile(r'(src=")(?:\.\./)?(data/(?:sets/[A-Za-z0-9._-]+/)?(cases|design|gc_items)\.js)\?v=[A-Za-z0-9._-]*(")')
+
+
+def gc_page(out_root, gc_active, b):
+    """gc/index.html with its three data scripts pointing at the GC set's archive files (+ content stamps)."""
+    fp = out_root / 'gc/index.html'
+    if not fp.exists():
+        return None
+    arch = b.files()
+    h = hashlib.sha1(''.join(arch[k] for k in sorted(arch)).encode('utf-8')).hexdigest()[:8]
+    stamp = '%s.%s' % (gc_active, h)
+    path = {'cases': '../data/sets/%s/cases.js' % gc_active, 'design': '../data/sets/%s/design.js' % gc_active,
+            'gc_items': 'data/sets/%s/gc_items.js' % gc_active}
+    return GC_PAGE_RE.sub(lambda m: m.group(1) + path[m.group(3)] + '?v=' + stamp + m.group(4), fp.read_text(encoding='utf-8'))
 
 
 def stamp_pages(out_root, active, active_files):
@@ -135,11 +150,14 @@ def main(argv=None):
     P = common.Problems()
     models = common.load_models(P, cases_dir / 'models.json')
     active = build.active_set(P, cases_dir)
+    gc_active = build.active_gc_set(P, active, cases_dir)
     all_sets = build.list_sets(cases_dir)
     if a.set_id and a.set_id not in all_sets:
         P.error('cases/sets', '세트 "%s" 가 없습니다. 있는 세트: %s [unknown-set]' % (a.set_id, ', '.join(all_sets) or '(없음)'),
                 'cases/sets/%s.json 을 만드세요 (cases/README.md 참고)' % a.set_id)
     wanted = [a.set_id] if a.set_id else all_sets
+    if a.set_id and gc_active and gc_active != a.set_id and a.set_id == active and gc_active in all_sets:
+        wanted.append(gc_active)          # the GC track's set is needed for its active file and the GC page stamps
     builds = {}
     if P.ok():
         for sid in wanted:
@@ -149,8 +167,9 @@ def main(argv=None):
                 for line in build.summary_lines(b):
                     say(line)
                 say('')
-    if active and active in builds and builds[active].gc_data is None:
-        P.error('cases/active.json', '활성 세트 "%s" 에 GC 자료가 없습니다 ("gc": false) — /gc/ 화면이 동작하지 않습니다 [active-without-gc]' % active)
+    if gc_active and gc_active in builds and builds[gc_active].gc_data is None:
+        P.error('cases/active.json', 'GC 트랙의 세트 "%s" 에 GC 자료가 없습니다 ("gc": false) — /gc/ 화면이 동작하지 않습니다 [active-without-gc]' % gc_active,
+                'CA 만 있는 세트를 활성으로 쓰려면 cases/active.json 에 GC 트랙의 세트를 따로 적으세요: {"set": "%s", "gc_set": "v1"}' % gc_active)
     for sid, b in builds.items():
         if b.man['status'] == 'frozen':
             frozen_check(b, out_root, P, a.allow_frozen_change)
@@ -165,12 +184,18 @@ def main(argv=None):
         files.update(b.files())
     stamp = None
     if active in builds:
-        act = builds[active].active_files()
+        act = builds[active].ca_active_files()
         files.update(act)
         pages, stamp = stamp_pages(out_root, active, act)
         files.update(pages)
-    files['gc/data/sets/index.json'] = build.index_json(active, cases_dir)
-    say('\n활성 세트 (cases/active.json): %s%s' % (active, '' if active in builds else '  (이번에 빌드하지 않음 → data/cases.js 등은 그대로)'))
+    if gc_active in builds:
+        gact = builds[gc_active].gc_active_files()
+        files.update(gact)
+        gp = gc_page(out_root, gc_active, builds[gc_active])
+        if gp:
+            files['gc/index.html'] = gp
+    files['gc/data/sets/index.json'] = build.index_json(gc_active, cases_dir)
+    say('\n활성 세트 (cases/active.json): CA %s%s · GC %s' % (active, '' if active in builds else '  (이번에 빌드하지 않음 → data/cases.js 등은 그대로)', gc_active))
 
     changed = []
     for relp in sorted(files):

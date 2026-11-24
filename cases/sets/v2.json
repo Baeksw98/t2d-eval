@@ -1,0 +1,63 @@
+{
+  "_comment": "Set v2 = P051 only × 4 CDSS (exam v8 answers, 2026-11-24), clinical acceptability only. Types written out: Type A = Claude + DeepSeek, Type B = GPT + GLM (PI decision 2026-11-24); each Type in both presentation orders. FROZEN once live (2026-11-24): never edit this file, its source or its archives.",
+  "id": "v2",
+  "status": "frozen",
+  "title": {
+    "ko": "가상 환자 P051 × CDSS 4종 (2026년 11월, 임상 수용성 평가)",
+    "en": "Virtual patient P051 × 4 CDSS (November 2026, clinical acceptability)"
+  },
+  "data_version": {
+    "ca": "v2.ca-b75853b4",
+    "gc": null
+  },
+  "patients": [
+    "P051"
+  ],
+  "models": [
+    "claude",
+    "deepseek",
+    "gpt",
+    "glm"
+  ],
+  "sources": {
+    "ca": [
+      "ca/2026-11-24_E11_P051_4models.md"
+    ]
+  },
+  "ca": {
+    "per_session": 2,
+    "minutes_per_unit": [
+      10,
+      15
+    ],
+    "types": [
+      {
+        "id": "A",
+        "sequences": [
+          [
+            "P051_claude",
+            "P051_deepseek"
+          ],
+          [
+            "P051_deepseek",
+            "P051_claude"
+          ]
+        ]
+      },
+      {
+        "id": "B",
+        "sequences": [
+          [
+            "P051_gpt",
+            "P051_glm"
+          ],
+          [
+            "P051_glm",
+            "P051_gpt"
+          ]
+        ]
+      }
+    ]
+  },
+  "gc": false
+}

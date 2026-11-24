@@ -23,10 +23,15 @@
 ## Case pipeline (cases/ → generated data) — `cases/README.md`
 - Source of truth: `cases/models.json` (model `code` + `aliases`; names never shown to evaluators), `cases/sources/ca/*.md` (CDSS output
   documents, upload format), `cases/sources/gc/*.md` (채점·감사 검증 reports), `cases/sets/<id>.json` (patients × models, sources,
-  per_session, Types/Parts `auto` or explicit), `cases/active.json` (`{"set": …}` = the set assigned to new evaluators).
+  per_session, Types/Parts `auto` or explicit), `cases/active.json` (`{"set": …, "gc_set": …}`: `set` = the CA set assigned to new
+  evaluators, also used by the landing/QR pages; `gc_set` (default = `set`) = the GC set, so a CA-only set can be active while `/gc/` keeps
+  loading the archives of a set that has GC data).
+- CA sources come in two formats (`tools/cases_lib/ca_parse.py`): A = patient record + per-model output JSON (v1); B = one exam md with
+  `## 환자 기록` and `## 모델 N. <alias>` sections of Korean prose + prescription tables (v2). Format B is detected automatically.
 - `python3 tools/build_cases.py [--set id] [--check]` validates everything first (readable errors, nothing written on error), then writes
   per set `data/sets/<id>/{cases,design}.js`, `gc/data/sets/<id>/gc_items.js`, `gc/data/sets/<id>.json`, plus `gc/data/sets/index.json`
-  and, for the active set, `data/cases.js`, `data/design.js`, `gc/data/gc_items.js`; then runs `tools/build_gas.py`.
+  and, for the active sets, `data/cases.js`, `data/design.js` (from `set`), `gc/data/gc_items.js` (from `gc_set`), and stamps
+  `gc/index.html` to load `data/sets/<gc_set>/…` directly; then runs `tools/build_gas.py`.
   Library: `tools/cases_lib/` (ca_parse, gc_parse, design, validate, blinding, build). `tools/parse_md.py`, `build_data.py`, `build_gc_data.py` are
   legacy wrappers. Tests: `python3 tools/test_cases.py` (v1 reproduction, synthetic 3×3 fixture in `tools/fixtures/cases/`, validation).
   The build refuses (file:line, nothing written): a GC report that deviates from the format anywhere, a model name/alias/code or run id
@@ -71,9 +76,11 @@
   the other (non-diabetes) comorbidities without the BMI line; the separate "현재 신체검사" chips are gone and the lab table starts
   with the body-measurement/BP rows, then blood tests. A patient already seen in the session (or in the previous Type) gets a key
   summary (HbA1c, eGFR, BMI, BP, comorbidities, current medications) with the full record behind 「전체 환자 기록 펼치기」.
-- **Next case set (waiting for the PI's md):** P051 only × 4 models, CA only (`"gc": false`), Types written out explicitly:
-  Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm`, each with both presentation orders.
-  `cases/models.json` already has `claude` and `glm` (GLM-5.4); add the exact header spellings from the md to their `aliases`.
+- **Active CA set = v2 (live 2026-11-24, frozen):** P051 only × 4 models, CA only (`"gc": false`), source
+  `cases/sources/ca/2026-11-24_E11_P051_4models.md` (format B). Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm`,
+  each in both presentation orders; 2 answers per session, about 20–30 min. `cases/active.json` = `{ "set": "v2", "gc_set": "v1" }`.
+  Model names for analysis: Claude Fable 5.2, GLM-5.3 Flash (the md header says 5.3 Flash; the PI first called it 5.4 — both are aliases).
+  The CA Summary analyses the set with the most completed cases: set the script property `SUMMARY_SET=v2` to analyse v2 only.
 
 ## Survey UX principle (standing request from the PI)
 Every evaluation screen must let the respondent take in the information quickly and do the required evaluation right away:

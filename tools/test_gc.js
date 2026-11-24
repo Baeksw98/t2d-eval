@@ -386,14 +386,15 @@ const endItems = (a, b) => ({
   const realCtx = { console: { log() {}, warn() {}, error() {} } };
   vm.createContext(realCtx);
   vm.runInContext(CODE_REAL.slice(GC_ITEMS_AT) + '\nthis.__G = GC_ITEMS;', realCtx);
-  const RG = realCtx.__G, ACT_DESIGN = loadWindow('data/design.js').T2D_DESIGN;
+  // the GC track's set (cases/active.json gc_set; the GC page loads its design from the archive, the CA track may use another set)
+  const RG = realCtx.__G, ACT_DESIGN = loadWindow('data/sets/' + ACTIVE_ID + '/design.js').T2D_DESIGN;
   const ACT_JSON = JSON.parse(fs.readFileSync(path.join(ROOT, 'gc', 'data', 'sets', ACTIVE_ID + '.json'), 'utf8'));
   eq('gas/GcCode.gs embedded GC_ITEMS = gc/data/sets/' + ACTIVE_ID + '.json (active set ' + ACTIVE_ID + ')', JSON.stringify(RG), JSON.stringify(ACT_JSON));
   eq('active set: embedded data_version = gc/data/gc_items.js', RG.data_version, ACTIVE_GC.data_version);
   eq('active set: embedded units / item counts = gc/data/gc_items.js', Object.keys(RG.units).map(k => k + ':' + RG.units[k].items.length).join(','),
     Object.keys(ACTIVE_GC.units).map(k => k + ':' + ACTIVE_GC.units[k].items.length).join(','));
-  eq('active set: data/design.js set_id', ACT_DESIGN.set_id, ACTIVE_ID);
-  eq('active set: embedded parts = data/design.js gc.parts', JSON.stringify(RG.parts),
+  eq('GC set: data/sets/' + ACTIVE_ID + '/design.js set_id', ACT_DESIGN.set_id, ACTIVE_ID);
+  eq('GC set: embedded parts = its design.js gc.parts', JSON.stringify(RG.parts),
     JSON.stringify(ACT_DESIGN.gc.parts.map(p => ({ id: p.id, sequences: p.sequences, items: p.items, minutes: p.minutes }))));
   if (ACTIVE_ID !== 'v1') console.log('NOTE active set is ' + ACTIVE_ID + ': protocol and summary tests run on set v1 (archive gc/data/sets/v1/, embedded copy swapped in memory)');
   ok('deployment header names the one extra permission (외부 서비스에 연결)', /외부 서비스에 연결/.test(CODE.slice(0, 6000)) && /외부 서비스 연결/.test(CODE.slice(0, 6000)));

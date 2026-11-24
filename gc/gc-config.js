@@ -14,7 +14,7 @@ window.GC_CONFIG = {
   ENDPOINT: 'https://script.google.com/macros/s/AKfycbwTGhPC3QqvnxX0ylB90hFbyMtMtRRKf_HHRflEAWCMLbq5Ztic1gbdC_M0YbHPfE4V/exec',
 
   STUDY_ID: 'T2D-GC-2026',
-  APP_VERSION: '2026-11-21.gc-v2.2',
+  APP_VERSION: '2026-11-24.gc-v2.4',
   INSTRUMENT_VERSION: 'GC physician validation v2 (audit-flagged judgments)',
   CONSENT_VERSION: 'gc-2026-11-19-v2',
   IRB_NO: '',

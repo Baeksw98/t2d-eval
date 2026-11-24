@@ -7,6 +7,15 @@ Source format (unchanged from the original upload, one or many .md files in case
 A file may hold any number of these sections (the combined upload holds 4 outputs + 2 records; a file per patient × model,
 with or without the record, works the same). '**' bold markers are removed first, as before. Model names are recognised
 through cases/models.json aliases; a header-like line with an unknown model is reported, never silently skipped.
+
+Format B — one patient, several models, answers written out as markdown (the exam v8 export, e.g. 'E11_P051 CDSS 답안'):
+  # E11_<PID> CDSS 답안 (…)                    title (the patient id comes from here)
+  ## 환자 기록 (…)                             the patient record (### 인구통계: … — same sections as above)
+  ## 모델 N. <model alias>                      one section per model (the run/sha line under it is ignored, never shown)
+    ### Phase 1. …   **1.1 …?**  의뢰: **…**  <answer>   **1.2 …?**  <answer>
+    ### 조합 N: <name>   | 계열 | 성분 | 같은 계열 대안 | 용량 | 횟수 | 결정 | 용량 조절 | 급여 | 월 본인부담(원) |
+    #### 조합 N · Phase k. …   **x.y …?**  <answer>   (4.1: 다음 방문: **…**  <answer>)
+  It is detected by its '## 모델 N.' headings and yields the same output structure as the JSON format.
 """
 import json
 import re
@@ -72,6 +81,10 @@ def parse_sources(files, models, problems):
     where {key or 'patient:PID': 'file:line'} — all in document order."""
     outputs, patients, where = {}, {}, {}
     for path in files:
+        raw = path.read_text(encoding='utf-8')
+        if is_format_b(raw):
+            parse_format_b(path, raw, models, problems, outputs, patients, where)
+            continue
         heads, lines = scan_file(path, models, problems)
         if not heads:
             problems.warn(rel(path), '출력·환자 기록 제목을 하나도 찾지 못했습니다 [no-sections]',
@@ -115,6 +128,158 @@ def parse_sources(files, models, problems):
                 patients[pid] = rec
                 where['patient:' + pid] = loc
     return outputs, patients, where
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Format B (markdown answers per model; see the module docstring)
+# ---------------------------------------------------------------------------------------------------------------
+_B_MODEL = re.compile(r'^##\s+모델\s+\d+\.\s+(.+?)\s*$')
+_B_PATIENT = re.compile(r'^##\s+환자\s*기록')
+_B_COMBO = re.compile(r'^###\s+조합\s+(\d+)\s*[:：]\s*(.+?)\s*$')
+_B_PHASE = re.compile(r'^#{3,4}\s+(?:조합\s+(\d+)\s*·\s*)?Phase\s+(\d)\b')
+_B_QUESTION = re.compile(r'^(\d\.\d)\s+\S')
+_RX_COLS = {'계열': 'class', '성분': 'drug', '같은 계열 대안': 'alternatives', '용량': 'dose', '횟수': 'frequency',
+            '결정': 'decision', '용량 조절': 'titration', '급여': 'reimbursement', '월 본인부담(원)': 'monthly_cost_krw'}
+
+
+def is_format_b(raw):
+    return bool(re.search(r'^##\s+모델\s+\d+\.', raw, re.M))
+
+
+def _cells(line):
+    return [c.strip() for c in line.strip().strip('|').split('|')]
+
+
+def parse_format_b(path, raw, models, problems, outputs, patients, where):
+    text = raw.replace('**', '')
+    lines = text.split('\n')
+    pid = None
+    for l in lines[:5]:
+        m = re.search(PATIENT_RE, l)
+        if l.startswith('#') and m:
+            pid = m.group(0)
+            break
+    if not pid:
+        problems.error('%s:1' % rel(path), '문서 제목에서 환자 ID 를 찾지 못했습니다 [no-patient-id]', '첫 줄 예: "# E11_P051 CDSS 답안 (네 모델)"')
+        return
+    # section boundaries: '## …' headings
+    tops = [i for i, l in enumerate(lines) if re.match(r'^##\s', l)] + [len(lines)]
+    for a, b in zip(tops, tops[1:]):
+        head = lines[a]
+        if _B_PATIENT.match(head):
+            rec = '\n'.join(l for l in lines[a + 1:b] if not l.strip().startswith('<!--')).strip()
+            if pid in patients and re.sub(r'\s+', ' ', patients[pid]) != re.sub(r'\s+', ' ', rec):
+                problems.error('%s:%d' % (rel(path), a + 1), '환자 %s 기록이 두 번 있고 내용이 다릅니다 [duplicate-patient]' % pid)
+                continue
+            patients[pid] = rec
+            where['patient:' + pid] = '%s:%d' % (rel(path), a + 1)
+            continue
+        m = _B_MODEL.match(head)
+        if not m:
+            continue
+        name = m.group(1)
+        code = models.code_of(name)
+        loc = '%s:%d' % (rel(path), a + 1)
+        if not code:
+            problems.error(loc, '모델 "%s" 을 cases/models.json 에서 찾을 수 없습니다 [unknown-model]' % name,
+                           'cases/models.json 에 이 모델을 추가하거나 기존 모델의 aliases 에 "%s" 를 넣으세요' % name)
+            continue
+        key = '%s_%s' % (pid, code)
+        if key in outputs:
+            problems.error(loc, '%s 출력이 두 번 있습니다 (처음: %s) [duplicate-key]' % (key, where[key]))
+            continue
+        outputs[key] = _parse_model_b(lines[a + 1:b], a + 1, path, key, problems)
+        where[key] = loc
+
+
+def _parse_model_b(lines, base, path, key, problems):
+    out = {'phase_1': {}, 'combinations': []}
+    combos = {}
+    cur_combo = None          # combination number for tables and Phase 2–5 answers
+    target = None             # where answer text goes: ('p1', q) | ('c', n, q)
+    buf = {}
+    rx_head = None
+
+    def put(dest, txt):
+        buf.setdefault(dest, []).append(txt)
+
+    for off, l in enumerate(lines):
+        s = l.strip()
+        if not s or s.startswith('<!--'):
+            continue
+        m = _B_COMBO.match(s)
+        if m:
+            cur_combo = int(m.group(1))
+            combos.setdefault(cur_combo, {'combination': cur_combo, 'name': m.group(2), 'prescription': [], 'answers': {}})
+            target, rx_head = None, None
+            continue
+        m = _B_PHASE.match(s)
+        if m:
+            if m.group(1):
+                cur_combo = int(m.group(1))
+                combos.setdefault(cur_combo, {'combination': cur_combo, 'name': '', 'prescription': [], 'answers': {}})
+            elif m.group(2) == '1':
+                cur_combo = None
+            target, rx_head = None, None
+            continue
+        if s.startswith('#'):
+            target = None
+            continue
+        if s.startswith('|'):
+            cells = _cells(s)
+            if cur_combo is None:
+                continue
+            if rx_head is None:
+                rx_head = cells
+                continue
+            if all(re.match(r'^:?-{2,}:?$', c) for c in cells if c):
+                continue
+            row = {}
+            for h, v in zip(rx_head, cells):
+                if h in _RX_COLS:
+                    row[_RX_COLS[h]] = v
+            if row.get('drug'):
+                combos[cur_combo]['prescription'].append(row)
+            else:
+                problems.error('%s:%d' % (rel(path), base + off + 1), '%s 조합 %d 처방 표의 행을 읽을 수 없습니다 [bad-prescription]' % (key, cur_combo))
+            continue
+        rx_head = None if not s.startswith('|') else rx_head
+        m = _B_QUESTION.match(s)
+        if m and s.rstrip().endswith('?'):
+            q = m.group(1)
+            target = ('p1', q) if q.startswith('1.') else ('c', cur_combo, q)
+            if target[0] == 'c' and cur_combo is None:
+                problems.error('%s:%d' % (rel(path), base + off + 1), '%s 문항 %s 이 조합 절 밖에 있습니다 [phase-mismatch]' % (key, q))
+                target = None
+            continue
+        if target is None:
+            continue
+        m = re.match(r'^의뢰\s*[:：]\s*(.+)$', s)
+        if m and target == ('p1', '1.1'):
+            buf[('ref',)] = m.group(1).strip()
+            continue
+        m = re.match(r'^다음\s*방문\s*[:：]\s*(.+)$', s)
+        if m and target[0] == 'c' and target[2] == '4.1':
+            buf[('next', target[1])] = m.group(1).strip()
+            continue
+        put(target, s)
+
+    join = lambda parts: ' '.join(parts).strip()
+    p1 = out['phase_1']
+    if ('p1', '1.1') in buf or ('ref',) in buf:
+        p1['1.1'] = {'referral': buf.get(('ref',), ''), 'answer': join(buf.get(('p1', '1.1'), []))}
+    if ('p1', '1.2') in buf:
+        p1['1.2'] = join(buf[('p1', '1.2')])
+    for n in sorted(combos):
+        c = combos[n]
+        for q in ANSWER_KEYS:
+            txt = join(buf.get(('c', n, q), []))
+            if q == '4.1':
+                c['answers'][q] = {'next_visit': buf.get(('next', n), ''), 'answer': txt} if (txt or ('next', n) in buf) else ''
+            elif txt:
+                c['answers'][q] = txt
+        out['combinations'].append(c)
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------------

@@ -13,7 +13,8 @@ const vm = require('vm');
 const ACT = (() => { const w = {}; vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'data', 'design.js'), 'utf8'), { window: w }); return w.T2D_DESIGN; })();
 const ACT_MIN = {
   ca: ACT.ca.minutes,
-  gc: ACT.gc.minutes || [Math.min(...ACT.gc.parts.map(p => p.minutes[0])), Math.max(...ACT.gc.parts.map(p => p.minutes[1]))]
+  // a CA-only active set (e.g. v2, "gc": false) has no GC design: the pages keep the HTML / v1 fallback times for GC
+  gc: !ACT.gc ? [10, 25] : (ACT.gc.minutes || [Math.min(...ACT.gc.parts.map(p => p.minutes[0])), Math.max(...ACT.gc.parts.map(p => p.minutes[1]))])
 };
 const ACT_NP = new Set(ACT.units.map(u => u.patient)).size, ACT_NM = new Set(ACT.units.map(u => u.model)).size;
 const base = (process.argv[2] || 'http://127.0.0.1:8931').replace(/\/$/, '');
@@ -305,10 +306,10 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
     const p = await c.newPage();
     const errs = watch(p);
     await p.goto(base + '/', { waitUntil: 'networkidle' });
-    const d = await p.evaluate(() => window.T2D_DESIGN && { id: T2D_DESIGN.set_id, ca: T2D_DESIGN.ca.minutes, gc: T2D_DESIGN.gc.minutes, n: T2D_DESIGN.units.length });
+    const d = await p.evaluate(() => window.T2D_DESIGN && { id: T2D_DESIGN.set_id, ca: T2D_DESIGN.ca.minutes, gc: T2D_DESIGN.gc ? T2D_DESIGN.gc.minutes : null, n: T2D_DESIGN.units.length });
     ok(!!d && d.id === ACT.set_id, 'landing loads data/design.js (set ' + (d && d.id) + ', active ' + ACT.set_id + ')');
     const mins = await p.$$eval('[data-minutes]', els => els.map(e => e.getAttribute('data-minutes') + '=' + e.textContent));
-    ok(d && mins.join('|') === `ca=약 ${d.ca[0]}–${d.ca[1]}분|gc=약 ${d.gc[0]}–${d.gc[1]}분`, 'landing times = the active set ' + mins.join('|'));
+    ok(d && mins.join('|') === `ca=약 ${d.ca[0]}–${d.ca[1]}분|gc=약 ${ACT_MIN.gc[0]}–${ACT_MIN.gc[1]}분`, 'landing times = the active set (GC: its Parts, or the v1 fallback for a CA-only set) ' + mins.join('|'));
     await p.goto(base + '/about/', { waitUntil: 'networkidle' });
     ok(await p.isVisible('#setNow') && (await p.innerText('#setNow')) === `지금 쓰는 케이스 세트 ${ACT.set_id} · 환자 ${ACT_NP}명 × 모델 ${ACT_NM}종`, 'About shows the current case set: ' + (await p.innerText('#setNow')));
     ok(!errs.length, 'case-set pages: no console errors ' + errs.join(' | '));
@@ -318,6 +319,7 @@ const SITE_PAGES = ['/', '/about/', '/qr/', '/qr/main/', '/qr/ca/', '/qr/gc/'];
       const m0 = (x.units[0] || {}).model || 'gpt';   // one more patient, no new model
       x.set_id = 'v9'; x.units = (x.units || []).concat([{ key: 'P099_' + m0, patient: 'P099', model: m0 }]);
       x.ca.minutes = [35, 45]; x.ca.types = x.ca.types.concat([{ id: 'Z', label: { ko: 'Type Z', en: 'Type Z' }, sequences: x.ca.types[0].sequences }]);
+      if (!x.gc) x.gc = { parts: [{ id: 'A' }, { id: 'B' }] };   // CA-only active set: give the stand-in set two GC Parts
       x.gc.minutes = null; x.gc.parts.forEach((pt, i) => { pt.minutes = i ? [5, 10] : [15, 20]; });
       return 'window.T2D_DESIGN = ' + JSON.stringify(x) + ';';
     });

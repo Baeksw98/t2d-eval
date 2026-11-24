@@ -29,13 +29,20 @@ class SetBuild:
         return out
 
     def active_files(self):
-        out = {
+        out = self.ca_active_files()
+        out.update(self.gc_active_files())
+        return out
+
+    def ca_active_files(self):
+        """Active files of the CA track (and of the landing / QR pages): data/cases.js, data/design.js."""
+        return {
             'data/cases.js': window_js('T2D_DATA', self.ca_data),
             'data/design.js': window_js('T2D_DESIGN', self.design),
         }
-        if self.gc_data is not None:
-            out['gc/data/gc_items.js'] = window_js('GC_DATA', self.gc_data)
-        return out
+
+    def gc_active_files(self):
+        """Active file of the GC track: gc/data/gc_items.js (the GC page loads this set's cases/design from its archive)."""
+        return {'gc/data/gc_items.js': window_js('GC_DATA', self.gc_data)} if self.gc_data is not None else {}
 
 
 # gas/gc/gc.gs gcFetchJson_ caches a set's JSON only below this many characters (CacheService values are capped at 100 KB)
@@ -78,6 +85,22 @@ def active_set(problems, cases_dir=CASES):
         return None
     if sid and sid not in list_sets(cases_dir):
         problems.error(rel(path), '활성 세트 "%s" 의 매니페스트 cases/sets/%s.json 이 없습니다 [unknown-active]' % (sid, sid))
+    return sid
+
+
+def active_gc_set(problems, ca_active, cases_dir=CASES):
+    """The set the GC track uses: cases/active.json "gc_set" (optional; default = "set").
+    Lets the CA track move to a CA-only set (e.g. v2, "gc": false) while /gc/ keeps a set that has GC data."""
+    path = pathlib.Path(cases_dir) / 'active.json'
+    d = load_json(path, problems)
+    sid = d.get('gc_set', ca_active) if isinstance(d, dict) else ca_active
+    if sid is None:
+        return None
+    if not isinstance(sid, str) or not SET_ID_RE.match(sid):
+        problems.error(rel(path), '"gc_set" 에 GC 트랙의 세트 ID 가 필요합니다 (예: {"set": "v2", "gc_set": "v1"}) [bad-active]')
+        return None
+    if sid not in list_sets(cases_dir):
+        problems.error(rel(path), 'GC 세트 "%s" 의 매니페스트 cases/sets/%s.json 이 없습니다 [unknown-active]' % (sid, sid))
     return sid
 
 

@@ -13,7 +13,7 @@ site uses: CA answers, GC judgments, and the Type/Part assignment. Pushing the s
 | `sources/ca/*.md` | CDSS 출력 문서 (환자 기록 + 모델별 5단계 출력 JSON) — 받은 형식 그대로 |
 | `sources/gc/*.md` | 채점·감사 검증 보고서 (`# E11_P051 · <모델> 채점·감사 검증 자료`) — 받은 형식 그대로 |
 | `sets/<id>.json` | 케이스 세트 매니페스트: 환자 · 모델 · 원본 파일 · 세션당 건수 · Type/Part |
-| `active.json` | 지금 평가자에게 배정하는 세트: `{ "set": "v1" }` |
+| `active.json` | 지금 평가자에게 배정하는 세트: `{ "set": "v2", "gc_set": "v1" }` — `set` = 임상 수용성 평가(CA)·첫 화면·QR, `gc_set` = 가이드라인 부합도 검증(GC) 화면이 쓰는 세트(없으면 `set` 과 같음) |
 
 세트 **v1** = 2026년 11월 연구(환자 P051·P011 × 모델 deepseek·gpt)입니다. 원본·자료 버전·Type/Part 를 모두 적어 두어 **동결**했으므로
 고치지 마세요. 새 케이스는 새 세트(v2, v3 …)로 추가합니다.
@@ -43,6 +43,11 @@ Claude Example 1.0 P052                 ← "<모델 별칭> <환자>" 순서도
 ```
 환자 기록이 여러 파일에 있으면 내용이 같아야 합니다.
 
+**CA 형식 B (v2 부터, 시험 답안 md 한 파일)** — 자동으로 알아봅니다. 제목 줄에 환자 ID(`E11_P051`)가 있고,
+`## 환자 기록` 절(형식 A 와 같은 `### 인구통계` … 소절)과 모델마다 `## 모델 N. <모델 별칭>` 절이 있습니다.
+모델 절 안에는 `1.1 …?` 같은 문항 줄 + 답(산문), `의뢰:` 줄, `다음 방문:` 줄, 후보 조합 3개와 처방 표
+(`| 계열 | 성분 | 같은 계열 대안 | 용량 | 횟수 | 결정 | 용량 조절 | 급여 | 월 본인부담(원) |`)가 들어갑니다.
+
 **GC** — `cases/sources/gc/` 에 채점·감사 검증 보고서를 넣습니다. 보고서 하나에 환자 × 모델 하나이며, 파일 이름은 `E11_P052_claude.md` 처럼 짓기를 권장합니다.
 첫 줄은 `# E11_P052 · <모델 별칭> 채점·감사 검증 자료` 입니다(가운뎃점 `·`). AI 감사가 △/✗ 로 표시한 판정만 전문의 검증 문항이 됩니다.
 보고서 형식은 기존 보고서와 같아야 합니다: 채점 항목 줄 `**Q2.1-02 제목** — 감점 기준: …`(굵게, em dash `—`), 바로 아래 판정 표
@@ -53,7 +58,8 @@ Claude Example 1.0 P052                 ← "<모델 별칭> <환자>" 순서도
 `models.json` 의 모델 이름·별칭·code 나 GC 실행 ID 가 있으면 오류(`[model-name-in-text]`, `[run-id-in-text]`)로 멈춥니다.
 원문에서 지우거나 "이 CDSS" 같은 일반 표현으로 바꾸세요. 약 이름처럼 code 로 시작하는 일반 용어(예: `alpha-glucosidase`)와
 AI 회사·제품 이름(OpenAI, Claude …)은 경고(△)로만 알려 줍니다.
-GC 자료가 아직 없으면 매니페스트에 `"gc": false` 로 두세요(CA 만 있는 세트).
+GC 자료가 아직 없으면 매니페스트에 `"gc": false` 로 두세요(CA 만 있는 세트). 이런 세트를 활성으로 할 때는 `active.json` 의
+`gc_set` 에 GC 자료가 있는 세트(예: v1)를 적습니다. 그러지 않으면 `[active-without-gc]` 로 멈춥니다.
 
 ### 3. 세트 매니페스트 만들기 — `cases/sets/v2.json`
 ```json
@@ -133,7 +139,7 @@ python3 tools/build_cases.py
 `[duplicate-key]` 같은 환자 × 모델이 두 번 있음 · `[bad-output-json]` 출력 JSON 형식 오류 · `[combination-count]` 후보 조합이 3개가 아님 ·
 `[missing-answers]` 2.1–5.4 답이 빠짐 · `[bad-record]` 환자 기록의 절·항목 이름이 다름 · `[missing-gc-report]` GC 보고서 없음 ·
 `[duplicate-alias]` 두 모델이 같은 별칭을 씀 · `[unknown-unit]` Type/Part 에 세트 밖 unit 이 있음 · `[per-session]` 세션당 건수가 unit 수보다 큼 ·
-`[no-source-files]` sources 에 맞는 파일 없음 · `[active-without-gc]` 활성 세트에 GC 자료 없음 ·
+`[no-source-files]` sources 에 맞는 파일 없음 · `[active-without-gc]` GC 활성 세트(`gc_set`, 없으면 `set`)에 GC 자료 없음 ·
 GC 보고서 형식: `[bad-element]` 채점 항목 줄 형식이 다름 · `[table-without-element]` 판정 표 위에 채점 항목 줄이 없음 · `[bad-table]` 판정 행이 표 밖에 있음 ·
 `[bad-row]` 판정 행이 8칸이 아니거나 첫 칸이 `조합 N`/`Phase 1` 이 아님 · `[bad-verdict]` 판정이 ○/−1/채점하지 않음 이 아님 ·
 `[bad-audit]` 감사 칸이 ✓/△/✗ → 충족|감점 이 아님 · `[phase-mismatch]` Phase 1 행과 조합 행이 항목과 맞지 않음 ·
@@ -163,10 +169,9 @@ GC 보고서 형식: `[bad-element]` 채점 항목 줄 형식이 다름 · `[tab
    (3 patients × 3 fictional models) in `tools/fixtures/cases/`. `tools/parse_md.py`, `build_data.py`, `build_gc_data.py` are legacy wrappers.
 
 
-## 다음 세트 준비 상태 — P051 × 모델 4종 (임상 수용성 평가만)
-- 연구책임자가 P051 케이스 md 를 주시면 `cases/sources/ca/` 에 넣고 `cases/sets/v2.json` 을 아래처럼 만듭니다.
-  - `patients: ["P051"]`, `models: ["claude", "deepseek", "gpt", "glm"]`, `"gc": false` (GC 는 현재 비활성화)
-  - `ca.types`: Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm` (두 제시 순서 모두)
-- 모델 `claude` · `glm`(GLM-5.4)은 `cases/models.json` 에 등록되어 있습니다. md 머리줄의 모델 표기를 `aliases` 에 추가하세요.
+## 지금 평가 중인 세트 — v2: P051 × 모델 4종 (임상 수용성 평가만, 2026-11-24 시작)
+- 원본: `sources/ca/2026-11-24_E11_P051_4models.md`(형식 B). 매니페스트 `sets/v2.json` — 동결(`"status": "frozen"`, `data_version` 고정).
+- Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm` (두 제시 순서 모두), 세션당 2건, 약 20–30분.
+- `active.json` = `{ "set": "v2", "gc_set": "v1" }`: GC 는 비활성화되어 있고, `/gc/` 화면은 v1 보관본을 그대로 씁니다.
 - 같은 환자가 한 Type 에 두 번 나오므로, 두 번째 답변의 환자 정보는 핵심 요약 + 「전체 환자 기록 펼치기」로 보입니다 (app.js).
-- `python3 tools/build_cases.py --set v2 --check` → 문제없으면 빌드 → `cases/active.json` 을 v2 로 → 테스트 → 반영.
+- 분석: 응답 시트의 `SetId` 열로 v1 응답과 구분됩니다. CA 요약을 v2 만으로 보려면 스크립트 속성 `SUMMARY_SET` = `v2`.

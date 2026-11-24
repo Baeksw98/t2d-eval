@@ -23,23 +23,24 @@
     },
     {
       "code": "claude",
-      "name": "Claude",
+      "name": "Claude Fable 5.2",
       "aliases": [
+        "Claude Fable 5.2",
+        "Claude Fable",
         "Claude"
-      ],
-      "_note": "P051 4-model study (Type A). Add the exact model spelling used in the CDSS output document headers to aliases when the md arrives."
+      ]
     },
     {
       "code": "glm",
-      "name": "GLM-5.4",
+      "name": "GLM-5.3 Flash",
       "aliases": [
+        "GLM-5.3 Flash",
+        "GLM 5.3 Flash",
+        "GLM-5.3",
         "GLM 5.4",
         "GLM-5.4",
-        "GLM5.4",
-        "GLM-5.4-Flash",
-        "GLM 5.4 Flash"
-      ],
-      "_note": "P051 4-model study (Type B)."
+        "GLM5.4"
+      ]
     }
   ]
 }

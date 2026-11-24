@@ -1071,13 +1071,19 @@
   // 처방 결정(신규·유지·중단·감량)과 급여 여부는 정해진 값 → 화면 언어로. 그 밖의 값은 원문 그대로
   function decisionHTML(d) { var c = DECISION_CLASS[d]; return c ? esc(t('ca.rx.decision.' + c)) : ko(esc(d)); }
   function coverageHTML(r) { return r === '급여' ? esc(t('ca.rx.cov')) : r === '비급여' ? esc(t('ca.rx.nocov')) : ko(esc(r)); }
+  // 용량 · 횟수: 빈 값이나 '-'(예: 중단 약제에 용량을 적지 않은 답변)는 줄에서 빼고, 둘 다 없으면 줄 자체를 생략
+  function rxDoseHTML(rx) {
+    var parts = [rx.dose, rx.frequency].map(function (v) { return String(v == null ? '' : v).trim(); })
+      .filter(function (v) { return v && !/^[-–—]+$/.test(v); });
+    return parts.length ? '<div class="rx-dose" lang="ko">' + parts.map(esc).join(' · ') + '</div>' : '';
+  }
   function rxHTML(rx) {
     var cls = DECISION_CLASS[rx.decision] || 'keep';
     var cov = rx.reimbursement === '급여' ? 'cov' : 'nocov';
     return '<div class="rx' + (cls === 'stop' ? ' stopped' : '') + '">' +
       '<div class="rx-top"><span class="badge ' + cls + '">' + decisionHTML(rx.decision) + '</span>' +
       '<span class="rx-drug" lang="ko">' + esc(rx.drug) + '</span><span class="rx-class" lang="ko">' + esc(rx.class) + '</span></div>' +
-      '<div class="rx-dose" lang="ko">' + esc(rx.dose) + ' · ' + esc(rx.frequency) + '</div>' +
+      rxDoseHTML(rx) +
       '<dl class="rx-meta">' +
         '<dt>' + esc(t('ca.rx.titration')) + '</dt><dd lang="ko">' + esc(rx.titration || '—') + '</dd>' +
         '<dt>' + esc(t('ca.rx.coverage')) + '</dt><dd><span class="badge ' + cov + '">' + coverageHTML(rx.reimbursement) + '</span> ' +
