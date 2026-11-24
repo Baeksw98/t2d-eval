@@ -1066,7 +1066,40 @@
     else if (rest) out += ' <span lang="ko">' + esc(rest) + '</span>';
     return out;
   }
+  function dmGridHTML(rows) {
+    if (!rows.length) return '<span class="muted">—</span>';
+    return '<div class="cx" role="list">' + rows.map(function (r) {
+      return '<div class="cx-row' + (r.pos ? ' pos' : '') + '" role="listitem"><span class="cx-k">' + esc(r.key) + '</span>' +
+        '<span class="cx-v">' + esc(r.value) + '</span></div>';
+    }).join('') + '</div>';
+  }
   function liKo(arr) { return (arr || []).map(function (s) { return '<li lang="ko">' + esc(s) + '</li>'; }).join(''); }
+  // 같은 환자를 다시 볼 때의 핵심 요약: 인적 사항 · 현재 주요 수치 · 당뇨 관련 동반질환 · 현재 복용약
+  function patientSummaryHTML(p) {
+    var C = T2D.clinical, cx = C.comorbidities(p);
+    // '93mL/min/1.73m²' → ['93', 'mL/min/1.73m²'] (큰 숫자 + 작은 단위)
+    var split = function (v) { var m = /^\s*([\d.]+(?:\/[\d.]+)?)\s*(.*)$/.exec(String(v || '')); return m ? [m[1], m[2]] : [String(v || ''), '']; };
+    var sbp = split(C.current(p, /^SBP$/i))[0], dbp = split(C.current(p, /^DBP$/i))[0];
+    var stats = [['HbA1c', split(C.current(p, /HbA1c/i))], ['eGFR', split(C.current(p, /eGFR/i))],
+      ['BMI', split(C.current(p, /체질량지수|^BMI$/i))], [t('ca.pt.bp'), sbp && dbp ? [sbp + '/' + dbp, 'mmHg'] : ['', '']]]
+      .filter(function (x) { return x[1][0]; });
+    return '<section class="card pt-summary">' +
+      '<div class="pt-head"><span class="pt-id">' + esc(p.id) + '</span>' +
+      '<span class="pt-demo">' + demoHTML(p.demographics) + '</span>' +
+      '<span class="pill" lang="ko">' + esc(p.visit_type) + '</span></div>' +
+      '<p class="small muted" style="margin-top:4px">' + esc(t('ca.vig.summaryNote')) + '</p>' +
+      '<div class="pt-stats">' + stats.map(function (x) {
+        return '<div class="pt-stat"><span class="k">' + esc(x[0]) + '</span><span class="v">' + esc(x[1][0]) +
+          (x[1][1] ? '<small>' + esc(x[1][1]) + '</small>' : '') + '</span></div>';
+      }).join('') + '</div>' +
+      '<p class="cx-title" style="margin-top:14px">' + esc(t('ca.pt.dmComorb')) + '</p>' + dmGridHTML(cx.dm) +
+      '<dl class="kv" style="margin-top:14px">' +
+        '<dt>' + esc(t('ca.pt.otherConditions')) + '</dt><dd>' + (cx.other.length ? '<div class="tags">' + cx.other.map(function (x) {
+          return '<span class="tag" lang="ko">' + esc(x) + '</span>'; }).join('') + '</div>' : '<span class="muted">—</span>') + '</dd>' +
+        '<dt>' + esc(t('ca.pt.meds')) + '</dt><dd><ul class="clean">' + liKo(p.medications) + '</ul></dd>' +
+      '</dl>' +
+    '</section>';
+  }
   function patientHTML(p, compact) {
     var h = [];
     h.push(
@@ -1084,6 +1117,8 @@
     );
 
     var hl = function (x) { return /\((No)\)|:\s*Normal|Category:\s*Normal/i.test(x) ? '' : ' hl'; };
+    // 당뇨 관련 동반질환: 임상 화면처럼 '항목: 값' (assets/clinical.js — 데이터의 코드 문자열은 그대로 두고 표시만 바꿈)
+    var cx = T2D.clinical.comorbidities(p);
     var tags = function (arr, highlight) {
       return '<div class="tags">' + arr.map(function (x) {
         return '<span class="tag' + (highlight ? hl(x) : '') + '" lang="ko">' + esc(x) + '</span>';
@@ -1092,9 +1127,9 @@
     h.push(
       '<section class="card">' +
         '<h3 class="section-title">' + esc(t('ca.pt.history')) + '</h3>' +
-        '<dl class="kv">' +
-          '<dt>' + esc(t('ca.pt.otherConditions')) + '</dt><dd>' + tags(p.history.other_conditions, true) + '</dd>' +
-          '<dt>' + t('ca.pt.dmComorbHtml') + '</dt><dd>' + tags(p.history.dm_comorbidities, true) + '</dd>' +
+        '<p class="cx-title">' + esc(t('ca.pt.dmComorb')) + '</p>' + dmGridHTML(cx.dm) +
+        '<dl class="kv" style="margin-top:14px">' +
+          '<dt>' + esc(t('ca.pt.otherConditions')) + '</dt><dd>' + (cx.other.length ? tags(cx.other, false) : '<span class="muted">—</span>') + '</dd>' +
           '<dt>' + esc(t('ca.pt.family')) + '</dt><dd lang="ko">' + esc(p.history.family) + '</dd>' +
           '<dt>' + esc(t('ca.pt.social')) + '</dt><dd><ul class="clean">' + liKo(p.history.social) + '</ul></dd>' +
         '</dl>' +
@@ -1105,7 +1140,6 @@
       '<section class="card">' +
         '<h3 class="section-title">' + esc(t('ca.pt.meds')) + '</h3>' +
         '<ul class="clean">' + liKo(p.medications) + '</ul>' +
-        '<h3 class="section-title" style="margin-top:14px">' + esc(t('ca.pt.exam')) + '</h3>' + tags(p.exam, false) +
       '</section>'
     );
 
@@ -1113,7 +1147,7 @@
     var head = '<tr><th class="name">' + esc(t('ca.pt.labItem')) + '</th><th>' + th(12) + '</th><th>' + th(9) + '</th><th>' +
       th(6) + '</th><th>' + th(3) + '</th><th class="now">' + esc(t('ca.pt.now')) + '</th></tr>';
     var rows = [], lastGroup = null;
-    p.labs.forEach(function (lab) {
+    T2D.clinical.orderLabs(p.labs).forEach(function (lab) {   // 신체 계측·혈압이 맨 위, 그다음 혈액 검사
       if (lab.group !== lastGroup) {
         rows.push('<tr class="grp"><td colspan="6" lang="ko">' + esc(lab.group) + '</td></tr>');
         lastGroup = lab.group;
@@ -1444,12 +1478,16 @@
     if (st === 'vignette') {
       var seen = seenBefore();
       html += caseHeadHTML(t('ca.vig.title'), esc(t('ca.vig.sub'))) + srcNoteHTML();
+      var seenPrev = !seen && (S.prev_patients || []).indexOf(out.patient) >= 0;
       if (seen) {
         html += '<p class="notice info same-patient">' + t('ca.vig.seenHtml', { n: seen }) + '</p>';
-      } else if ((S.prev_patients || []).indexOf(out.patient) >= 0) {
+      } else if (seenPrev) {
         html += '<p class="notice info same-patient">' + t('ca.vig.seenPrevHtml') + '</p>';
       }
-      html += patientHTML(p, false);
+      // 이미 본 환자: 핵심 요약만 보여 주고 전체 기록은 펼쳐서 (같은 내용을 다시 읽지 않도록)
+      if (seen || seenPrev) html += patientSummaryHTML(p) +
+        '<details class="pt-more"><summary>' + esc(t('ca.vig.fullRecord')) + '</summary>' + patientHTML(p, false) + '</details>';
+      else html += patientHTML(p, false);
     } else if (st === 'p1') {
       var ph1 = out.phase_1;
       html += caseHeadHTML(t('ca.ans.title')) + srcNoteHTML();

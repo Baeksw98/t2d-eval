@@ -60,6 +60,21 @@
 - Theme: `<html data-theme="light|dark">` is always set by i18n.js; dark tokens under `:root[data-theme="dark"]` and under
   `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { … } }`. Check every page in both themes.
 
+## Current study state (2026-11-24)
+- **Only the clinical acceptability (CA) assessment is open.** `assets/features.js` (`window.T2D_FEATURES = { gc: false, about: false }`)
+  gates every link into `/gc/` and `/about/`: the landing GC card (shown greyed with a "준비 중" badge) and the About links open a
+  "currently disabled" dialog instead of navigating. The pages themselves still exist (their URLs were never shared). To open an
+  area, set its flag to `true`. Loaded on the landing, About, QR pages, `/ca/` and `/gc/`.
+- **Patient record = clinical layout** (`assets/clinical.js`, used by `app.js` and `gc/gc.js`; display only, data unchanged):
+  diabetes-related comorbidities first as a 'item | value' grid — `CKD: Stage n` (no eGFR range), `Heart failure` / `ASCVD` / `MASLD`:
+  `Yes (detail)` or `No`, `BMI: category (current kg/m²)`, diabetic retinopathy/neuropathy moved here from the other list — then
+  the other (non-diabetes) comorbidities without the BMI line; the separate "현재 신체검사" chips are gone and the lab table starts
+  with the body-measurement/BP rows, then blood tests. A patient already seen in the session (or in the previous Type) gets a key
+  summary (HbA1c, eGFR, BMI, BP, comorbidities, current medications) with the full record behind 「전체 환자 기록 펼치기」.
+- **Next case set (waiting for the PI's md):** P051 only × 4 models, CA only (`"gc": false`), Types written out explicitly:
+  Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm`, each with both presentation orders.
+  `cases/models.json` already has `claude` and `glm` (GLM-5.4); add the exact header spellings from the md to their `aliases`.
+
 ## Survey UX principle (standing request from the PI)
 Every evaluation screen must let the respondent take in the information quickly and do the required evaluation right away:
 - Show information in the order it is reasoned about. GC example: ① CDSS answer → ② why the AI rater scored it → ③ the AI audit's opinion → ④ the resulting final verdict → the respondent's decision.

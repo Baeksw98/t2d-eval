@@ -161,3 +161,12 @@ GC 보고서 형식: `[bad-element]` 채점 항목 줄 형식이 다름 · `[tab
 5. Content changes need no Apps Script redeploy; say so explicitly. Backend code changes (`gas/src`, `gas/gc`) do.
 6. Pipeline code: `tools/cases_lib/` (`ca_parse.py`, `gc_parse.py`, `design.py`, `validate.py`, `blinding.py`, `build.py`); fixture set
    (3 patients × 3 fictional models) in `tools/fixtures/cases/`. `tools/parse_md.py`, `build_data.py`, `build_gc_data.py` are legacy wrappers.
+
+
+## 다음 세트 준비 상태 — P051 × 모델 4종 (임상 수용성 평가만)
+- 연구책임자가 P051 케이스 md 를 주시면 `cases/sources/ca/` 에 넣고 `cases/sets/v2.json` 을 아래처럼 만듭니다.
+  - `patients: ["P051"]`, `models: ["claude", "deepseek", "gpt", "glm"]`, `"gc": false` (GC 는 현재 비활성화)
+  - `ca.types`: Type A = `P051_claude` + `P051_deepseek`, Type B = `P051_gpt` + `P051_glm` (두 제시 순서 모두)
+- 모델 `claude` · `glm`(GLM-5.4)은 `cases/models.json` 에 등록되어 있습니다. md 머리줄의 모델 표기를 `aliases` 에 추가하세요.
+- 같은 환자가 한 Type 에 두 번 나오므로, 두 번째 답변의 환자 정보는 핵심 요약 + 「전체 환자 기록 펼치기」로 보입니다 (app.js).
+- `python3 tools/build_cases.py --set v2 --check` → 문제없으면 빌드 → `cases/active.json` 을 v2 로 → 테스트 → 반영.

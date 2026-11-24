@@ -4,12 +4,42 @@
     {
       "code": "gpt",
       "name": "GPT-6.1 Sol",
-      "aliases": ["GPT 6.1 Sol", "GPT6.1 Sol", "GPT-6.1 Sol", "OpenAI gpt-6.1-sol", "gpt-6.1-sol"]
+      "aliases": [
+        "GPT 6.1 Sol",
+        "GPT6.1 Sol",
+        "GPT-6.1 Sol",
+        "OpenAI gpt-6.1-sol",
+        "gpt-6.1-sol"
+      ]
     },
     {
       "code": "deepseek",
       "name": "DeepSeek-V4.1-Flash",
-      "aliases": ["Deepseek V4.1 Flash", "DeepSeek-V4.1-Flash", "DeepSeek V4.1 Flash (1017)"]
+      "aliases": [
+        "Deepseek V4.1 Flash",
+        "DeepSeek-V4.1-Flash",
+        "DeepSeek V4.1 Flash (1017)"
+      ]
+    },
+    {
+      "code": "claude",
+      "name": "Claude",
+      "aliases": [
+        "Claude"
+      ],
+      "_note": "P051 4-model study (Type A). Add the exact model spelling used in the CDSS output document headers to aliases when the md arrives."
+    },
+    {
+      "code": "glm",
+      "name": "GLM-5.4",
+      "aliases": [
+        "GLM 5.4",
+        "GLM-5.4",
+        "GLM5.4",
+        "GLM-5.4-Flash",
+        "GLM 5.4 Flash"
+      ],
+      "_note": "P051 4-model study (Type B)."
     }
   ]
 }

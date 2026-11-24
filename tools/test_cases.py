@@ -486,6 +486,24 @@ ok('frozen v1 + renamed model → [frozen-changed], exit 1, names the changed fi
 r = subprocess.run([sys.executable, str(HERE / 'build_cases.py'), '--cases', str(frz), '--set', 'v1', '--check', '--allow-frozen-change'], capture_output=True, text=True)
 ok('--allow-frozen-change → warning only, exit 0', r.returncode == 0 and '[frozen-changed]' in r.stdout, r.stdout[-500:])
 
+# one patient × several models, explicit Types with the same patient in a Type, CA only ("gc": false) — the P051 4-model design
+def _one_patient(d):
+    (d / 'sets/one3.json').write_text(json.dumps({
+        "id": "one3", "status": "draft", "title": {"ko": "한 환자 × 3 모델", "en": "One patient × 3 models"},
+        "patients": ["P101"], "models": ["alpha", "beta", "gamma"],
+        "ca": {"per_session": 2, "minutes_per_unit": [10, 15], "types": [
+            {"id": "A", "sequences": [["P101_alpha", "P101_beta"], ["P101_beta", "P101_alpha"]]},
+            {"id": "B", "sequences": [["P101_gamma", "P101_alpha"], ["P101_alpha", "P101_gamma"]]}]},
+        "gc": False}, ensure_ascii=False, indent=2), encoding='utf-8')
+bo, Po = build_in(variant('one-patient', _one_patient), 'one3')
+ok('one patient × 3 models, explicit same-patient Types, CA only → builds', bo is not None and Po.ok(), Po.report())
+if bo:
+    eq('…Types kept exactly as written', [t['sequences'] for t in bo.design['ca']['types']],
+       [[["P101_alpha", "P101_beta"], ["P101_beta", "P101_alpha"]], [["P101_gamma", "P101_alpha"], ["P101_alpha", "P101_gamma"]]])
+    ok('…no GC design for a CA-only set', not bo.design.get('gc'), bo.design.get('gc'))
+    eq('…CA data has the one patient and 3 answers', (sorted(bo.ca_data['patients']), sorted(bo.ca_data['outputs'])),
+       (['P101'], ['P101_alpha', 'P101_beta', 'P101_gamma']))
+
 # freezing a set for the first time (draft → frozen) is not a content change; a later content change still is
 fz = SCRATCH / 'freeze-first'
 shutil.copytree(FIX, fz / 'cases')

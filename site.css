@@ -745,3 +745,15 @@ html[lang="en"] .sv-s { font-size: 12px; }   /* Latin runs longer: keeps the Eng
   .site-header, .toc, .toc-mobile, .resume-zone, .prefs { display: none !important; }
   body { background: #fff; }
 }
+
+/* ---------- gated (not yet open) areas: card stays visible, click opens the "disabled" dialog (assets/features.js) ---------- */
+.pc-soon { display: none; align-items: center; gap: 5px; margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.pc-soon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pick-card[data-gated] .pc-meta { display: none; }
+.pick-card[data-gated] .pc-soon { display: inline-flex; }
+.pick-card[data-gated] { background: var(--surface-2); box-shadow: none; }
+.pick-card[data-gated]::before { background: var(--line-2); }
+.pick-card[data-gated] .pc-icon { background: var(--gray-soft); color: var(--muted); }
+.pick-card[data-gated] .pc-title { color: var(--muted); }
+.pick-card[data-gated] .pc-go { background: var(--gray-soft) !important; color: var(--muted); }
+.pick-card[data-gated]:hover { transform: none; border-color: var(--line-2); box-shadow: none; }
